@@ -225,7 +225,7 @@ install-hooks:
 		echo "prek not found. Install with: brew install prek" >&2; \
 		exit 1; \
 	fi
-	prek install
+	prek install -f
 
 # Show help
 help:
