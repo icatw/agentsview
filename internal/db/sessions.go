@@ -545,10 +545,9 @@ func (db *DB) UpsertSession(s Session) error {
 		return ErrSessionExcluded
 	}
 
-	isAutomated := false
-	if s.FirstMessage != nil {
-		isAutomated = IsAutomatedSession(*s.FirstMessage)
-	}
+	isAutomated := s.UserMessageCount <= 1 &&
+		s.FirstMessage != nil &&
+		IsAutomatedSession(*s.FirstMessage)
 
 	_, err := db.getWriter().Exec(`
 		INSERT INTO sessions (

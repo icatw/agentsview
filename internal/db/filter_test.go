@@ -780,13 +780,31 @@ func TestIsAutomatedSetOnUpsert(t *testing.T) {
 		fm := "fix the login bug"
 		s.FirstMessage = &fm
 		s.MessageCount = 3
+		s.UserMessageCount = 1
 	})
 
-	// Automated review session.
+	// Single-turn automated review session.
 	insertSession(t, d, "review", "proj", func(s *Session) {
-		fm := "You are a code reviewer. Review the code changes shown below."
+		fm := "You are a code reviewer. Review the code."
 		s.FirstMessage = &fm
 		s.MessageCount = 3
+		s.UserMessageCount = 1
+	})
+
+	// Multi-turn session with review prompt — NOT automated.
+	insertSession(t, d, "multi-review", "proj", func(s *Session) {
+		fm := "You are a code reviewer. Review the code."
+		s.FirstMessage = &fm
+		s.MessageCount = 10
+		s.UserMessageCount = 5
+	})
+
+	// Single-turn with roborev substring marker.
+	insertSession(t, d, "roborev-sub", "proj", func(s *Session) {
+		fm := "IMPORTANT: You are being invoked by roborev to perform this review directly."
+		s.FirstMessage = &fm
+		s.MessageCount = 3
+		s.UserMessageCount = 1
 	})
 
 	ctx := context.Background()
@@ -799,6 +817,18 @@ func TestIsAutomatedSetOnUpsert(t *testing.T) {
 	review, err := d.GetSession(ctx, "review")
 	requireNoError(t, err, "get review")
 	if !review.IsAutomated {
-		t.Error("review session should be automated")
+		t.Error("single-turn review should be automated")
+	}
+
+	multi, err := d.GetSession(ctx, "multi-review")
+	requireNoError(t, err, "get multi-review")
+	if multi.IsAutomated {
+		t.Error("multi-turn review should not be automated")
+	}
+
+	sub, err := d.GetSession(ctx, "roborev-sub")
+	requireNoError(t, err, "get roborev-sub")
+	if !sub.IsAutomated {
+		t.Error("single-turn roborev substring should be automated")
 	}
 }

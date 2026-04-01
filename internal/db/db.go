@@ -379,39 +379,69 @@ func (db *DB) migrateColumns() error {
 	return nil
 }
 
-// backfillIsAutomatedLocked sets is_automated = 1 for sessions
-// whose first_message matches known automated prompt patterns.
-// Uses SQL LIKE to avoid scanning every row in Go.
+// backfillIsAutomatedLocked scans single-turn sessions and
+// sets is_automated = 1 for those whose first_message matches
+// a known roborev prompt pattern. Uses the Go detector so the
+// SQL doesn't need to duplicate every pattern.
 func (db *DB) backfillIsAutomatedLocked(w *sql.DB) error {
-	var count int
-	if err := w.QueryRow(
-		`SELECT count(*) FROM sessions
+	rows, err := w.Query(
+		`SELECT id, first_message FROM sessions
 		 WHERE is_automated = 0
-		   AND first_message IS NOT NULL
-		   AND (first_message LIKE 'You are a code reviewer. Review the code changes shown below.%'
-		     OR first_message LIKE '# Fix Request' || X'0A' || '%')`,
-	).Scan(&count); err != nil {
-		return fmt.Errorf(
-			"probing automated backfill: %w", err,
-		)
-	}
-	if count == 0 {
-		return nil
-	}
-	_, err := w.Exec(
-		`UPDATE sessions SET is_automated = 1
-		 WHERE first_message IS NOT NULL
-		   AND (first_message LIKE 'You are a code reviewer. Review the code changes shown below.%'
-		     OR first_message LIKE '# Fix Request' || X'0A' || '%')`,
+		   AND user_message_count <= 1
+		   AND first_message IS NOT NULL`,
 	)
 	if err != nil {
 		return fmt.Errorf(
-			"backfilling is_automated: %w", err,
+			"querying automated backfill candidates: %w", err,
 		)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id, fm string
+		if err := rows.Scan(&id, &fm); err != nil {
+			return fmt.Errorf(
+				"scanning backfill candidate: %w", err,
+			)
+		}
+		if IsAutomatedSession(fm) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const batchSize = 500
+	for i := 0; i < len(ids); i += batchSize {
+		end := min(i+batchSize, len(ids))
+		batch := ids[i:end]
+		args := make([]any, len(batch))
+		phs := make([]string, len(batch))
+		for j, id := range batch {
+			args[j] = id
+			phs[j] = "?"
+		}
+		_, err := w.Exec(
+			"UPDATE sessions SET is_automated = 1"+
+				" WHERE id IN ("+
+				strings.Join(phs, ",")+
+				")",
+			args...,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"backfilling is_automated: %w", err,
+			)
+		}
 	}
 	log.Printf(
 		"migration: backfilled is_automated for %d sessions",
-		count,
+		len(ids),
 	)
 	return nil
 }

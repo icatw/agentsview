@@ -283,29 +283,75 @@ func EnsureSchema(
 	return nil
 }
 
-// backfillIsAutomatedPG sets is_automated = TRUE for existing
-// PG sessions whose first_message matches roborev prompt
-// patterns. Only runs when the column was newly added.
+// backfillIsAutomatedPG scans single-turn PG sessions and
+// sets is_automated = TRUE for those matching roborev prompt
+// patterns. Uses the Go detector so the SQL doesn't need to
+// duplicate every pattern. Only runs when the column is newly
+// added.
 func backfillIsAutomatedPG(
 	ctx context.Context, pg *sql.DB,
 ) error {
-	res, err := pg.ExecContext(ctx,
-		`UPDATE sessions SET is_automated = TRUE
-		 WHERE first_message IS NOT NULL
-		   AND (first_message LIKE 'You are a code reviewer. Review the code changes shown below.%'
-		     OR first_message LIKE '# Fix Request' || E'\n' || '%')`)
+	rows, err := pg.QueryContext(ctx,
+		`SELECT id, first_message FROM sessions
+		 WHERE is_automated = FALSE
+		   AND user_message_count <= 1
+		   AND first_message IS NOT NULL`)
 	if err != nil {
 		return fmt.Errorf(
-			"backfilling is_automated in PG: %w", err,
+			"querying PG automated backfill candidates: %w",
+			err,
 		)
 	}
-	n, _ := res.RowsAffected()
-	if n > 0 {
-		log.Printf(
-			"pg migration: backfilled is_automated for %d sessions",
-			n,
-		)
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id, fm string
+		if err := rows.Scan(&id, &fm); err != nil {
+			return fmt.Errorf(
+				"scanning PG backfill candidate: %w", err,
+			)
+		}
+		if db.IsAutomatedSession(fm) {
+			ids = append(ids, id)
+		}
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// Batch update in chunks.
+	pb := &paramBuilder{}
+	const batchSize = 500
+	for i := 0; i < len(ids); i += batchSize {
+		end := min(i+batchSize, len(ids))
+		batch := ids[i:end]
+		pb.n = 0
+		pb.args = pb.args[:0]
+		phs := make([]string, len(batch))
+		for j, id := range batch {
+			phs[j] = pb.add(id)
+		}
+		_, err := pg.ExecContext(ctx,
+			"UPDATE sessions SET is_automated = TRUE"+
+				" WHERE id IN ("+
+				strings.Join(phs, ",")+
+				")",
+			pb.args...,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"backfilling is_automated in PG: %w", err,
+			)
+		}
+	}
+	log.Printf(
+		"pg migration: backfilled is_automated for %d sessions",
+		len(ids),
+	)
 	return nil
 }
 
