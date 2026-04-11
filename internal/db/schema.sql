@@ -221,3 +221,14 @@ CREATE TABLE IF NOT EXISTS pg_sync_state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Model pricing for cost calculation
+CREATE TABLE IF NOT EXISTS model_pricing (
+    model_pattern    TEXT PRIMARY KEY,
+    input_per_mtok   REAL NOT NULL DEFAULT 0,
+    output_per_mtok  REAL NOT NULL DEFAULT 0,
+    cache_creation_per_mtok REAL NOT NULL DEFAULT 0,
+    cache_read_per_mtok     REAL NOT NULL DEFAULT 0,
+    updated_at       TEXT NOT NULL
+        DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
