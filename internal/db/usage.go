@@ -65,6 +65,16 @@ type DailyUsageResult struct {
 	Totals UsageTotals       `json:"totals"`
 }
 
+// paddedUTCBound pads a UTC timestamp by hours to cover timezone
+// offsets. Positive hours pad forward, negative pad backward.
+func paddedUTCBound(ts string, hours int) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts
+	}
+	return t.Add(time.Duration(hours) * time.Hour).Format(time.RFC3339)
+}
+
 // GetDailyUsage returns token usage and cost aggregated by day.
 // It joins messages with sessions and model_pricing to compute
 // per-row costs, then buckets by local date.
@@ -95,13 +105,18 @@ WHERE m.token_usage != ''
 
 	var args []any
 
+	// Pad date range by ±14h to cover all timezone offsets,
+	// matching the approach in analytics.go:utcRange(). The
+	// actual date filtering happens post-query via localDate.
 	if f.From != "" {
+		padded := paddedUTCBound(f.From+"T00:00:00Z", -14)
 		query += " AND s.started_at >= ?"
-		args = append(args, f.From+"T00:00:00Z")
+		args = append(args, padded)
 	}
 	if f.To != "" {
+		padded := paddedUTCBound(f.To+"T23:59:59Z", 14)
 		query += " AND s.started_at <= ?"
-		args = append(args, f.To+"T23:59:59Z")
+		args = append(args, padded)
 	}
 	if f.Agent != "" {
 		query += " AND s.agent = ?"

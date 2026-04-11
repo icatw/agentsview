@@ -62,11 +62,16 @@ func runUsageDaily(args []string) {
 
 	ensurePricing(database, *offline)
 
+	tz := *timezone
+	if tz == "" {
+		tz = localTimezone()
+	}
+
 	filter := db.UsageFilter{
 		From:     *since,
 		To:       *until,
 		Agent:    *agent,
-		Timezone: *timezone,
+		Timezone: tz,
 	}
 
 	result, err := database.GetDailyUsage(
@@ -108,9 +113,10 @@ func runUsageStatusline(args []string) {
 
 	today := time.Now().Format("2006-01-02")
 	filter := db.UsageFilter{
-		From:  today,
-		To:    today,
-		Agent: *agent,
+		From:     today,
+		To:       today,
+		Agent:    *agent,
+		Timezone: localTimezone(),
 	}
 
 	result, err := database.GetDailyUsage(
@@ -228,6 +234,11 @@ func printDailyTable(
 	)
 
 	w.Flush()
+}
+
+// localTimezone returns the IANA name of the system's local timezone.
+func localTimezone() string {
+	return time.Now().Location().String()
 }
 
 func joinModels(models []string) string {
