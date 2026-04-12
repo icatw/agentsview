@@ -213,20 +213,23 @@ WHERE m.token_usage != ''
 				fmt.Errorf("scanning daily usage row: %w", err)
 		}
 
-		if msgID != "" && reqID != "" {
-			key := dedupKey{msgID: msgID, reqID: reqID}
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-		}
-
 		date := localDate(ts, loc)
 		if f.From != "" && date < f.From {
 			continue
 		}
 		if f.To != "" && date > f.To {
 			continue
+		}
+
+		// Dedup AFTER the date filter so out-of-range rows
+		// (pulled in by the ±14h timezone padding) don't mark
+		// a key as seen and suppress the in-range duplicate.
+		if msgID != "" && reqID != "" {
+			key := dedupKey{msgID: msgID, reqID: reqID}
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
 		}
 
 		// token_usage is written by our parsers and never by
