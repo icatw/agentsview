@@ -101,6 +101,54 @@ func TestDetectTransport_PrefersWritableOverPGServe(t *testing.T) {
 		"expected URL to point at the writable daemon")
 }
 
+// TestDetectTransport_PGServeUnreachable_AllowsDirectWrite verifies
+// that a live-but-unreachable pg serve state file does NOT force
+// the CLI into DirectReadOnly. pg serve never touches the local
+// SQLite archive, so direct writes (session sync) are safe even
+// when its TCP probe fails. Gating on IsLocalServerActive ensures
+// only a writable local daemon triggers the read-only fallback.
+func TestDetectTransport_PGServeUnreachable_AllowsDirectWrite(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Pick a free port and immediately release it so the TCP
+	// probe fails — the state file still has a live PID.
+	ln, port := freeTCPListener(t)
+	ln.Close()
+	_, err := server.WriteStateFile(
+		dir, "127.0.0.1", port, "test", true, // readOnly = pg serve
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { server.RemoveStateFile(dir, port) })
+
+	tr, err := detectTransport(dir, 100*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, transportDirect, tr.Mode)
+	assert.False(t, tr.DirectReadOnly,
+		"unreachable pg serve must not gate direct writes")
+}
+
+// TestDetectTransport_LocalDaemonUnreachable_SetsDirectReadOnly
+// verifies that a live-but-unreachable *writable* local daemon
+// still forces DirectReadOnly so the CLI doesn't race the daemon
+// for SQLite write ownership.
+func TestDetectTransport_LocalDaemonUnreachable_SetsDirectReadOnly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ln, port := freeTCPListener(t)
+	ln.Close()
+	_, err := server.WriteStateFile(
+		dir, "127.0.0.1", port, "test", false, // writable local
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { server.RemoveStateFile(dir, port) })
+
+	tr, err := detectTransport(dir, 100*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, transportDirect, tr.Mode)
+	assert.True(t, tr.DirectReadOnly,
+		"unreachable writable daemon must gate direct writes")
+}
+
 // TestDetectTransport_StartupLocked simulates a server that's
 // starting up (lock file present, no state file, no listener).
 // Our current PID is alive, so isServerStarting returns true.

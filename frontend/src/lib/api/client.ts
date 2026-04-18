@@ -415,6 +415,13 @@ export interface DataChangedEvent {
  * limitation of SSE — switching to a fetch-based streaming
  * approach would avoid this but adds significant complexity.
  */
+/** Number of consecutive onerror firings without a successful
+ * connection or event delivery before watchSession gives up. Guards
+ * against the browser hammering `/watch` forever when the session
+ * id is unknown (server returns 404 per the Session API contract)
+ * or the server is permanently refusing the stream. */
+export const WATCH_SESSION_MAX_CONSECUTIVE_ERRORS = 5;
+
 export function watchSession(
   sessionId: string,
   onUpdate: () => void,
@@ -426,12 +433,26 @@ export function watchSession(
   const fullUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
   const es = new EventSource(fullUrl);
 
+  // Circuit breaker: mirrors watchEvents. A 404 (unknown session)
+  // or other permanent failure would otherwise have EventSource
+  // reconnect in a loop. Counter resets on `open` or a delivered
+  // event so a healthy-but-quiet stream isn't tripped.
+  let consecutiveErrors = 0;
+
+  es.addEventListener("open", () => {
+    consecutiveErrors = 0;
+  });
+
   es.addEventListener("session_updated", () => {
+    consecutiveErrors = 0;
     onUpdate();
   });
 
   es.onerror = () => {
-    // Connection will auto-retry via EventSource spec
+    consecutiveErrors += 1;
+    if (consecutiveErrors >= WATCH_SESSION_MAX_CONSECUTIVE_ERRORS) {
+      es.close();
+    }
   };
 
   return es;

@@ -67,14 +67,19 @@ func detectTransport(
 			}, nil
 		}
 	}
-	if server.IsServerActive(dataDir) {
-		// Live state file but TCP probe transiently failed.
-		// Don't compete with the running daemon — read only.
+	if server.IsLocalServerActive(dataDir) {
+		// A writable local daemon owns the SQLite archive but
+		// its TCP probe transiently failed. Don't compete for
+		// write ownership — read only via direct DB.
 		return transport{
 			Mode:           transportDirect,
 			DirectReadOnly: true,
 		}, nil
 	}
+	// IsServerActive is true but IsLocalServerActive is false —
+	// i.e. only a pg serve (read-only) daemon is live and its
+	// TCP probe failed. pg serve does not touch the local
+	// SQLite archive, so direct reads AND writes are safe.
 	return transport{Mode: transportDirect}, nil
 }
 

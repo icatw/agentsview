@@ -9,6 +9,8 @@ import {
   getAnalyticsTopSessions,
   watchEvents,
   WATCH_EVENTS_MAX_CONSECUTIVE_ERRORS,
+  watchSession,
+  WATCH_SESSION_MAX_CONSECUTIVE_ERRORS,
   ApiError,
 } from "./client.js";
 import type { SyncHandle } from "./client.js";
@@ -826,6 +828,96 @@ describe("watchEvents", () => {
     expect(received).toEqual(["messages"]);
     // Another N-1 errors should still not close — counter is back at 0.
     for (let i = 0; i < WATCH_EVENTS_MAX_CONSECUTIVE_ERRORS - 1; i++) {
+      es.fireError();
+    }
+    expect(es.closed).toBe(false);
+  });
+});
+
+describe("watchSession", () => {
+  class FakeEventSource {
+    static instances: FakeEventSource[] = [];
+    public url: string;
+    public readyState = 1;
+    private listeners: Record<string, ((ev: MessageEvent) => void)[]> = {};
+    public onerror: ((ev: Event) => void) | null = null;
+    public closed = false;
+
+    constructor(url: string) {
+      this.url = url;
+      FakeEventSource.instances.push(this);
+    }
+
+    addEventListener(name: string, cb: (ev: MessageEvent) => void) {
+      (this.listeners[name] ||= []).push(cb);
+    }
+
+    close() {
+      this.closed = true;
+    }
+
+    fireError() {
+      if (this.onerror) this.onerror(new Event("error"));
+    }
+
+    fireOpen() {
+      (this.listeners["open"] || []).forEach((cb) =>
+        cb(new Event("open") as MessageEvent),
+      );
+    }
+
+    fireUpdate() {
+      (this.listeners["session_updated"] || []).forEach((cb) =>
+        cb(new MessageEvent("session_updated")),
+      );
+    }
+
+    static reset() {
+      FakeEventSource.instances = [];
+    }
+  }
+
+  beforeEach(() => {
+    FakeEventSource.reset();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it("closes the EventSource after N consecutive errors", () => {
+    // Unknown session ids now return HTTP 404 per the Session API
+    // contract. Without a retry cap the browser would hammer /watch
+    // forever; this test locks in the circuit breaker instead.
+    watchSession("abc", () => {});
+    const es = FakeEventSource.instances[0]!;
+    for (let i = 0; i < WATCH_SESSION_MAX_CONSECUTIVE_ERRORS - 1; i++) {
+      es.fireError();
+      expect(es.closed).toBe(false);
+    }
+    es.fireError();
+    expect(es.closed).toBe(true);
+  });
+
+  it("resets the error counter on session_updated or open", () => {
+    const seen: number[] = [];
+    watchSession("abc", () => seen.push(1));
+    const es = FakeEventSource.instances[0]!;
+
+    for (let i = 0; i < WATCH_SESSION_MAX_CONSECUTIVE_ERRORS - 1; i++) {
+      es.fireError();
+    }
+    es.fireUpdate(); // successful delivery resets counter
+    expect(seen).toEqual([1]);
+
+    for (let i = 0; i < WATCH_SESSION_MAX_CONSECUTIVE_ERRORS - 1; i++) {
+      es.fireError();
+    }
+    es.fireOpen(); // successful (re)connect also resets
+    for (let i = 0; i < WATCH_SESSION_MAX_CONSECUTIVE_ERRORS - 1; i++) {
       es.fireError();
     }
     expect(es.closed).toBe(false);
