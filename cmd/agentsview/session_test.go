@@ -403,6 +403,20 @@ func TestSessionExport_FailsWhenNotInLocalArchive(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown-id")
 }
 
+// TestSessionExport_RejectsFormatFlag verifies that export refuses
+// --format because it streams raw bytes. Previously --format was a
+// silently-accepted inherited flag, which was a contract footgun
+// for scripts that expected JSON output.
+func TestSessionExport_RejectsFormatFlag(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENT_VIEWER_DATA_DIR", dataDir)
+
+	_, err := executeCommand(newRootCommand(),
+		"session", "export", "some-id", "--format", "json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--format not supported")
+}
+
 // TestSessionSync_UnknownID_ReportsNoFilePath verifies that the
 // sync engine is plumbed in direct mode. No daemon running, no
 // sessions in DB — Execute returns an error whose message contains
@@ -543,57 +557,22 @@ func TestSessionWatch_ExitsOnCancel(t *testing.T) {
 	}
 }
 
-// TestSessionWatch_UnknownID_ExitsOnCancel verifies that
-// `session watch` opens the event channel even for a session
-// id that isn't in the local archive (direct-mode Watch never
-// validates the id — it just polls GetSessionVersion and
-// emits nothing for missing sessions). With a cancelling
-// context the command still exits cleanly.
-func TestSessionWatch_UnknownID_ExitsOnCancel(t *testing.T) {
+// TestSessionWatch_UnknownID_FailsFast verifies that `session
+// watch` against an unknown session id fails fast with a clear
+// "session not found" error rather than returning an indefinitely
+// live heartbeat stream. Slow-failure mode would be a contract
+// footgun for automation scripts.
+func TestSessionWatch_UnknownID_FailsFast(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENT_VIEWER_DATA_DIR", dataDir)
 
-	root := newRootCommand()
-	buf := &bytes.Buffer{}
-	root.SetOut(buf)
-	root.SetErr(buf)
-	root.SetArgs([]string{"session", "watch", "unknown-id"})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		cancel()
-	}()
-
-	start := time.Now()
-	done := make(chan error, 1)
-	go func() { done <- root.ExecuteContext(ctx) }()
-
-	var execErr error
-	select {
-	case execErr = <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("session watch did not exit within 3s after ctx cancel")
-	}
-	elapsed := time.Since(start)
-
-	if execErr != nil && !errors.Is(execErr, context.Canceled) {
-		t.Fatalf("expected nil or context.Canceled, got %v", execErr)
-	}
-
-	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond,
-		"session watch returned too quickly (%v) — "+
-			"likely a stub, not a real Watch", elapsed)
-
-	for line := range bytes.SplitSeq(buf.Bytes(), []byte("\n")) {
-		if len(line) == 0 {
-			continue
-		}
-		var ev map[string]any
-		require.NoError(t, json.Unmarshal(line, &ev),
-			"non-NDJSON line: %q", line)
-	}
+	_, err := executeCommand(newRootCommand(),
+		"session", "watch", "unknown-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session not found",
+		"expected 'session not found' error; got: %v", err)
+	assert.Contains(t, err.Error(), "unknown-id",
+		"error should name the missing session id")
 }
 
 // TestLooksLikePath covers both POSIX and Windows-style separators

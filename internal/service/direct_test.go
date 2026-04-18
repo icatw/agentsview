@@ -199,6 +199,71 @@ func TestDirectBackend_Sync_NilEngineIsReadOnly(t *testing.T) {
 		"expected db.ErrReadOnly, got %v", err)
 }
 
+// TestDirectBackend_Sync_AmbiguousPath_ReturnsListedIDs verifies
+// that when one JSONL file maps to multiple sessions in the DB
+// (e.g. Claude forked transcripts), Sync refuses to pick one
+// arbitrarily and instead returns an error naming every candidate
+// id, telling the caller to disambiguate via `session sync <id>`.
+func TestDirectBackend_Sync_AmbiguousPath_ReturnsListedIDs(t *testing.T) {
+	t.Parallel()
+	d := dbtest.OpenTestDB(t)
+	// Ephemeral engine so SyncPaths is a no-op — the test only
+	// exercises the post-sync resolver.
+	engine := sync.NewEngine(d, sync.EngineConfig{Ephemeral: true})
+	svc := service.NewDirectBackend(d, engine)
+
+	path := "/tmp/forked-session.jsonl"
+	for _, id := range []string{"fork-a", "fork-b"} {
+		require.NoError(t, d.UpsertSession(db.Session{
+			ID:       id,
+			Project:  "proj",
+			Machine:  "local",
+			Agent:    "claude",
+			FilePath: &path,
+		}))
+	}
+
+	_, err := svc.Sync(context.Background(), service.SyncInput{
+		Path: path,
+	})
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "2 sessions found",
+		"error should state the ambiguity count")
+	assert.Contains(t, msg, "fork-a")
+	assert.Contains(t, msg, "fork-b")
+	assert.Contains(t, msg, "session sync <id>",
+		"error should tell the caller how to disambiguate")
+}
+
+// TestDirectBackend_Watch_UnknownID_Errors verifies that Watch
+// on a missing session returns a clear "session not found" error
+// instead of producing an indefinite heartbeat channel.
+func TestDirectBackend_Watch_UnknownID_Errors(t *testing.T) {
+	t.Parallel()
+	svc, _ := newDirectTestSvc(t)
+
+	_, err := svc.Watch(context.Background(), "does-not-exist")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session not found")
+	assert.Contains(t, err.Error(), "does-not-exist")
+}
+
+// TestDirectBackend_Messages_InvalidDirection verifies that the
+// service layer rejects direction values outside {asc, desc}. HTTP
+// and CLI both route through this, so the contract is enforced
+// uniformly.
+func TestDirectBackend_Messages_InvalidDirection(t *testing.T) {
+	t.Parallel()
+	svc, _ := newDirectTestSvc(t)
+
+	_, err := svc.Messages(context.Background(), "sid",
+		service.MessageFilter{Direction: "backwards"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid direction")
+	assert.Contains(t, err.Error(), "backwards")
+}
+
 // TestReadOnlyBackend_Sync_IsReadOnly verifies that a backend
 // constructed via NewReadOnlyBackend rejects Sync with
 // db.ErrReadOnly regardless of the input.

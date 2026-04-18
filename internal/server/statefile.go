@@ -66,15 +66,19 @@ func RemoveStateFile(dataDir string, port int) {
 }
 
 // FindRunningServer scans dataDir for server state files and
-// returns the first one whose process is still alive and whose
-// port is accepting connections. Stale state files are cleaned
-// up automatically.
+// returns one whose process is still alive and whose port is
+// accepting connections. When both a writable local daemon and a
+// read-only pg serve daemon are running against the same data dir,
+// the writable one is preferred so CLI sync/write operations don't
+// silently land on a read-only target. Stale state files are
+// cleaned up automatically.
 func FindRunningServer(dataDir string) *StateFile {
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
 		return nil
 	}
 
+	var readOnly *StateFile
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasPrefix(name, "server.") ||
@@ -114,10 +118,19 @@ func FindRunningServer(dataDir string) *StateFile {
 		}
 		conn.Close()
 
-		return &sf
+		// Writable daemon wins immediately. Read-only daemons
+		// are held as a fallback in case no writable one turns
+		// up later in the scan.
+		if !sf.ReadOnly {
+			return &sf
+		}
+		if readOnly == nil {
+			sfCopy := sf
+			readOnly = &sfCopy
+		}
 	}
 
-	return nil
+	return readOnly
 }
 
 // stateFileStartTolerance is the maximum acceptable

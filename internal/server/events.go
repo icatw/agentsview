@@ -66,6 +66,24 @@ func (s *Server) handleWatchSession(
 ) {
 	sessionID := r.PathValue("id")
 
+	// Fail fast on unknown ids so a typo does not become an
+	// indefinitely live heartbeat stream. The existence check
+	// happens before NewSSEStream so the client sees a normal
+	// 404 JSON error instead of an empty SSE body.
+	sess, err := s.sessions.Get(r.Context(), sessionID)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if sess == nil {
+		writeError(w, http.StatusNotFound,
+			"session not found: "+sessionID)
+		return
+	}
+
 	stream, err := NewSSEStream(w)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError,

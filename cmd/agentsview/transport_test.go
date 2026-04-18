@@ -67,6 +67,40 @@ func TestDetectTransport_PGServe_ReturnsReadOnlyHTTP(t *testing.T) {
 	assert.Contains(t, tr.URL, "http://127.0.0.1:"+strconv.Itoa(port))
 }
 
+// TestDetectTransport_PrefersWritableOverPGServe verifies that when
+// both a writable local daemon and a read-only pg serve daemon
+// advertise the same data dir, the CLI picks the writable one so
+// sync/write operations don't silently land on a read-only target.
+func TestDetectTransport_PrefersWritableOverPGServe(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, writablePort := freeTCPListener(t)
+	_, readOnlyPort := freeTCPListener(t)
+
+	// Write state files out of order so the winner isn't just
+	// whatever the directory scan happens to see first.
+	_, err := server.WriteStateFile(
+		dir, "127.0.0.1", readOnlyPort, "test", true,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { server.RemoveStateFile(dir, readOnlyPort) })
+
+	_, err = server.WriteStateFile(
+		dir, "127.0.0.1", writablePort, "test", false,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { server.RemoveStateFile(dir, writablePort) })
+
+	tr, err := detectTransport(dir, 100*time.Millisecond)
+	require.NoError(t, err)
+	assert.Equal(t, transportHTTP, tr.Mode)
+	assert.False(t, tr.ReadOnly,
+		"expected writable daemon to win over pg serve")
+	assert.Contains(t, tr.URL,
+		"http://127.0.0.1:"+strconv.Itoa(writablePort),
+		"expected URL to point at the writable daemon")
+}
+
 // TestDetectTransport_StartupLocked simulates a server that's
 // starting up (lock file present, no state file, no listener).
 // Our current PID is alive, so isServerStarting returns true.

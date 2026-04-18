@@ -25,6 +25,11 @@ func newSessionExportCommand() *cobra.Command {
 					"session export: local-only command; --server not supported",
 				)
 			}
+			if cmd.Flags().Changed("format") {
+				return fmt.Errorf(
+					"session export: streams raw bytes; --format not supported",
+				)
+			}
 			id := args[0]
 			cfg, err := config.LoadPFlags(cmd.Flags())
 			if err != nil {

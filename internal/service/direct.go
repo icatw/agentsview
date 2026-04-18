@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -158,6 +157,14 @@ func listFilterToDB(f ListFilter) db.SessionFilter {
 func (b *directBackend) Messages(
 	ctx context.Context, id string, f MessageFilter,
 ) (*MessageList, error) {
+	switch f.Direction {
+	case "", "asc", "desc":
+	default:
+		return nil, fmt.Errorf(
+			"messages: invalid direction %q: must be asc or desc",
+			f.Direction,
+		)
+	}
 	asc := f.Direction != "desc"
 	limit := f.Limit
 	if limit <= 0 {
@@ -250,40 +257,74 @@ func (b *directBackend) Sync(
 	return b.Get(ctx, id)
 }
 
-// resolveSessionIDByPath returns the most recently created
-// session whose file_path equals the given absolute path. Used
-// after Sync to locate the session that was just upserted.
+// resolveSessionIDByPath returns the single session id whose
+// file_path equals the given absolute path. When a JSONL file
+// produces multiple sessions (e.g. Claude forked transcripts),
+// sync returns an ambiguity error instead of picking arbitrarily,
+// so the caller can disambiguate via `session sync <id>`.
 // Only called from Sync after it has verified b.local != nil.
 func (b *directBackend) resolveSessionIDByPath(
 	ctx context.Context, path string,
 ) (string, error) {
 	const q = `SELECT id FROM sessions
 		WHERE file_path = ?
-		ORDER BY created_at DESC
-		LIMIT 1`
-	var id string
-	err := b.local.Reader().QueryRowContext(ctx, q, path).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf(
-			"sync: no session found for path %q", path,
-		)
-	}
+		ORDER BY created_at DESC`
+	rows, err := b.local.Reader().QueryContext(ctx, q, path)
 	if err != nil {
 		return "", fmt.Errorf(
 			"sync: resolving session for path %q: %w", path, err,
 		)
 	}
-	return id, nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", fmt.Errorf(
+				"sync: scanning session row for path %q: %w",
+				path, err,
+			)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf(
+			"sync: iterating sessions for path %q: %w", path, err,
+		)
+	}
+	switch len(ids) {
+	case 0:
+		return "", fmt.Errorf(
+			"sync: no session found for path %q", path,
+		)
+	case 1:
+		return ids[0], nil
+	default:
+		return "", fmt.Errorf(
+			"sync: %d sessions found for path %q: %v; "+
+				"pass one via `session sync <id>` to disambiguate",
+			len(ids), path, ids,
+		)
+	}
 }
 
 // Watch returns a stream of events for the given session,
 // emitting "session_updated" whenever the session's DB state
 // changes and periodic "heartbeat" events so callers can detect
 // a live channel. The returned channel is closed when ctx is
-// cancelled.
+// cancelled. Returns an error if the session does not exist so a
+// typo fails fast instead of producing an indefinite heartbeat
+// stream.
 func (b *directBackend) Watch(
 	ctx context.Context, id string,
 ) (<-chan Event, error) {
+	s, err := b.db.GetSession(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("watch: looking up session %q: %w", id, err)
+	}
+	if s == nil {
+		return nil, fmt.Errorf("watch: session not found: %s", id)
+	}
 	w := sessionwatch.New(b.db, b.engine)
 	ticks := w.Events(ctx, id)
 	out := make(chan Event)

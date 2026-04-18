@@ -233,6 +233,10 @@ func (b *httpBackend) Watch(
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		return nil, fmt.Errorf("watch: session not found: %s", id)
+	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, fmt.Errorf("watch: HTTP %d", resp.StatusCode)

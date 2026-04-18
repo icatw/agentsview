@@ -19,6 +19,13 @@ func (s *Server) handleGetMessages(
 	limit = clampLimit(limit, dbpkg.DefaultMessageLimit, dbpkg.MaxMessageLimit)
 
 	direction := r.URL.Query().Get("direction")
+	switch direction {
+	case "", "asc", "desc":
+	default:
+		writeError(w, http.StatusBadRequest,
+			"invalid direction: must be asc or desc")
+		return
+	}
 
 	filter := service.MessageFilter{
 		Limit:     limit,

@@ -3031,6 +3031,31 @@ func TestGetMessages_Limits(t *testing.T) {
 	}
 }
 
+// TestGetMessages_InvalidDirection verifies that the HTTP
+// endpoint rejects direction values outside {asc, desc} with
+// 400 instead of silently coercing to asc. The CLI enforces the
+// same contract; both must agree.
+func TestGetMessages_InvalidDirection(t *testing.T) {
+	te := setup(t)
+	te.seedSession(t, "s1", "my-app", 1)
+
+	w := te.get(t, "/api/v1/sessions/s1/messages?direction=backwards")
+	assertStatus(t, w, http.StatusBadRequest)
+	assert.Contains(t, w.Body.String(), "direction",
+		"error body should mention 'direction'")
+}
+
+// TestHandleWatchSession_UnknownID_Returns404 verifies that the
+// SSE watch endpoint fails fast on an unknown session id so a
+// typo doesn't leave a heartbeat stream open indefinitely.
+func TestHandleWatchSession_UnknownID_Returns404(t *testing.T) {
+	te := setup(t)
+
+	w := te.get(t, "/api/v1/sessions/no-such-id/watch")
+	assertStatus(t, w, http.StatusNotFound)
+	assert.Contains(t, w.Body.String(), "no-such-id")
+}
+
 func TestGetVersion(t *testing.T) {
 	v := server.VersionInfo{
 		Version:   "v1.2.3",
