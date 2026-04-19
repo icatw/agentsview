@@ -1832,9 +1832,8 @@ func populateVelocityAccumulator(
 // Shared by GetAnalyticsVelocity (which tracks overall/byAgent/
 // byComplexity) and GetSessionStats (which tracks a single overall).
 //
-// Caller responsibilities: pass len(msgs) >= 2 in ordinal order, and
-// bump each accumulator's sessions counter — this helper only
-// accumulates the sample values, not the session count.
+// Caller must pass len(msgs) >= 2 in ordinal order. The function
+// itself bumps each accumulator's sessions counter.
 func processSessionVelocity(
 	accums []*velocityAccumulator,
 	msgs []velocityMsg,

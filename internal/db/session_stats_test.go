@@ -778,3 +778,107 @@ func TestGetSessionStats_Velocity(t *testing.T) {
 			stats.Velocity.MessagesPerActiveHour, want)
 	}
 }
+
+// Empty case: no sessions at all. The velocity accumulator stays zeroed
+// and every output field must read as 0 rather than NaN / unset.
+func TestGetSessionStats_Velocity_Empty(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
+	if err != nil {
+		t.Fatalf("GetSessionStats: %v", err)
+	}
+
+	tc := stats.Velocity.TurnCycleSeconds
+	if tc.P50 != 0 || tc.P90 != 0 || tc.Mean != 0 {
+		t.Errorf("TurnCycleSeconds: got %+v want all zero", tc)
+	}
+	fr := stats.Velocity.FirstResponseSeconds
+	if fr.P50 != 0 || fr.P90 != 0 || fr.Mean != 0 {
+		t.Errorf("FirstResponseSeconds: got %+v want all zero", fr)
+	}
+	if stats.Velocity.MessagesPerActiveHour != 0 {
+		t.Errorf("MessagesPerActiveHour: got %v want 0",
+			stats.Velocity.MessagesPerActiveHour)
+	}
+}
+
+// Single session with one user→assistant turn. One sample point feeds
+// both the turn-cycle and first-response series, so P50 / P90 / Mean
+// must all collapse to the same value.
+func TestGetSessionStats_Velocity_SingleTurn(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	// 2 msgs at offsets 0,60 (seconds): user→assistant delta = 60s.
+	// Adjacent gap = 60s → activeMinutes = 1, totalMsgs = 2,
+	// MessagesPerActiveHour = 2 / (1/60) = 120.
+	start := time.Now().UTC().Add(-3 * time.Hour).
+		Format(time.RFC3339)
+	insertSessionFixture(t, d, sessionFixture{
+		id: "s1", agent: "claude", userMsgs: 1,
+		messageCount: 2, startedAt: start,
+	})
+	seedVelocityMessages(t, d, "s1", start, []int{0, 60})
+
+	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
+	if err != nil {
+		t.Fatalf("GetSessionStats: %v", err)
+	}
+
+	tc := stats.Velocity.TurnCycleSeconds
+	if tc.P50 != 60.0 || tc.P90 != 60.0 {
+		t.Errorf("TurnCycleSeconds: got p50=%v p90=%v want both 60",
+			tc.P50, tc.P90)
+	}
+	if !floatsClose(tc.Mean, 60.0, 0.001) {
+		t.Errorf("TurnCycleSeconds.Mean: got %v want 60", tc.Mean)
+	}
+	fr := stats.Velocity.FirstResponseSeconds
+	if fr.P50 != 60.0 || fr.P90 != 60.0 {
+		t.Errorf("FirstResponseSeconds: got p50=%v p90=%v want both 60",
+			fr.P50, fr.P90)
+	}
+	if !floatsClose(fr.Mean, 60.0, 0.001) {
+		t.Errorf("FirstResponseSeconds.Mean: got %v want 60", fr.Mean)
+	}
+	if stats.Velocity.MessagesPerActiveHour <= 0 {
+		t.Errorf("MessagesPerActiveHour: got %v want > 0",
+			stats.Velocity.MessagesPerActiveHour)
+	}
+	want := 120.0
+	if !floatsClose(
+		stats.Velocity.MessagesPerActiveHour, want, 0.001,
+	) {
+		t.Errorf("MessagesPerActiveHour: got %v want %v",
+			stats.Velocity.MessagesPerActiveHour, want)
+	}
+}
+
+// Zero-active-minutes boundary: two messages share a timestamp so the
+// only adjacent gap is 0 (failing the gap > 0 guard). activeMinutes
+// stays 0, totalMsgs is never bumped, and MessagesPerActiveHour must
+// remain 0 even though the session survived the len(msgs) >= 2 filter.
+func TestGetSessionStats_Velocity_ZeroActive(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	start := time.Now().UTC().Add(-2 * time.Hour).
+		Format(time.RFC3339)
+	insertSessionFixture(t, d, sessionFixture{
+		id: "z1", agent: "claude", userMsgs: 1,
+		messageCount: 2, startedAt: start,
+	})
+	seedVelocityMessages(t, d, "z1", start, []int{0, 0})
+
+	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
+	if err != nil {
+		t.Fatalf("GetSessionStats: %v", err)
+	}
+
+	if stats.Velocity.MessagesPerActiveHour != 0 {
+		t.Errorf("MessagesPerActiveHour: got %v want 0",
+			stats.Velocity.MessagesPerActiveHour)
+	}
+}
