@@ -458,6 +458,67 @@ describe("SessionsStore", () => {
       expect(sessions.nextCursor).toBeNull();
     });
 
+    it("swaps sessions atomically after all pages load", async () => {
+      // Pre-populate with a list representing a prior load,
+      // then trigger a multi-page reload. The visible count
+      // must not tick up as pages arrive — old data stays,
+      // then the new data replaces it in one step.
+      sessions.sessions = [
+        makeSession({ id: "old-a" }),
+        makeSession({ id: "old-b" }),
+        makeSession({ id: "old-c" }),
+      ];
+      sessions.total = 3;
+
+      let resolvePage2: ((v: {
+        sessions: Session[];
+        total: number;
+        next_cursor?: string;
+      }) => void) | null = null;
+      const page2Promise = new Promise<{
+        sessions: Session[];
+        total: number;
+        next_cursor?: string;
+      }>((resolve) => {
+        resolvePage2 = resolve;
+      });
+
+      vi.mocked(api.listSessions)
+        .mockResolvedValueOnce({
+          sessions: [makeSession({ id: "new-1" })],
+          total: 2,
+          next_cursor: "c1",
+        })
+        .mockReturnValueOnce(page2Promise);
+
+      const loadPromise = sessions.load();
+
+      // Flush the first page fetch without resolving the second.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Old sessions are still visible while pagination is in flight.
+      expect(sessions.sessions.map((s) => s.id)).toEqual([
+        "old-a",
+        "old-b",
+        "old-c",
+      ]);
+      expect(sessions.total).toBe(3);
+
+      resolvePage2!({
+        sessions: [makeSession({ id: "new-2" })],
+        total: 2,
+      });
+      await loadPromise;
+
+      expect(sessions.sessions.map((s) => s.id)).toEqual([
+        "new-1",
+        "new-2",
+      ]);
+      expect(sessions.total).toBe(2);
+      expect(sessions.nextCursor).toBeNull();
+    });
+
     it("should omit min/max when 0 in loadMore", async () => {
       sessions.nextCursor = "cur2";
 

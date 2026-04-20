@@ -266,26 +266,18 @@ class SessionsStore {
         });
         if (this.loadVersion !== version) return;
 
-        if (page.sessions.length === 0) {
-          this.sessions = loaded;
-          this.nextCursor = null;
-          this.total = loaded.length;
-          break;
-        }
-
+        if (page.sessions.length === 0) break;
         loaded = [...loaded, ...page.sessions];
-        this.sessions = loaded;
-        // Keep total aligned with loaded rows to avoid blank
-        // virtual space while we fetch remaining pages.
-        this.total = loaded.length;
-
         cursor = page.next_cursor ?? undefined;
-        this.nextCursor = cursor ?? null;
-        if (!cursor) {
-          this.total = loaded.length;
-          break;
-        }
+        if (!cursor) break;
       }
+
+      // Swap atomically once all pages have loaded. Updating
+      // this.sessions and this.total after each page causes the
+      // sidebar session count to visibly tick up as pages arrive.
+      this.sessions = loaded;
+      this.nextCursor = null;
+      this.total = loaded.length;
     } catch {
       // Restore previous state so a transient failure
       // doesn't wipe the visible session list.
