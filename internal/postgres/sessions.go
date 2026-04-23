@@ -278,12 +278,13 @@ func buildPGSessionFilter(
 		return strings.Join(allPreds, " AND "), pb.args
 	}
 
-	// Mirrors SQLite buildSessionFilter — see that comment
-	// for rationale. The direct-match side carries the
-	// relationship guard so subagent/fork rows only surface
-	// via a qualifying parent; the parent-side subquery
-	// drops the guard so depth-2+ descendants (e.g. a fork
-	// inside a subagent thread) stay visible.
+	// Mirrors SQLite buildSessionFilter. The CTE computes the
+	// transitive closure of rows reachable from qualifying
+	// roots, so children only surface when their full parent
+	// chain terminates at a rootMatch-passing root — a plain
+	// single-level parent subquery would let a subagent that
+	// incidentally matches user filters drag its descendants
+	// through as fake roots.
 	baseWhere := strings.Join(basePreds, " AND ")
 
 	rootMatchParts := append([]string{}, filterPreds...)
@@ -294,21 +295,17 @@ func buildPGSessionFilter(
 		"relationship_type NOT IN ('subagent', 'fork')")
 	rootMatch := strings.Join(rootMatchParts, " AND ")
 
-	parentMatchParts := append([]string{}, filterPreds...)
-	if oneShotPred != "" {
-		parentMatchParts = append(parentMatchParts, oneShotPred)
-	}
-	subqWhere := "message_count > 0 AND deleted_at IS NULL"
-	if len(parentMatchParts) > 0 {
-		subqWhere += " AND " +
-			strings.Join(parentMatchParts, " AND ")
-	}
+	cte := "WITH RECURSIVE tree(id) AS (" +
+		"SELECT id FROM sessions" +
+		" WHERE message_count > 0 AND deleted_at IS NULL AND " +
+		rootMatch +
+		" UNION " +
+		"SELECT s.id FROM sessions s" +
+		" JOIN tree t ON s.parent_session_id = t.id" +
+		" WHERE s.message_count > 0 AND s.deleted_at IS NULL" +
+		") SELECT id FROM tree"
 
-	where := baseWhere + " AND (" + rootMatch +
-		" OR parent_session_id IN" +
-		" (SELECT id FROM sessions WHERE " +
-		subqWhere + "))"
-
+	where := baseWhere + " AND id IN (" + cte + ")"
 	return where, pb.args
 }
 

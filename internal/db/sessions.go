@@ -458,18 +458,18 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 		return strings.Join(allPreds, " AND "), filterArgs
 	}
 
-	// IncludeChildren: a row is included when it is a valid
-	// root that matches the user filters, OR when its parent
-	// is a session that matches the user filters. Subagents
-	// and forks are child workflows (Task tool spawns, chat
-	// forks) and must never surface as standalone roots;
-	// without the relationship guard on the direct-match
-	// side, orphans (parent JSONL rotated off disk, or parent
-	// filtered out by is_automated) appear as fake sidebar
-	// root groups.
+	// IncludeChildren: compute the transitive closure of rows
+	// reachable from qualifying roots via parent_session_id,
+	// then restrict the outer query to that set. A plain
+	// single-level parent subquery is not sufficient — a
+	// subagent that passes the user filters can appear in
+	// that subquery and drag its own children through as fake
+	// roots, even when the subagent itself is filtered out by
+	// the relationship guard. The CTE invariant "every
+	// included row has a full parent chain back to a
+	// rootMatch-passing root" handles this at any depth.
 	baseWhere := strings.Join(basePreds, " AND ")
 
-	// Direct-match side: user filters + relationship guard.
 	rootMatchParts := append([]string{}, filterPreds...)
 	if oneShotPred != "" {
 		rootMatchParts = append(rootMatchParts, oneShotPred)
@@ -478,34 +478,21 @@ func buildSessionFilter(f SessionFilter) (string, []any) {
 		"relationship_type NOT IN ('subagent', 'fork')")
 	rootMatch := strings.Join(rootMatchParts, " AND ")
 
-	// Parent-match side (subquery): user filters WITHOUT the
-	// relationship guard. A subagent is a legitimate parent in
-	// a deeper chain (e.g. a fork spawned inside a subagent
-	// thread) — we only require the immediate parent to pass
-	// the user filters, not to itself be a root. This keeps
-	// depth-2+ descendants visible; the only corner it misses
-	// is an orphan subagent with its own descendants, which is
-	// rare and already displays oddly because its intermediate
-	// parent is missing from the loaded set.
-	parentMatchParts := append([]string{}, filterPreds...)
-	if oneShotPred != "" {
-		parentMatchParts = append(parentMatchParts, oneShotPred)
-	}
-	subqWhere := "message_count > 0 AND deleted_at IS NULL"
-	if len(parentMatchParts) > 0 {
-		subqWhere += " AND " + strings.Join(parentMatchParts, " AND ")
-	}
+	// UNION (not UNION ALL) in the recursive step deduplicates
+	// and guards against cyclic parent chains. Depth in real
+	// data is 1-2, so the perf cost is negligible.
+	cte := "WITH RECURSIVE tree(id) AS (" +
+		"SELECT id FROM sessions" +
+		" WHERE message_count > 0 AND deleted_at IS NULL AND " +
+		rootMatch +
+		" UNION " +
+		"SELECT s.id FROM sessions s" +
+		" JOIN tree t ON s.parent_session_id = t.id" +
+		" WHERE s.message_count > 0 AND s.deleted_at IS NULL" +
+		") SELECT id FROM tree"
 
-	where := baseWhere + " AND (" + rootMatch +
-		" OR parent_session_id IN" +
-		" (SELECT id FROM sessions WHERE " + subqWhere + "))"
-
-	// Args appear twice: once on the direct side, once in the
-	// subquery. Both sides substitute the same filterArgs.
-	allArgs := make([]any, 0, len(filterArgs)*2)
-	allArgs = append(allArgs, filterArgs...)
-	allArgs = append(allArgs, filterArgs...)
-	return where, allArgs
+	where := baseWhere + " AND id IN (" + cte + ")"
+	return where, filterArgs
 }
 
 // ListSessions returns a cursor-paginated list of sessions.

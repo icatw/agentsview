@@ -598,6 +598,48 @@ func TestIncludeChildrenKeepsNestedDescendants(t *testing.T) {
 	})
 }
 
+// TestIncludeChildrenExcludesFilteredNestedRoots guards against
+// the case where a user filter fails at every level of a chain.
+// Shape: root(agent=claude) → sub(agent=codex, subagent) →
+// nested-fork(agent=codex, fork). Under Agent=codex, root fails
+// the filter, sub fails the relationship guard, and nested-fork
+// fails the relationship guard. A one-level parent subquery
+// would see sub passing the agent filter and include nested-fork
+// — which then arrives at the frontend without its parent chain
+// and renders as a fake root group. The recursive CTE refuses
+// the whole subtree because nothing qualifies as a tree root.
+func TestIncludeChildrenExcludesFilteredNestedRoots(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "root", "proj", func(s *Session) {
+		s.Agent = "claude"
+		s.MessageCount = 10
+		s.UserMessageCount = 5
+	})
+	insertSession(t, d, "sub", "proj", func(s *Session) {
+		s.Agent = "codex"
+		s.MessageCount = 4
+		s.UserMessageCount = 1
+		s.ParentSessionID = Ptr("root")
+		s.RelationshipType = "subagent"
+	})
+	insertSession(t, d, "nested-fork", "proj", func(s *Session) {
+		s.Agent = "codex"
+		s.MessageCount = 3
+		s.UserMessageCount = 1
+		s.ParentSessionID = Ptr("sub")
+		s.RelationshipType = "fork"
+	})
+
+	f := SessionFilter{
+		IncludeChildren: true,
+		Agent:           "codex",
+	}
+	// No codex session has relationship_type = '' (root), so
+	// the CTE has no seed and returns no rows.
+	requireSessions(t, d, f, []string{})
+}
+
 // TestIncludeChildrenNoFiltersExcludesOrphanChildren verifies
 // that the relationship guard applies even when no user
 // filters are active. The prior early-return on !hasFilters
