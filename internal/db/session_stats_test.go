@@ -503,10 +503,14 @@ func Test_computeTotalsAndArchetypes_flagAuthority(t *testing.T) {
 		id: "short-human", userMsgs: 1, startedAt: hoursAgo(1),
 		isAutomated: false,
 	})
-	// Automated session (userMsgs doesn't matter) — must count as
-	// automation, bucket as "automation".
+	// Automated session — bucket as "automation" regardless of its
+	// userMsgs shape. userMsgs=7 is chosen so that under the old
+	// heuristic this row would have landed in "standard", making the
+	// Archetypes.Quick == 1 assertion a real regression guard: old
+	// code produces Quick=0, new code produces Quick=1 from the
+	// short-human fixture.
 	insertSessionFixture(t, d, sessionFixture{
-		id: "auto", userMsgs: 3, startedAt: hoursAgo(1),
+		id: "auto", userMsgs: 7, startedAt: hoursAgo(1),
 		isAutomated: true,
 	})
 
