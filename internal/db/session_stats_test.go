@@ -56,6 +56,36 @@ func hoursAgo(n int) string {
 		Format(time.RFC3339)
 }
 
+func Test_insertSessionFixture_isAutomated_patch(t *testing.T) {
+	d := testDB(t)
+	insertSessionFixture(t, d, sessionFixture{
+		id: "auto-1", userMsgs: 5, startedAt: hoursAgo(1),
+		isAutomated: true,
+	})
+	insertSessionFixture(t, d, sessionFixture{
+		id: "human-1", userMsgs: 1, startedAt: hoursAgo(1),
+		isAutomated: false,
+	})
+
+	var autoFlag, humanFlag int
+	if err := d.getReader().QueryRow(
+		"SELECT is_automated FROM sessions WHERE id = ?", "auto-1",
+	).Scan(&autoFlag); err != nil {
+		t.Fatalf("read auto-1: %v", err)
+	}
+	if err := d.getReader().QueryRow(
+		"SELECT is_automated FROM sessions WHERE id = ?", "human-1",
+	).Scan(&humanFlag); err != nil {
+		t.Fatalf("read human-1: %v", err)
+	}
+	if autoFlag != 1 {
+		t.Fatalf("auto-1 is_automated = %d, want 1", autoFlag)
+	}
+	if humanFlag != 0 {
+		t.Fatalf("human-1 is_automated = %d, want 0", humanFlag)
+	}
+}
+
 // insertSessionFixture inserts a sessionFixture via the standard
 // UpsertSession path so triggers and defaults stay authoritative.
 // Defaults mirror insertSession in db_test.go (machine=local,
@@ -115,6 +145,24 @@ func insertSessionFixture(t *testing.T, d *DB, f sessionFixture) {
 		s.Cwd = f.cwd
 	})
 	seedAssistantActivity(t, d, f.id, f.assistantTurns, f.totalToolCalls)
+
+	// UpsertSession recomputes is_automated from FirstMessage, so a
+	// fixture's f.isAutomated alone would be silently clobbered when
+	// no first message is set. Patch the column after the upsert so
+	// f.isAutomated is the authoritative value the stats pipeline
+	// reads. Test-only path; production ingest always flows through
+	// UpsertSession's classifier.
+	var want int
+	if f.isAutomated {
+		want = 1
+	}
+	if _, err := d.getWriter().Exec(
+		"UPDATE sessions SET is_automated = ? WHERE id = ?",
+		want, f.id,
+	); err != nil {
+		t.Fatalf("insertSessionFixture %s: patch is_automated: %v",
+			f.id, err)
+	}
 }
 
 // seedAssistantActivity inserts `turns` assistant messages and
