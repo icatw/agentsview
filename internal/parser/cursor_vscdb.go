@@ -294,8 +294,14 @@ type cursorToolFormerData struct {
 }
 
 func openCursorVscdb(dbPath string) (*sql.DB, error) {
-	dsn := dbPath +
-		"?mode=ro&_journal_mode=WAL&_busy_timeout=3000"
+	// mode=ro avoids racing Cursor's writer; _busy_timeout
+	// retries briefly when Cursor holds a SHARED lock.
+	// _journal_mode is intentionally not forced — Cursor
+	// already runs in WAL, and forcing it here would require
+	// a write that fails under mode=ro.
+	dsn := cursorVscdbDSN(
+		dbPath, "mode=ro&_busy_timeout=3000",
+	)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -303,6 +309,29 @@ func openCursorVscdb(dbPath string) (*sql.DB, error) {
 		)
 	}
 	return db, nil
+}
+
+// cursorVscdbDSN builds a SQLite file: URI for the given path
+// with the supplied query parameters. Going through a proper
+// URI (rather than `path?params` concatenation) ensures any
+// `?`, `#`, or `%` characters in the filesystem path are
+// percent-encoded instead of being parsed by the SQLite driver
+// as part of the DSN query string. Forward slashes are used
+// regardless of OS so the URI matches RFC 3986.
+func cursorVscdbDSN(dbPath, rawQuery string) string {
+	p := filepath.ToSlash(dbPath)
+	// Ensure a leading slash so url.URL serializes as
+	// "file:///path" or "file:///C:/path" rather than
+	// "file://C:/path", which omits the host component.
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	u := &url.URL{
+		Scheme:   "file",
+		Path:     p,
+		RawQuery: rawQuery,
+	}
+	return u.String()
 }
 
 // loadCursorWorkspaceProjects scans workspaceStorage directories
@@ -420,7 +449,7 @@ func extractWorkspaceComposerIDs(dirPath string) []string {
 
 	db, err := sql.Open(
 		"sqlite3",
-		dbPath+"?mode=ro&_busy_timeout=3000",
+		cursorVscdbDSN(dbPath, "mode=ro&_busy_timeout=3000"),
 	)
 	if err != nil {
 		return nil

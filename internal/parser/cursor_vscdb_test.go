@@ -449,6 +449,103 @@ func TestParseCursorVscdbSession_EmptySession(t *testing.T) {
 	}
 }
 
+func TestCursorVscdbDSN(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		rawQuery string
+		want     string
+	}{
+		{
+			name:     "plain-path",
+			path:     "/home/u/state.vscdb",
+			rawQuery: "mode=ro",
+			want:     "file:///home/u/state.vscdb?mode=ro",
+		},
+		{
+			name:     "path-with-question-mark",
+			path:     "/tmp/foo?bar/state.vscdb",
+			rawQuery: "mode=ro",
+			want:     "file:///tmp/foo%3Fbar/state.vscdb?mode=ro",
+		},
+		{
+			name:     "path-with-hash",
+			path:     "/tmp/foo#bar/state.vscdb",
+			rawQuery: "mode=ro&_busy_timeout=3000",
+			want:     "file:///tmp/foo%23bar/state.vscdb?mode=ro&_busy_timeout=3000",
+		},
+		{
+			name:     "path-with-percent",
+			path:     "/tmp/has%20space/state.vscdb",
+			rawQuery: "mode=ro",
+			want:     "file:///tmp/has%2520space/state.vscdb?mode=ro",
+		},
+		{
+			name:     "path-with-space",
+			path:     "/home/u/My Cursor/state.vscdb",
+			rawQuery: "mode=ro",
+			want:     "file:///home/u/My%20Cursor/state.vscdb?mode=ro",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("posix path expectations")
+			}
+			got := cursorVscdbDSN(tt.path, tt.rawQuery)
+			if got != tt.want {
+				t.Errorf(
+					"cursorVscdbDSN(%q, %q) = %q, want %q",
+					tt.path, tt.rawQuery, got, tt.want,
+				)
+			}
+		})
+	}
+}
+
+func TestOpenCursorVscdb_PathWithSpecialChars(t *testing.T) {
+	// Verify openCursorVscdb opens DBs whose path contains
+	// characters that would otherwise be parsed by the
+	// sqlite3 driver as DSN separators when concatenated raw.
+	if runtime.GOOS == "windows" {
+		t.Skip("'?' and '#' are not valid in Windows filenames")
+	}
+	parent := filepath.Join(t.TempDir(), "weird?#dir")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	dbPath := filepath.Join(parent, "state.vscdb")
+	// Bootstrap the DB through the same DSN helper so the
+	// file lands at the intended path; sql.Open with a raw
+	// path containing '?' would otherwise be split by the
+	// sqlite3 driver.
+	dsn := cursorVscdbDSN(dbPath, "")
+	d, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatalf("bootstrap open: %v", err)
+	}
+	if _, err := d.Exec(`CREATE TABLE cursorDiskKV (
+		key TEXT UNIQUE ON CONFLICT REPLACE,
+		value BLOB
+	)`); err != nil {
+		d.Close()
+		t.Fatalf("bootstrap exec: %v", err)
+	}
+	d.Close()
+
+	got, err := openCursorVscdb(dbPath)
+	if err != nil {
+		t.Fatalf("openCursorVscdb: %v", err)
+	}
+	defer got.Close()
+	var n int
+	if err := got.QueryRow(
+		"SELECT COUNT(*) FROM cursorDiskKV",
+	).Scan(&n); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+}
+
 func TestFileURLToPath(t *testing.T) {
 	tests := []struct {
 		name string
