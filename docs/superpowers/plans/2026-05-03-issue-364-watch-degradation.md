@@ -80,6 +80,7 @@ func TestWatchRecursiveBudget_DegradesWhenBudgetExhausted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
+	w.Start()
 	t.Cleanup(func() { w.Stop() })
 	w.setRecursiveWatchBudgetForTest(3)
 
