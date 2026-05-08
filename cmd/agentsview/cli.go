@@ -413,9 +413,8 @@ func printVersion(w io.Writer) {
 
 func writeRootHelp(w io.Writer, root *cobra.Command) {
 	fmt.Fprintf(w, "agentsview %s - local web viewer for AI agent sessions\n\n", version)
-	fmt.Fprintln(w, "Syncs Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode,")
-	fmt.Fprintln(w, "Cursor, Amp, and Piebald session data into SQLite, serves analytics,")
-	fmt.Fprintln(w, "and exposes session browser via local web UI.")
+	fmt.Fprintln(w, "Syncs session data from supported AI coding agents into SQLite,")
+	fmt.Fprintln(w, "serves analytics, and exposes a session browser via local web UI.")
 	fmt.Fprintln(w)
 	renderRootUsage(w, root)
 	fmt.Fprintln(w)
