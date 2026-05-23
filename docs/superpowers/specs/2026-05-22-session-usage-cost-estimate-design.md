@@ -46,9 +46,14 @@ roborev currently shells out to `agentsview token-use <id>` to display
   usage_events). `GetTopSessionsByCost` aggregates per-session cost over a
   **date range**, with Claude `message.id + request.id` dedup across
   fork/subagent boundaries. There is no single-session lookup today.
-- `model_pricing` is always populated: `seedPricing()` (called from
-  `cmd/agentsview/main.go`) upserts `pricing.FallbackPricing()` synchronously
-  and refreshes from LiteLLM in the background. Works offline.
+- `model_pricing` is seeded by `seedPricing()` (fallback synchronously, LiteLLM
+  in the background) and by the `usage` command's `ensurePricing()` — **but only
+  in the server-startup path and the `usage`/`pg` commands**. The `token-use`
+  direct-DB path (`db.Open` at `token_use.go:231`) seeds nothing and applies no
+  custom rates, because token-use never computed cost. `session usage` adds
+  cost, so it must seed pricing itself (see Design §2). `loadPricingMap` also
+  merges `db.customPricing`, set via `SetCustomPricing` from
+  `cfg.CustomModelPricing`.
 - **Trap (per review):** `usageAmounts()` reads `pricing[r.model]`, which
   returns a zero-value `modelRates` for an unknown model — so a missing price
   silently contributes `$0` rather than signalling "unpriced". New code must do
@@ -154,16 +159,31 @@ Behavior:
      `tokens × rates` and mark priced. If not `ok`, mark the row unpriced and
      record its model in `UnpricedModels`.
    - Collect distinct contributing models into `Models` (sorted).
-1. **`HasCost` semantics:** `true` iff there is at least one cost-contributing
-   row **and every** cost-contributing row was priced or had an explicit
-   `cost_usd`. If any contributing model is unpriced, `HasCost = false` and
-   `UnpricedModels` is populated. `CostUSD` carries the computed (possibly
-   partial) sum, but consumers MUST gate display on `HasCost` so a partial total
-   is never shown silently. A session with no cost-contributing rows yields
-   `HasCost = false`, `CostUSD = 0` (the "not available for this agent" case).
+1. **`HasCost` / `CostUSD` semantics:** `HasCost` is `true` iff there is at
+   least one cost-contributing row **and every** cost-contributing row was
+   priced or had an explicit `cost_usd`. `CostUSD` is the full total **only when
+   `HasCost` is true; otherwise it is forced to `0`** — we never emit a partial
+   total, so a downstream consumer that ignores `HasCost` still cannot read a
+   misleadingly-low number. The diagnostic is preserved in `UnpricedModels`:
+   - empty + `HasCost:false` → no cost data at all ("not available for this
+     agent/model").
+   - populated + `HasCost:false` → some models were priced but others not; the
+     partial total is intentionally suppressed (`CostUSD = 0`).
 
 The per-row cost+priced logic is a small focused helper; `usageAmounts()` (used
 by the hot daily/top-sessions paths) is left untouched.
+
+**Dedup scope (intentional, per review).** `GetTopSessionsByCost` dedups Claude
+`message.id + request.id` across the *entire* queried row set, so a row shared
+across a fork/subagent boundary is credited to whichever session sorts first.
+`session usage` filters to the target session first and dedups only *within*
+that session — it reports the target session's **own** usage, which can exceed
+its dashboard-"credited" share for forked/subagent sessions. This is deliberate:
+"credit" is defined relative to a queried set and date range, neither of which
+exists for an all-time single-session lookup; the self-contained per-session
+total is well-defined, matches roborev's fetch (fresh, non-resumed sessions
+only), and avoids scanning unrelated sessions on every call. The command help
+states this so the divergence is not surprising.
 
 ### 2. agentsview — `session usage <id>` command
 
@@ -175,16 +195,46 @@ New `cmd/agentsview/session_usage.go`, registered on the `session` group in
 - Resolution + on-demand sync identical to today's `token-use` (resolve raw ID,
   detect daemon, wait for startup, `SyncSingleSession` when no daemon owns the
   DB). This is the behavior roborev relies on and must not change.
+
+- **Pricing setup (required, per review).** The direct path opens SQLite via
+  `db.Open`, which — unlike `openDB` — does not apply custom pricing or seed
+  `model_pricing`. Before calling `GetSessionUsage`, the shared path MUST
+  `applyCustomPricing(db, cfg)` and synchronously ensure fallback pricing.
+  Factor the `_fallback_version`-guarded fallback upsert out of `seedPricing`
+  into a reusable helper that does **no** LiteLLM network fetch — this keeps the
+  hot path offline-safe, adds no latency to roborev's 10s-budget call, and does
+  not clobber the richer LiteLLM rows a running server may have written (the
+  guard skips the upsert when the version already matches). Without this, a
+  fresh CLI-only data dir would report `has_cost:false` for models that are in
+  the fallback catalog.
+
 - `--format` is inherited from the `session` group (default `human`). roborev
   passes `--format json` explicitly.
+
 - JSON output embeds `SessionUsage` and adds `server_running` (the command knows
   the transport/sync state; the DB method does not). The result is a strict
   superset of today's `token-use` JSON.
+
 - Human output: a compact key/value summary (Output, Peak ctx, Cost). Cost line
   shows `~$0.42 (claude-opus-4-6)` when `HasCost`, else `n/a` (with
   `unpriced: <models>` when applicable).
-- Exit codes mirror `token-use`: 0 = token data present, 2 = not found, 3 =
-  session exists but no token data.
+
+- **Exit codes (cost-aware, per review).** A thin cobra `Run` wrapper (not
+  `RunE`) calls the shared core and `os.Exit`s with its code, mirroring
+  `token-use` — cobra `RunE` errors all collapse to exit 1 via `main`'s `fatal`,
+  which would lose the 2/3 codes. The wrapper reads `--format` from the
+  inherited persistent flag. Codes:
+
+  - `0` — session found AND (`HasTokenData` OR `HasCost`). Useful JSON on
+    stdout.
+  - `2` — session not found.
+  - `3` — session found but neither token data nor cost.
+  - `1` — operational error.
+
+  Exit `3` therefore **never** co-occurs with `has_cost:true`: a cost-only
+  session (e.g. Hermes via `usage_events.cost_usd` with zero session-level token
+  aggregates) returns `0`, so roborev does not discard its cost. As today, JSON
+  is still written to stdout on exit `3` (with zeros).
 
 ### 3. agentsview — deprecate `token-use`
 
@@ -210,6 +260,15 @@ New `cmd/agentsview/session_usage.go`, registered on the `session` group in
   - `>= {0,15,0}` and `< {0,30,0}` → `token-use <id>` (tokens only, no cost).
     This is graceful: roborev keeps working on older agentsview, gains cost when
     new enough. No regression.
+- **Fix exit-code handling (existing bug, per review).** `FetchForSession`
+  currently special-cases exit `1` for not-found, but agentsview has always used
+  `2` (not found) and `3` (no data) — so not-found/no-data sessions surface as
+  hard errors today. Rework it to: capture stdout even on `*exec.ExitError`;
+  treat exit `2` and `3` as "usage unavailable" → return `(nil, nil)` (no error,
+  no log noise); on exit `0`, parse JSON and return `Usage` when tokens > 0 OR
+  `HasCost`; return an error only for exit `1` / unexpected codes /
+  non-ExitError failures. Applies uniformly to the `session usage` and legacy
+  `token-use` invocations.
 - Extend the parsed response and stored `Usage` with cost fields:
 
 ```go
@@ -268,23 +327,31 @@ agentsview:
 - `GetSessionUsage` table-driven unit tests (`internal/db`, `testDB(t)`, seed
   sessions + messages + `model_pricing`):
   - priced single model → `HasCost true`, expected `CostUSD`.
-  - unpriced model → `HasCost false`, `UnpricedModels` set, no silent total.
-  - mixed priced + unpriced → `HasCost false`, `UnpricedModels` lists the
-    unpriced one.
-  - explicit `usage_events.cost_usd` → uses reported cost, `HasCost true`.
+  - unpriced model → `HasCost false`, `CostUSD 0`, `UnpricedModels` set.
+  - mixed priced + unpriced → `HasCost false`, `CostUSD 0` (partial suppressed),
+    `UnpricedModels` lists the unpriced one.
+  - explicit `usage_events.cost_usd`, zero session-level token aggregates →
+    `HasCost true`, `CostUSD` = reported (the cost-only / Hermes case).
   - session with session-level token aggregates but no `token_usage` rows →
     metadata + `total_output_tokens` / `peak_context_tokens` preserved,
     `HasCost false`.
   - session not found → `(nil, nil)`.
+- Pricing-seed test: on a `db.Open`-only handle with an empty `model_pricing`
+  table, the shared usage path seeds fallback and a fallback-catalog model (e.g.
+  `claude-opus-4-6`) prices to `HasCost true`; custom rates from
+  `cfg.CustomModelPricing` are applied.
 - `session usage` CLI test: JSON shape + human format; on-demand sync path; exit
-  codes; `token-use` still emits unchanged stdout JSON plus the stderr
-  deprecation notice.
+  `0` (tokens or cost), `2` (not found), `3` (neither); cost-only session → exit
+  `0` with `has_cost:true`; `token-use` still emits unchanged stdout JSON plus
+  the stderr deprecation notice.
 
 roborev:
 
 - `tokens` unit tests: parse response with/without cost; `FormatSummary`
   with/without cost; version-based command selection (`session usage` vs
-  `token-use` vs unsupported).
+  `token-use` vs unsupported); exit-code handling — exit `2` and `3` →
+  `(nil, nil)` (unavailable), exit `1` → error, exit `0` with cost → `Usage`
+  carrying `CostUSD`/`HasCost`.
 - Live end-to-end: run a roborev review against an agentsview build from this
   branch and confirm `~$X.XX` renders in `show` and the TUI.
 
@@ -300,3 +367,17 @@ roborev:
 - Display: `~$0.42` in roborev; numeric `cost_usd` in JSON.
 - JSON scope: lean; only optional diagnostic field is `unpriced_models`.
 - roborev invokes JSON explicitly: `session --format json usage <id>`.
+- Dedup scope: `session usage` reports the target session's **own** usage
+  (intra-session dedup only), intentionally diverging from the dashboard's
+  cross-session credited total — well-defined for an all-time single-session
+  lookup and matches roborev's usage. (Review finding 1.)
+- Pricing on the direct path: the shared usage path applies custom pricing and
+  synchronously seeds fallback (no network) before `GetSessionUsage`, so fresh
+  CLI-only data dirs still price fallback-catalog models. (Review finding 2.)
+- Exit codes are cost-aware: `0` when token data **or** cost is present, so a
+  cost-only session is never hidden behind exit `3`; roborev treats `2`/`3` as
+  "unavailable" rather than errors (fixing an existing not-found bug). (Review
+  finding 3.)
+- Partial cost: when `HasCost` is false, `CostUSD` is forced to `0` (no partial
+  total emitted); `UnpricedModels` carries the diagnostic. (Review open question
+  — chose zeroing over carrying the partial, to prevent downstream misuse.)
