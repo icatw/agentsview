@@ -337,6 +337,38 @@ describe("SessionsStore", () => {
       );
     });
 
+    it("clears stale display names from hydrated rows when the index has none", async () => {
+      mockSidebarIndex([
+        makeSkinnyRow({
+          id: "renamed",
+          display_name: "Old custom name",
+        }),
+      ]);
+      vi.mocked(api.getSession).mockResolvedValue(
+        makeSession({
+          id: "renamed",
+          display_name: "Old custom name",
+          first_message: "hydrated detail",
+        }),
+      );
+
+      await sessions.load();
+      await sessions.hydrateVisibleSessions(["renamed"]);
+      expect(sessions.sessions[0]!.display_name).toBe("Old custom name");
+
+      mockSidebarIndex([
+        makeSkinnyRow({
+          id: "renamed",
+          display_name: null,
+        }),
+      ]);
+      await sessions.load();
+
+      expect(sessions.sessions[0]!.display_name).toBeNull();
+      expect(sessions.sessions[0]!.first_message).toBe("hydrated detail");
+      expect(sessions.sessions[0]!.is_index_only).toBe(false);
+    });
+
     it("merges hydrated full rows without changing index order", async () => {
       mockSidebarIndex([
         makeSkinnyRow({ id: "second" }),

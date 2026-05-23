@@ -1058,7 +1058,7 @@ function sidebarIndexRowToSession(
     project: skinny.project,
     machine: skinny.machine,
     agent: skinny.agent,
-    display_name: skinny.display_name ?? existing.display_name,
+    display_name: skinny.display_name,
     started_at: skinny.started_at,
     ended_at: skinny.ended_at,
     message_count: skinny.message_count,
