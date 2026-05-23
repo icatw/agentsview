@@ -376,6 +376,49 @@ describe('MessagesStore', () => {
     );
   });
 
+  it('should refresh the loaded tail when reload count is unchanged', async () => {
+    vi.mocked(api.getSession).mockResolvedValue(
+      makeSession('s1', 2),
+    );
+    vi.mocked(api.getMessages).mockResolvedValueOnce(
+      makeMessagesResponse([makeMessage(0), makeMessage(1)]),
+    );
+
+    await messages.loadSession('s1');
+    expect(messages.messages[1]!.content).toBe('msg 1');
+
+    const updated = {
+      ...makeMessage(1),
+      content: 'msg 1 streamed content',
+      content_length: 'msg 1 streamed content'.length,
+    };
+    vi.mocked(api.getSession).mockResolvedValueOnce(
+      makeSession('s1', 2),
+    );
+    vi.mocked(api.getMessages).mockResolvedValueOnce(
+      makeMessagesResponse([updated]),
+    );
+
+    await messages.reload();
+
+    expect(messages.messageCount).toBe(2);
+    expect(messages.messages).toHaveLength(2);
+    expect(messages.messages[1]!.content).toBe(
+      'msg 1 streamed content',
+    );
+    expect(vi.mocked(api.getMessages)).toHaveBeenLastCalledWith(
+      's1',
+      expect.objectContaining({
+        from: 1,
+        limit: 1000,
+        direction: 'asc',
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
   it('should not update messageCount prematurely if incremental fetch fails and triggers full reload', async () => {
     // 1. Initial State: Session 's1' with 2 messages
     vi.mocked(api.getSession).mockResolvedValue(
