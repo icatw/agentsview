@@ -34,6 +34,19 @@ func (s *Store) ListSecretFindings(
 	if f.Confidence != "" && f.Confidence != "all" {
 		add("sf.confidence =", f.Confidence)
 	}
+	if len(f.RulesVersions) > 0 {
+		var versionParams []string
+		for _, v := range f.RulesVersions {
+			if v == "" {
+				continue
+			}
+			versionParams = append(versionParams, pb.add(v))
+		}
+		if len(versionParams) > 0 {
+			preds = append(preds,
+				"sf.rules_version IN ("+strings.Join(versionParams, ",")+")")
+		}
+	}
 	if f.DateFrom != "" {
 		preds = append(preds,
 			"DATE(COALESCE(s.started_at, s.created_at) AT TIME ZONE 'UTC') >= "+

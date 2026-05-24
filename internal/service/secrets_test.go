@@ -14,6 +14,7 @@ import (
 
 	"go.kenn.io/agentsview/internal/db"
 	"go.kenn.io/agentsview/internal/dbtest"
+	"go.kenn.io/agentsview/internal/secrets"
 	"go.kenn.io/agentsview/internal/service"
 )
 
@@ -69,7 +70,7 @@ func TestDirectListSecretsConfidenceDefault(t *testing.T) {
 		{SessionID: "x1", RuleName: "high-entropy-assignment", Confidence: "candidate",
 			LocationKind: "message", MessageOrdinal: 0,
 			MatchStart: 29, MatchEnd: 50, MatchIndex: 1, RedactedMatch: "…789jkl"},
-	}, 1, "v1"))
+	}, 1, secrets.RulesVersion()))
 	be := service.NewDirectBackend(d, nil)
 
 	cases := []struct {
@@ -94,6 +95,41 @@ func TestDirectListSecretsConfidenceDefault(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDirectListSecretsHidesStaleRulesVersions verifies that list output is
+// tied to the current scanner. Stored findings from older rule/fixture-deny
+// versions must not keep surfacing after the scanner has learned to suppress
+// them; backfill will rewrite the stored rows, but listing should fail closed
+// before that happens.
+func TestDirectListSecretsHidesStaleRulesVersions(t *testing.T) {
+	t.Parallel()
+	d := dbtest.OpenTestDB(t)
+	token := strings.Join([]string{
+		"ghp_", "M7qL8r", "P2sT5u", "V9wX3y",
+		"Z6aB1c", "D4eF7g", "H0iJ2k",
+	}, "")
+	content := "token=" + token
+	start := strings.Index(content, token)
+	dbtest.SeedSession(t, d, "x1", "proj", func(s *db.Session) {
+		s.MessageCount = 1
+		s.UserMessageCount = 1
+	})
+	require.NoError(t, d.InsertMessages([]db.Message{
+		dbtest.UserMsg("x1", 0, content),
+	}))
+	require.NoError(t, d.ReplaceSessionSecretFindings("x1", []db.SecretFinding{{
+		SessionID: "x1", RuleName: "github-pat", Confidence: "definite",
+		LocationKind: "message", MessageOrdinal: 0,
+		MatchStart: start, MatchEnd: start + len(token),
+		MatchIndex: 0, RedactedMatch: "ghp_…iJ2k",
+	}}, 1, "old-rules"))
+	be := service.NewDirectBackend(d, nil)
+
+	page, err := be.ListSecrets(context.Background(),
+		service.SecretListFilter{Limit: 50})
+	require.NoError(t, err)
+	require.Empty(t, page.Findings)
 }
 
 func TestDirectScanSecretsReadOnly(t *testing.T) {
@@ -134,7 +170,7 @@ func TestDirectListSecretsReveal(t *testing.T) {
 			LocationKind: "message", MessageOrdinal: 0,
 			MatchStart: 0, MatchEnd: 5,
 			MatchIndex: 0, RedactedMatch: "my ke"},
-	}, 1, "v1"))
+	}, 1, secrets.RulesVersion()))
 	be := service.NewDirectBackend(d, nil)
 
 	// Default: never the full secret.

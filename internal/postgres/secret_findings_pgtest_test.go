@@ -197,6 +197,38 @@ func TestPGListSecretFindings(t *testing.T) {
 		}
 	}
 
+	// Rules-version filter.
+	current, err := store.ListSecretFindings(ctx,
+		db.SecretFindingFilter{RulesVersions: []string{"v1"}, Limit: 50})
+	if err != nil {
+		t.Fatalf("ListSecretFindings rules version filter: %v", err)
+	}
+	foundS1, foundS2 = false, false
+	for _, f := range current.Findings {
+		if f.RulesVersion != "v1" {
+			t.Errorf("rules version filter leak: got %q", f.RulesVersion)
+		}
+		if f.SessionID == "sf-s1" {
+			foundS1 = true
+		}
+		if f.SessionID == "sf-s2" {
+			foundS2 = true
+		}
+	}
+	if !foundS1 || !foundS2 {
+		t.Errorf("rules version filter foundS1=%v foundS2=%v", foundS1, foundS2)
+	}
+	stale, err := store.ListSecretFindings(ctx,
+		db.SecretFindingFilter{RulesVersions: []string{"v2"}, Limit: 50})
+	if err != nil {
+		t.Fatalf("ListSecretFindings stale rules version filter: %v", err)
+	}
+	for _, f := range stale.Findings {
+		if f.SessionID == "sf-s1" || f.SessionID == "sf-s2" {
+			t.Errorf("stale rules version filter returned %s", f.SessionID)
+		}
+	}
+
 	// Rule filter.
 	jwt, err := store.ListSecretFindings(ctx,
 		db.SecretFindingFilter{Rule: "jwt", Limit: 50})

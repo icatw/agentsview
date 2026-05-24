@@ -46,9 +46,12 @@ func TestSecretsScan_DirectMode_Scans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	secret := strings.Join([]string{
+		"AKIA", "5GTK", "D7RP", "YNXQ", "VMBL",
+	}, "")
 	if err := d.InsertMessages([]db.Message{{
 		SessionID: "leaky", Ordinal: 0, Role: "user",
-		Content: "my key AKIA7QHWN2DKR4FYPLJM here",
+		Content: "my key " + secret + " here",
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +74,47 @@ func TestSecretsScan_DirectMode_Scans(t *testing.T) {
 	}
 	if got.Scanned < 1 || got.WithSecrets < 1 || got.TotalFindings < 1 {
 		t.Errorf("expected the seeded secret to be found, got %+v", got)
+	}
+}
+
+func TestSecretsScan_DirectMode_DeniesAgentsviewFixtures(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
+	seedSession(t, dataDir, "fixture", "proj")
+
+	d, err := db.Open(filepath.Join(dataDir, "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := strings.Join([]string{
+		"ghp_", "M7qL8r", "P2sT5u", "V9wX3y",
+		"Z6aB1c", "D4eF7g", "H0iJ2k",
+	}, "")
+	if err := d.InsertMessages([]db.Message{{
+		SessionID: "fixture", Ordinal: 0, Role: "user",
+		Content: "fixture token " + secret,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := executeCommand(newRootCommand(),
+		"secrets", "scan", "--backfill", "--format", "json")
+	if err != nil {
+		t.Fatalf("secrets scan failed: %v", err)
+	}
+	var got struct {
+		Scanned       int `json:"scanned"`
+		WithSecrets   int `json:"with_secrets"`
+		TotalFindings int `json:"total_findings"`
+	}
+	if jerr := json.Unmarshal([]byte(out), &got); jerr != nil {
+		t.Fatalf("scan output not JSON: %q (%v)", out, jerr)
+	}
+	if got.Scanned != 1 || got.WithSecrets != 0 || got.TotalFindings != 0 {
+		t.Errorf("fixture should be suppressed, got %+v", got)
 	}
 }
 

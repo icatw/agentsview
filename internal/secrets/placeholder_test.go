@@ -288,12 +288,11 @@ func TestAcceptsAWSKeysWithRepeatedChars(t *testing.T) {
 }
 
 // TestFixtureDenyListSuppressesAgentsviewFixtures pins the production
-// deny-list path: when EnableFixtureDeny has been called, Scan drops
-// matches whose span is a literal value from agentsview's own test
-// fixtures (the values that flood scans of development conversations
-// recording the test source). Tests in this package leave the deny
-// off by default so they can verify positive rule paths against the
-// same fixtures.
+// deny-list path: when EnableFixtureDeny has been called, Scan drops matches
+// whose span hashes to agentsview's own test fixtures (the values that flood
+// scans of development conversations recording the test source). Tests in this
+// package leave the deny off by default so they can verify positive rule paths
+// against the same fixtures.
 func TestFixtureDenyListSuppressesAgentsviewFixtures(t *testing.T) {
 	disableFixtureDenyForTest(func(f func()) { t.Cleanup(f) })
 	EnableFixtureDeny()
@@ -319,6 +318,26 @@ func TestFixtureDenyListSuppressesAgentsviewFixtures(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFixtureDenyListSuppressesHashedAgentsviewFixtures verifies that
+// production fixture suppression can cover historical transcript fixtures
+// without committing the raw secret-shaped literal into the source tree.
+func TestFixtureDenyListSuppressesHashedAgentsviewFixtures(t *testing.T) {
+	disableFixtureDenyForTest(func(f func()) { t.Cleanup(f) })
+	EnableFixtureDeny()
+	t.Cleanup(func() { fixtureDenyEnabled.Store(false) })
+
+	token := strings.Join([]string{
+		"ghp_", "M7qL8r", "P2sT5u", "V9wX3y",
+		"Z6aB1c", "D4eF7g", "H0iJ2k",
+	}, "")
+	for _, m := range Scan("token=" + token + " end") {
+		if m.Confidence == ConfidenceDefinite {
+			t.Errorf("deny-list let through hashed fixture: rule=%s mask=%s",
+				m.Rule, m.Redacted)
+		}
 	}
 }
 

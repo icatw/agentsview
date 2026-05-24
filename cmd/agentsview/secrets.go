@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+	"go.kenn.io/agentsview/internal/secrets"
 	"go.kenn.io/agentsview/internal/service"
 )
 
@@ -40,6 +41,10 @@ func newSecretsScanCommand() *cobra.Command {
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Defense in depth: main enables this for normal binaries, but
+			// command-level wiring keeps ad-hoc command execution from scanning
+			// agentsview's own fixtures as leaks.
+			secrets.EnableFixtureDeny()
 			svc, cleanup, err := resolveWritableService(cmd)
 			if err != nil {
 				return err

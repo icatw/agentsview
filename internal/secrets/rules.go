@@ -479,11 +479,14 @@ func looksLikePEMHeaderStart(body string) bool {
 // AWS validators call bodyHasNoPlaceholderShape so the 16-char base32
 // body doesn't trip the gate by birthday-paradox luck.
 //
-// v4: added agentsviewTestFixtures deny-list. Scan and ScanDefinite
-// drop matches whose span is a literal value from agentsview's own
-// test files, so a development conversation that recorded a fixture
-// doesn't report it as a definite leak on subsequent scans.
-const rulesAlgorithmVersion = 4
+// v4: added agentsviewTestFixtures deny-list. Scan and ScanDefinite drop
+// matches from agentsview's own test files, so a development conversation that
+// recorded a fixture doesn't report it as a definite leak on subsequent scans.
+//
+// v5: store and match fixture deny-list entries by SHA-256 hash, include those
+// hashes in RulesVersion, and add historical transcript fixture hashes without
+// committing the raw secret-shaped values.
+const rulesAlgorithmVersion = 5
 
 // Verify reports whether the named rule still produces a finding at exactly
 // [start:end) within source. Used by --reveal to confirm a stored finding's
@@ -521,6 +524,18 @@ func DefiniteRulesVersion() string {
 	return rulesVersion("definite", definiteRules)
 }
 
+// ActiveRulesVersions are the persisted scan versions that the current binary
+// considers fresh for listing. Full scans stamp RulesVersion; inline sync scans
+// stamp DefiniteRulesVersion. Both incorporate the fixture deny-list hashes.
+func ActiveRulesVersions() []string {
+	full := RulesVersion()
+	definite := DefiniteRulesVersion()
+	if full == definite {
+		return []string{full}
+	}
+	return []string{full, definite}
+}
+
 // rulesVersion hashes the algorithm version, a scope tag, and the given rules.
 // The scope tag guarantees the full and definite versions never collide even
 // if their rule lists were identical.
@@ -534,6 +549,9 @@ func rulesVersion(scope string, rs []rule) string {
 		for _, p := range r.prefilters {
 			fmt.Fprintf(h, "P\x1f%s\n", p)
 		}
+	}
+	for _, fixtureHash := range sortedAgentsviewFixtureHashes() {
+		fmt.Fprintf(h, "F\x1f%s\n", fixtureHash)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

@@ -253,6 +253,16 @@ func TestListSecretFindings(t *testing.T) {
 	if len(def.Findings) != 1 || def.Findings[0].RuleName != "aws-access-key" {
 		t.Fatalf("confidence filter = %+v", def.Findings)
 	}
+	current, _ := d.ListSecretFindings(context.Background(),
+		SecretFindingFilter{RulesVersions: []string{"v1"}, Limit: 50})
+	if len(current.Findings) != 2 {
+		t.Fatalf("rules version filter current = %+v", current.Findings)
+	}
+	stale, _ := d.ListSecretFindings(context.Background(),
+		SecretFindingFilter{RulesVersions: []string{"v2"}, Limit: 50})
+	if len(stale.Findings) != 0 {
+		t.Fatalf("rules version filter stale = %+v", stale.Findings)
+	}
 }
 
 // TestListSecretFindingsPagination walks pages with a small limit and asserts

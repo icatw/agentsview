@@ -429,7 +429,8 @@ func (b *directBackend) ListSecrets(
 		Project: f.Project, Agent: f.Agent,
 		DateFrom: f.DateFrom, DateTo: f.DateTo,
 		Rule: f.Rule, Confidence: confidence,
-		Limit: f.Limit, Cursor: f.Cursor,
+		RulesVersions: secrets.ActiveRulesVersions(),
+		Limit:         f.Limit, Cursor: f.Cursor,
 	})
 	if err != nil {
 		return nil, err

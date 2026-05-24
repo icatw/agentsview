@@ -33,8 +33,8 @@ type Match struct {
 // reported separately from the JWT). Redact, by contrast, masks every raw
 // span regardless of suppression.
 //
-// Matches whose span is a literal value from agentsview's own test
-// fixtures are dropped (see agentsviewTestFixtures); the filter
+// Matches whose span hashes to agentsview's own test fixture deny-list are
+// dropped (see agentsviewTestFixtureHashes); the filter
 // prevents a development conversation that recorded a fixture from
 // reporting it as a leak on every subsequent scan. Tests inside this
 // package opt out via disableFixtureDenyForTest.
@@ -71,7 +71,7 @@ func Scan(text string) []Match {
 // basic-auth URLs) entirely. Definite findings are never suppressed by Scan, so
 // the spans returned here are exactly the definite-confidence subset Scan would
 // report; only candidate findings are omitted. Applies the same
-// agentsview-test-fixture deny-list as Scan.
+// agentsview-test-fixture hash deny-list as Scan.
 func ScanDefinite(text string) []Match {
 	raw := scanRulesRaw(text, definiteRules)
 	kept := raw[:0]

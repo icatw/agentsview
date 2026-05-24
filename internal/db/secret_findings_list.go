@@ -14,8 +14,13 @@ type SecretFindingFilter struct {
 	DateTo     string
 	Rule       string
 	Confidence string // definite | candidate | "" (all)
-	Limit      int
-	Cursor     int
+	// RulesVersions, when non-empty, limits rows to findings produced by one
+	// of the currently accepted scanner versions. This lets service callers
+	// hide stale findings after rule/fixture-deny changes before a backfill has
+	// rewritten old rows.
+	RulesVersions []string
+	Limit         int
+	Cursor        int
 }
 
 // SecretFindingRow is a finding enriched with its session's project/agent.
@@ -52,6 +57,20 @@ func (db *DB) ListSecretFindings(
 	}
 	if f.Confidence != "" && f.Confidence != "all" {
 		add("sf.confidence = ?", f.Confidence)
+	}
+	if len(f.RulesVersions) > 0 {
+		placeholders := make([]string, 0, len(f.RulesVersions))
+		for _, v := range f.RulesVersions {
+			if v == "" {
+				continue
+			}
+			placeholders = append(placeholders, "?")
+			args = append(args, v)
+		}
+		if len(placeholders) > 0 {
+			preds = append(preds,
+				"sf.rules_version IN ("+strings.Join(placeholders, ",")+")")
+		}
 	}
 	if f.DateFrom != "" {
 		add("date(COALESCE(NULLIF(s.started_at, ''), s.created_at)) >= ?", f.DateFrom)
