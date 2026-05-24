@@ -159,6 +159,21 @@ type DB struct {
 	customPricing map[string]config.CustomModelRate
 }
 
+// Reader exposes guarded read-only query operations. It intentionally does
+// not expose the underlying *sql.DB so callers cannot retain a raw pool across
+// Reopen.
+type Reader interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryContext(
+		ctx context.Context, query string, args ...any,
+	) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+	QueryRowContext(
+		ctx context.Context, query string, args ...any,
+	) *sql.Row
+}
+
 type readerHandle struct {
 	owner *DB
 }
@@ -1537,9 +1552,9 @@ func (db *DB) Update(fn func(tx *sql.Tx) error) error {
 	return tx.Commit()
 }
 
-// Reader returns the read-only connection pool.
-func (db *DB) Reader() *sql.DB {
-	return db.rawReader()
+// Reader returns guarded read-only query access.
+func (db *DB) Reader() Reader {
+	return db.getReader()
 }
 
 // GetSyncState reads a value from the pg_sync_state table.

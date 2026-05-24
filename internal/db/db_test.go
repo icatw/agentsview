@@ -3564,11 +3564,11 @@ func TestConcurrentReadsWhileReopen(t *testing.T) {
 	}
 }
 
-func TestReaderHandleAcquiredBeforeReopenStaysUsable(t *testing.T) {
+func TestExportedReaderAcquiredBeforeReopenStaysUsable(t *testing.T) {
 	d := testDB(t)
 	insertSession(t, d, "s1", "proj")
 
-	reader := d.getReader()
+	reader := d.Reader()
 	for range 2 {
 		if err := d.Reopen(); err != nil {
 			t.Fatalf("Reopen: %v", err)
