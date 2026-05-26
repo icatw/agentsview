@@ -608,7 +608,7 @@ func TestStoreGetSessionActivity(t *testing.T) {
 	resp, err := store.GetSessionActivity(ctx, sid)
 	require.NoError(t, err, "GetSessionActivity")
 
-	assert.Equal(t, 60, resp.IntervalSeconds)
+	assert.Equal(t, int64(60), resp.IntervalSeconds)
 	assert.Equal(t, 7, resp.TotalMessages)
 	assert.GreaterOrEqual(t, len(resp.Buckets), 28, "bucket count")
 
@@ -774,7 +774,7 @@ func TestStoreGetSessionActivity_FractionalTimestamps(
 	resp, err := store.GetSessionActivity(ctx, sid)
 	require.NoError(t, err, "GetSessionActivity")
 
-	require.Equal(t, 60, resp.IntervalSeconds)
+	require.Equal(t, int64(60), resp.IntervalSeconds)
 	require.GreaterOrEqual(t, len(resp.Buckets), 2)
 
 	// First bucket should have both sub-second messages.
