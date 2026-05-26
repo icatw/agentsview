@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,6 +73,115 @@ fff000  yet_another.zip`
 	for _, tt := range tests {
 		t.Run(tt.filename, func(t *testing.T) {
 			assert.Equal(t, tt.want, extractChecksum(body, tt.filename))
+		})
+	}
+}
+
+func TestResolveLatestTag(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		location   string
+		wantTag    string
+		wantErrSub string
+	}{
+		{
+			name:     "valid 302 redirect",
+			status:   http.StatusFound,
+			location: "https://github.com/kenn-io/agentsview/releases/tag/v0.30.1",
+			wantTag:  "v0.30.1",
+		},
+		{
+			name:     "pre-release tag",
+			status:   http.StatusFound,
+			location: "https://github.com/kenn-io/agentsview/releases/tag/v0.9.0-rc1",
+			wantTag:  "v0.9.0-rc1",
+		},
+		{
+			name:       "200 OK is not a redirect",
+			status:     http.StatusOK,
+			wantErrSub: "expected redirect",
+		},
+		{
+			name:       "redirect target without /tag/",
+			status:     http.StatusFound,
+			location:   "https://github.com/kenn-io/agentsview/releases",
+			wantErrSub: "unexpected redirect target",
+		},
+		{
+			name:       "empty tag after /tag/",
+			status:     http.StatusFound,
+			location:   "https://github.com/kenn-io/agentsview/releases/tag/",
+			wantErrSub: "empty tag",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, _ *http.Request) {
+					if tt.location != "" {
+						w.Header().Set("Location", tt.location)
+					}
+					w.WriteHeader(tt.status)
+				},
+			))
+			defer srv.Close()
+
+			tag, err := resolveLatestTag(srv.URL)
+			if tt.wantErrSub != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTag, tag)
+		})
+	}
+}
+
+func TestFetchContentLength(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		bodySize   int
+		wantSize   int64
+		wantErrSub string
+	}{
+		{
+			name:     "200 with body",
+			status:   http.StatusOK,
+			bodySize: 1234,
+			wantSize: 1234,
+		},
+		{
+			name:       "404",
+			status:     http.StatusNotFound,
+			wantErrSub: "404",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, _ *http.Request) {
+					if tt.bodySize > 0 {
+						w.Header().Set(
+							"Content-Length",
+							fmt.Sprintf("%d", tt.bodySize),
+						)
+					}
+					w.WriteHeader(tt.status)
+				},
+			))
+			defer srv.Close()
+
+			size, err := fetchContentLength(srv.URL)
+			if tt.wantErrSub != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSize, size)
 		})
 	}
 }
