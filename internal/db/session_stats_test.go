@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // itoa is a thin alias for strconv.Itoa kept short so seedModelMessages'
@@ -78,12 +81,8 @@ func Test_insertSessionFixture_isAutomated_patch(t *testing.T) {
 	).Scan(&humanFlag); err != nil {
 		t.Fatalf("read human-1: %v", err)
 	}
-	if autoFlag != 1 {
-		t.Fatalf("auto-1 is_automated = %d, want 1", autoFlag)
-	}
-	if humanFlag != 0 {
-		t.Fatalf("human-1 is_automated = %d, want 0", humanFlag)
-	}
+	require.Equal(t, 1, autoFlag, "auto-1 is_automated")
+	require.Equal(t, 0, humanFlag, "human-1 is_automated")
 }
 
 func Test_loadSessionsInWindow_isAutomated(t *testing.T) {
@@ -101,19 +100,13 @@ func Test_loadSessionsInWindow_isAutomated(t *testing.T) {
 	from := time.Now().Add(-24 * time.Hour)
 	to := time.Now().Add(1 * time.Hour)
 	rows, err := d.loadSessionsInWindow(ctx, StatsFilter{}, from, to)
-	if err != nil {
-		t.Fatalf("loadSessionsInWindow: %v", err)
-	}
+	require.NoError(t, err, "loadSessionsInWindow")
 	byID := map[string]bool{}
 	for _, r := range rows {
 		byID[r.id] = r.isAutomated
 	}
-	if got, want := byID["auto"], true; got != want {
-		t.Fatalf("auto.isAutomated = %v, want %v", got, want)
-	}
-	if got, want := byID["human"], false; got != want {
-		t.Fatalf("human.isAutomated = %v, want %v", got, want)
-	}
+	require.Equal(t, true, byID["auto"], "auto.isAutomated")
+	require.Equal(t, false, byID["human"], "human.isAutomated")
 }
 
 // insertSessionFixture inserts a sessionFixture via the standard
@@ -400,13 +393,9 @@ func TestGetSessionStats_TotalsAndArchetypes(t *testing.T) {
 	}
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
-	if stats.SchemaVersion != 1 {
-		t.Errorf("schema_version: got %d want 1", stats.SchemaVersion)
-	}
+	assert.Equal(t, 1, stats.SchemaVersion, "schema_version: got")
 	if stats.Totals.SessionsAll != 5 {
 		t.Errorf("sessions_all: got %d want 5",
 			stats.Totals.SessionsAll)
@@ -465,9 +454,7 @@ func TestGetSessionStats_TotalsAndArchetypes(t *testing.T) {
 	}
 
 	// Window bookkeeping: Since = now-28d, Until = now, days = 28.
-	if stats.Window.Days != 28 {
-		t.Errorf("window.days: got %d want 28", stats.Window.Days)
-	}
+	assert.Equal(t, 28, stats.Window.Days, "window.days: got")
 	if stats.Window.Since == "" || stats.Window.Until == "" {
 		t.Errorf("window bounds empty: since=%q until=%q",
 			stats.Window.Since, stats.Window.Until)
@@ -515,23 +502,11 @@ func Test_computeTotalsAndArchetypes_flagAuthority(t *testing.T) {
 	})
 
 	got, err := d.GetSessionStats(t.Context(), StatsFilter{Since: "1d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
-	if got.Totals.SessionsHuman != 1 {
-		t.Fatalf("SessionsHuman = %d, want 1", got.Totals.SessionsHuman)
-	}
-	if got.Totals.SessionsAutomation != 1 {
-		t.Fatalf("SessionsAutomation = %d, want 1",
-			got.Totals.SessionsAutomation)
-	}
-	if got.Archetypes.Quick != 1 {
-		t.Fatalf("Archetypes.Quick = %d, want 1 (short non-automated)",
-			got.Archetypes.Quick)
-	}
-	if got.Archetypes.Automation != 1 {
-		t.Fatalf("Archetypes.Automation = %d, want 1", got.Archetypes.Automation)
-	}
+	require.NoError(t, err, "GetSessionStats")
+	require.Equal(t, 1, got.Totals.SessionsHuman, "SessionsHuman")
+	require.Equal(t, 1, got.Totals.SessionsAutomation, "SessionsAutomation")
+	require.Equal(t, 1, got.Archetypes.Quick, "Archetypes.Quick")
+	require.Equal(t, 1, got.Archetypes.Automation, "Archetypes.Automation")
 }
 
 func TestGetSessionStats_FilterByAgent(t *testing.T) {
@@ -548,9 +523,7 @@ func TestGetSessionStats_FilterByAgent(t *testing.T) {
 	})
 
 	all, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats all: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats all")
 	if all.Totals.SessionsAll != 2 {
 		t.Errorf("all agents: got %d want 2",
 			all.Totals.SessionsAll)
@@ -559,9 +532,7 @@ func TestGetSessionStats_FilterByAgent(t *testing.T) {
 	onlyClaude, err := d.GetSessionStats(
 		ctx, StatsFilter{Since: "28d", Agent: "claude"},
 	)
-	if err != nil {
-		t.Fatalf("GetSessionStats claude: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats claude")
 	if onlyClaude.Totals.SessionsAll != 1 {
 		t.Errorf("agent=claude: got %d want 1",
 			onlyClaude.Totals.SessionsAll)
@@ -589,9 +560,7 @@ func TestGetSessionStats_FilterByProject(t *testing.T) {
 		Since:           "28d",
 		IncludeProjects: []string{"alpha"},
 	})
-	if err != nil {
-		t.Fatalf("include alpha: %v", err)
-	}
+	require.NoError(t, err, "include alpha")
 	if includeAlpha.Totals.SessionsAll != 2 {
 		t.Errorf("include=alpha: got %d want 2",
 			includeAlpha.Totals.SessionsAll)
@@ -601,9 +570,7 @@ func TestGetSessionStats_FilterByProject(t *testing.T) {
 		Since:           "28d",
 		ExcludeProjects: []string{"alpha"},
 	})
-	if err != nil {
-		t.Fatalf("exclude alpha: %v", err)
-	}
+	require.NoError(t, err, "exclude alpha")
 	if excludeAlpha.Totals.SessionsAll != 2 {
 		t.Errorf("exclude=alpha: got %d want 2 (beta + gamma)",
 			excludeAlpha.Totals.SessionsAll)
@@ -616,12 +583,8 @@ func TestWindowBounds(t *testing.T) {
 
 	t.Run("default 28d", func(t *testing.T) {
 		from, to, days, err := windowBounds(StatsFilter{}, now)
-		if err != nil {
-			t.Fatalf("windowBounds: %v", err)
-		}
-		if days != 28 {
-			t.Errorf("days: got %d want 28", days)
-		}
+		require.NoError(t, err, "windowBounds")
+		assert.Equal(t, 28, days, "days: got")
 		if !to.Equal(now) {
 			t.Errorf("until: got %v want %v", to, now)
 		}
@@ -635,21 +598,15 @@ func TestWindowBounds(t *testing.T) {
 		_, _, days, err := windowBounds(
 			StatsFilter{Since: "7d"}, now,
 		)
-		if err != nil {
-			t.Fatalf("windowBounds: %v", err)
-		}
-		if days != 7 {
-			t.Errorf("days: got %d want 7", days)
-		}
+		require.NoError(t, err, "windowBounds")
+		assert.Equal(t, 7, days, "days: got")
 	})
 
 	t.Run("Nh duration", func(t *testing.T) {
 		from, to, _, err := windowBounds(
 			StatsFilter{Since: "48h"}, now,
 		)
-		if err != nil {
-			t.Fatalf("windowBounds: %v", err)
-		}
+		require.NoError(t, err, "windowBounds")
 		if got := to.Sub(from); got != 48*time.Hour {
 			t.Errorf("span: got %v want 48h", got)
 		}
@@ -659,9 +616,7 @@ func TestWindowBounds(t *testing.T) {
 		from, _, _, err := windowBounds(
 			StatsFilter{Since: "2026-04-01"}, now,
 		)
-		if err != nil {
-			t.Fatalf("windowBounds: %v", err)
-		}
+		require.NoError(t, err, "windowBounds")
 		if from.Year() != 2026 || from.Month() != 4 || from.Day() != 1 {
 			t.Errorf("since parsed: got %v want 2026-04-01", from)
 		}
@@ -714,9 +669,7 @@ func TestGetSessionStats_Distributions(t *testing.T) {
 	}
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	// duration scope_all: 0.5→bucket0, 0.9→bucket0, 10→bucket2,
 	// 25→bucket3, 120→bucket5 (top).
@@ -843,9 +796,7 @@ func Test_computeDistributions_scopeHuman_flag(t *testing.T) {
 	})
 
 	got, err := d.GetSessionStats(t.Context(), StatsFilter{Since: "1d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	// scope_all has both rows — mean ~= 16.5.
 	allMean := got.Distributions.DurationMinutes.ScopeAll.Mean
 	if allMean < 15 || allMean > 18 {
@@ -867,10 +818,7 @@ func Test_computeDistributions_scopeHuman_flag(t *testing.T) {
 	for _, bucket := range humanUserMessages.Buckets {
 		bucketedHumanMessages += bucket.Count
 	}
-	if bucketedHumanMessages != 0 {
-		t.Fatalf("scope_human user_messages bucket total = %d, want 0 (<2 filtered)",
-			bucketedHumanMessages)
-	}
+	require.Equal(t, 0, bucketedHumanMessages, "scope_human user_messages bucket total")
 }
 
 func TestGetSessionStats_Distributions_NullPeakContext(t *testing.T) {
@@ -904,9 +852,7 @@ func TestGetSessionStats_Distributions_NullPeakContext(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	pc := stats.Distributions.PeakContextTokens
 	if pc.NullCount != 1 {
@@ -997,9 +943,7 @@ func TestGetSessionStats_Velocity(t *testing.T) {
 		[]int{0, 30, 60, 80})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	// Turn cycle seconds, sorted = [5,10,15,20,30].
 	// percentileFloat: P50 idx=int(5*0.5)=2 → 15, P90 idx=4 → 30.
@@ -1046,9 +990,7 @@ func TestGetSessionStats_Velocity_Empty(t *testing.T) {
 	ctx := context.Background()
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	tc := stats.Velocity.TurnCycleSeconds
 	if tc.P50 != 0 || tc.P90 != 0 || tc.Mean != 0 {
@@ -1083,9 +1025,7 @@ func TestGetSessionStats_Velocity_SingleTurn(t *testing.T) {
 	seedVelocityMessages(t, d, "s1", start, []int{0, 60})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	tc := stats.Velocity.TurnCycleSeconds
 	if tc.P50 != 60.0 || tc.P90 != 60.0 {
@@ -1133,9 +1073,7 @@ func TestGetSessionStats_Velocity_ZeroActive(t *testing.T) {
 	seedVelocityMessages(t, d, "z1", start, []int{0, 0})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	if stats.Velocity.MessagesPerActiveHour != 0 {
 		t.Errorf("MessagesPerActiveHour: got %v want 0",
@@ -1189,9 +1127,7 @@ func TestGetSessionStats_ToolMixAndModelMix(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	wantCats := map[string]int{
 		"Bash": 3,
@@ -1285,9 +1221,7 @@ func TestGetSessionStats_ToolMixAndModelMix_Filters(t *testing.T) {
 	stats, err := d.GetSessionStats(ctx, StatsFilter{
 		Since: "28d", Agent: "claude",
 	})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	// Only in1's 2 tool_calls survive.
 	if stats.ToolMix.TotalCalls != 2 {
@@ -1326,9 +1260,7 @@ func TestGetSessionStats_ToolMixAndModelMix_Empty(t *testing.T) {
 	ctx := context.Background()
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.ToolMix.ByCategory == nil {
 		t.Errorf("ToolMix.ByCategory: got nil want non-nil map")
 	}
@@ -1392,9 +1324,7 @@ func TestGetSessionStats_AgentPortfolio(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	ap := stats.AgentPortfolio
 	wantSessions := map[string]int{"claude": 3, "codex": 2, "cursor": 1}
@@ -1458,9 +1388,7 @@ func TestGetSessionStats_AgentPortfolio_TieBreak(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.AgentPortfolio.BySessions["claude"] != 2 ||
 		stats.AgentPortfolio.BySessions["codex"] != 2 {
 		t.Fatalf("precondition: claude/codex must tie at 2 (got %v)",
@@ -1480,9 +1408,7 @@ func TestGetSessionStats_AgentPortfolio_Empty(t *testing.T) {
 	ctx := context.Background()
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	ap := stats.AgentPortfolio
 	if ap.BySessions == nil {
 		t.Errorf("BySessions: got nil want non-nil map")
@@ -1537,9 +1463,7 @@ func Test_computeAgentPortfolio_humanScoped(t *testing.T) {
 	})
 
 	got, err := d.GetSessionStats(t.Context(), StatsFilter{Since: "1d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	ap := got.AgentPortfolio
 
 	// All-sessions view: every agent present.
@@ -1549,9 +1473,7 @@ func Test_computeAgentPortfolio_humanScoped(t *testing.T) {
 			ap.BySessions)
 	}
 	// primary ties on count; lexicographic min wins → claude.
-	if ap.Primary != "claude" {
-		t.Fatalf("Primary = %q, want claude", ap.Primary)
-	}
+	require.Equal(t, "claude", ap.Primary, "Primary")
 
 	// Human-scoped view: only claude.
 	if _, ok := ap.BySessionsHuman["codex"]; ok {
@@ -1562,17 +1484,9 @@ func Test_computeAgentPortfolio_humanScoped(t *testing.T) {
 		t.Fatalf("BySessionsHuman must exclude gemini: %v",
 			ap.BySessionsHuman)
 	}
-	if ap.BySessionsHuman["claude"] != 1 {
-		t.Fatalf("BySessionsHuman[claude] = %d, want 1",
-			ap.BySessionsHuman["claude"])
-	}
-	if ap.ByTokensHuman["claude"] != 100 {
-		t.Fatalf("ByTokensHuman[claude] = %d, want 100",
-			ap.ByTokensHuman["claude"])
-	}
-	if ap.PrimaryHuman != "claude" {
-		t.Fatalf("PrimaryHuman = %q, want claude", ap.PrimaryHuman)
-	}
+	require.Equal(t, 1, ap.BySessionsHuman["claude"], "BySessionsHuman[claude]")
+	require.Equal(t, int64(100), ap.ByTokensHuman["claude"], "ByTokensHuman[claude]")
+	require.Equal(t, "claude", ap.PrimaryHuman, "PrimaryHuman")
 }
 
 // cacheTokenBreakdown names the four token dimensions the cache
@@ -1689,9 +1603,7 @@ func TestGetSessionStats_CacheEconomics(t *testing.T) {
 		})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 
 	ce := stats.CacheEconomics
 	if ce == nil {
@@ -1781,9 +1693,7 @@ func TestGetSessionStats_CacheEconomics_NoClaude(t *testing.T) {
 		cacheTokenBreakdown{input: 1000, output: 500})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.CacheEconomics != nil {
 		t.Errorf("CacheEconomics: got %+v want nil",
 			stats.CacheEconomics)
@@ -1827,9 +1737,7 @@ func TestGetSessionStats_CacheEconomics_ZeroDenominatorSkipped(t *testing.T) {
 		cacheTokenBreakdown{input: 0, output: 10, cacheRead: 0})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	ce := stats.CacheEconomics
 	if ce == nil {
 		t.Fatalf("CacheEconomics: got nil want populated")
@@ -1966,9 +1874,7 @@ func TestGetSessionStats_Temporal_HourlyGrouping(t *testing.T) {
 	)
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	hours := stats.Temporal.HourlyUTC
 	if len(hours) != 3 {
 		t.Fatalf("hourly_utc: got %d entries want 3 (%+v)",
@@ -1991,9 +1897,7 @@ func TestGetSessionStats_Temporal_HourlyGrouping(t *testing.T) {
 			t.Errorf("H-5 user_messages: got %d want 2",
 				e.UserMessages)
 		}
-		if e.Sessions != 1 {
-			t.Errorf("H-5 sessions: got %d want 1", e.Sessions)
-		}
+		assert.Equal(t, 1, e.Sessions, "H-5 sessions: got")
 	}
 	// H-4: 1 user message, 1 session.
 	if e := findHourlyUTC(hours, utcHourBoundary(4)); e == nil {
@@ -2003,9 +1907,7 @@ func TestGetSessionStats_Temporal_HourlyGrouping(t *testing.T) {
 			t.Errorf("H-4 user_messages: got %d want 1",
 				e.UserMessages)
 		}
-		if e.Sessions != 1 {
-			t.Errorf("H-4 sessions: got %d want 1", e.Sessions)
-		}
+		assert.Equal(t, 1, e.Sessions, "H-4 sessions: got")
 	}
 	// H-3: 2 user messages from 2 distinct sessions.
 	if e := findHourlyUTC(hours, utcHourBoundary(3)); e == nil {
@@ -2015,9 +1917,7 @@ func TestGetSessionStats_Temporal_HourlyGrouping(t *testing.T) {
 			t.Errorf("H-3 user_messages: got %d want 2",
 				e.UserMessages)
 		}
-		if e.Sessions != 2 {
-			t.Errorf("H-3 sessions: got %d want 2", e.Sessions)
-		}
+		assert.Equal(t, 2, e.Sessions, "H-3 sessions: got")
 	}
 }
 
@@ -2043,9 +1943,7 @@ func TestGetSessionStats_Temporal_MidnightBoundary(t *testing.T) {
 	)
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	beforeTS := before.Truncate(time.Hour).
 		Format("2006-01-02T15:00:00Z")
 	afterTS := after.Truncate(time.Hour).
@@ -2092,9 +1990,7 @@ func TestGetSessionStats_Temporal_OutOfWindowExcluded(t *testing.T) {
 	)
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "2d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	// Exactly one hour bucket, with a single user message (from "in").
 	if len(stats.Temporal.HourlyUTC) != 1 {
 		t.Fatalf("hourly_utc: got %d entries want 1 (%+v)",
@@ -2105,9 +2001,7 @@ func TestGetSessionStats_Temporal_OutOfWindowExcluded(t *testing.T) {
 		t.Errorf("in-window user_messages: got %d want 1",
 			got.UserMessages)
 	}
-	if got.Sessions != 1 {
-		t.Errorf("in-window sessions: got %d want 1", got.Sessions)
-	}
+	assert.Equal(t, 1, got.Sessions, "in-window sessions: got")
 }
 
 func TestGetSessionStats_Temporal_SessionsDistinctPerHour(t *testing.T) {
@@ -2128,9 +2022,7 @@ func TestGetSessionStats_Temporal_SessionsDistinctPerHour(t *testing.T) {
 	)
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if e := findHourlyUTC(
 		stats.Temporal.HourlyUTC, utcHourBoundary(6),
 	); e == nil {
@@ -2156,9 +2048,7 @@ func TestGetSessionStats_Temporal_SessionsDistinctPerHour(t *testing.T) {
 			t.Errorf("H-5 user_messages: got %d want 1",
 				e.UserMessages)
 		}
-		if e.Sessions != 1 {
-			t.Errorf("H-5 sessions: got %d want 1", e.Sessions)
-		}
+		assert.Equal(t, 1, e.Sessions, "H-5 sessions: got")
 	}
 }
 
@@ -2167,18 +2057,13 @@ func TestGetSessionStats_Temporal_EmptyWindowEmptySlice(t *testing.T) {
 	ctx := context.Background()
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.Temporal.HourlyUTC == nil {
 		t.Errorf(
 			"hourly_utc must be a non-nil empty slice, got nil",
 		)
 	}
-	if len(stats.Temporal.HourlyUTC) != 0 {
-		t.Errorf("hourly_utc: got len %d want 0",
-			len(stats.Temporal.HourlyUTC))
-	}
+	assert.Len(t, stats.Temporal.HourlyUTC, 0, "hourly_utc: got len")
 	// Reporter timezone should still be populated (claim in the spec).
 	if stats.Temporal.ReporterTimezone == "" {
 		t.Errorf("reporter_timezone must be populated even when " +
@@ -2186,9 +2071,7 @@ func TestGetSessionStats_Temporal_EmptyWindowEmptySlice(t *testing.T) {
 	}
 	// JSON encoding must emit [] not null.
 	raw, err := json.Marshal(stats.Temporal.HourlyUTC)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
+	require.NoError(t, err, "json.Marshal")
 	if string(raw) != "[]" {
 		t.Errorf("hourly_utc JSON: got %s want []", string(raw))
 	}
@@ -2202,9 +2085,7 @@ func TestGetSessionStats_Temporal_ReporterTimezone_FilterWins(t *testing.T) {
 		Since:    "28d",
 		Timezone: "America/New_York",
 	})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if got := stats.Temporal.ReporterTimezone; got != "America/New_York" {
 		t.Errorf("reporter_timezone: got %q want America/New_York",
 			got)
@@ -2222,9 +2103,8 @@ func TestReporterTimezone_Precedence(t *testing.T) {
 	})
 
 	// Filter wins over env.
-	if err := os.Setenv("TZ", "Europe/Berlin"); err != nil {
-		t.Fatalf("set TZ: %v", err)
-	}
+	err := os.Setenv("TZ", "Europe/Berlin")
+	require.NoError(t, err, "set TZ")
 	if got := reporterTimezone(
 		StatsFilter{Timezone: "Asia/Tokyo"},
 	); got != "Asia/Tokyo" {
@@ -2237,9 +2117,8 @@ func TestReporterTimezone_Precedence(t *testing.T) {
 	}
 
 	// No filter, no env → time.Local fallback.
-	if err := os.Unsetenv("TZ"); err != nil {
-		t.Fatalf("unset TZ: %v", err)
-	}
+	err = os.Unsetenv("TZ")
+	require.NoError(t, err, "unset TZ")
 	got := reporterTimezone(StatsFilter{})
 	if got == "" {
 		t.Errorf("time.Local fallback: got empty string")
@@ -2272,9 +2151,7 @@ func TestGetSessionStats_Temporal_FilterByAgentFlowsThrough(t *testing.T) {
 	stats, err := d.GetSessionStats(ctx, StatsFilter{
 		Since: "28d", Agent: "claude",
 	})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if e := findHourlyUTC(
 		stats.Temporal.HourlyUTC, utcHourBoundary(3),
 	); e == nil {
@@ -2308,9 +2185,7 @@ func TestGetSessionStats_Temporal_IgnoresAssistantMessages(t *testing.T) {
 	)
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if len(stats.Temporal.HourlyUTC) != 0 {
 		t.Errorf(
 			"hourly_utc should be empty when only assistant msgs, "+
@@ -2336,9 +2211,7 @@ func TestGetSessionStats_Temporal_SkipsEmptyTimestamps(t *testing.T) {
 	)
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if len(stats.Temporal.HourlyUTC) != 1 {
 		t.Fatalf(
 			"hourly_utc: got %d entries want 1 (%+v)",
@@ -2430,9 +2303,7 @@ func TestGetSessionStats_Outcomes_Happy(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	out := stats.Outcomes
 	if out == nil {
 		t.Fatalf("Outcomes: got nil want populated")
@@ -2441,17 +2312,11 @@ func TestGetSessionStats_Outcomes_Happy(t *testing.T) {
 		t.Errorf("ClaudeOnly: got false want true")
 	}
 	// Two "completed" -> Success.
-	if out.Success != 2 {
-		t.Errorf("Success: got %d want 2", out.Success)
-	}
+	assert.Equal(t, 2, out.Success, "Success: got")
 	// One "abandoned" + one "errored" -> Failure.
-	if out.Failure != 2 {
-		t.Errorf("Failure: got %d want 2", out.Failure)
-	}
+	assert.Equal(t, 2, out.Failure, "Failure: got")
 	// One explicit "unknown" -> Unknown.
-	if out.Unknown != 1 {
-		t.Errorf("Unknown: got %d want 1", out.Unknown)
-	}
+	assert.Equal(t, 1, out.Unknown, "Unknown: got")
 	if out.GradeDistribution == nil {
 		t.Fatalf("GradeDistribution: got nil want non-nil")
 	}
@@ -2504,9 +2369,7 @@ func TestGetSessionStats_Outcomes_NoClaude(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.Outcomes != nil {
 		t.Errorf("Outcomes: got %+v want nil", stats.Outcomes)
 	}
@@ -2529,9 +2392,7 @@ func TestGetSessionStats_Outcomes_NoGrade(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	out := stats.Outcomes
 	if out == nil {
 		t.Fatalf("Outcomes: got nil want populated")
@@ -2547,9 +2408,7 @@ func TestGetSessionStats_Outcomes_NoGrade(t *testing.T) {
 		t.Errorf("ToolRetryRate: got %v want 0 (no tools)",
 			out.ToolRetryRate)
 	}
-	if out.Success != 1 {
-		t.Errorf("Success: got %d want 1", out.Success)
-	}
+	assert.Equal(t, 1, out.Success, "Success: got")
 }
 
 // seedToolCallsByName inserts one assistant message per entry in calls and
@@ -2667,9 +2526,7 @@ func TestGetSessionStats_Adoption_Happy(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	ad := stats.Adoption
 	if ad == nil {
 		t.Fatalf("Adoption: got nil want populated")
@@ -2690,9 +2547,7 @@ func TestGetSessionStats_Adoption_Happy(t *testing.T) {
 			ad.SubagentsPerSession)
 	}
 	// {"brainstorm","writing-plans","brainstorm"} -> 2 distinct.
-	if ad.DistinctSkills != 2 {
-		t.Errorf("DistinctSkills: got %d want 2", ad.DistinctSkills)
-	}
+	assert.Equal(t, 2, ad.DistinctSkills, "DistinctSkills: got")
 }
 
 // TestGetSessionStats_Adoption_NoClaude verifies that Adoption stays
@@ -2714,9 +2569,7 @@ func TestGetSessionStats_Adoption_NoClaude(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.Adoption != nil {
 		t.Errorf("Adoption: got %+v want nil", stats.Adoption)
 	}
@@ -2803,9 +2656,7 @@ func TestGetSessionStats_OutcomeStats_DefaultDisabled(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.OutcomeStats != nil {
 		t.Fatalf("OutcomeStats: got %+v want nil", stats.OutcomeStats)
 	}
@@ -2835,9 +2686,8 @@ func TestGetSessionStats_OutcomeStats_Happy(t *testing.T) {
 	// one in a subdirectory. Both should collapse to the same repo and
 	// counted once in ReposActive.
 	sub := filepath.Join(repo, "subdir")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatalf("mkdir sub: %v", err)
-	}
+	err := os.MkdirAll(sub, 0o755)
+	require.NoError(t, err, "mkdir sub")
 	insertSessionFixture(t, d, sessionFixture{
 		id: "os1", agent: "claude", userMsgs: 5,
 		startedAt: hoursAgo(5), cwd: repo,
@@ -2850,29 +2700,17 @@ func TestGetSessionStats_OutcomeStats_Happy(t *testing.T) {
 	stats, err := d.GetSessionStats(ctx, StatsFilter{
 		Since: "28d", IncludeGitOutcomes: true,
 	})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	out := stats.OutcomeStats
 	if out == nil {
 		t.Fatalf("OutcomeStats: got nil want populated")
 	}
-	if out.ReposActive != 1 {
-		t.Errorf("ReposActive: got %d want 1", out.ReposActive)
-	}
-	if out.Commits != 3 {
-		t.Errorf("Commits: got %d want 3", out.Commits)
-	}
-	if out.LOCAdded != 9 {
-		t.Errorf("LOCAdded: got %d want 9", out.LOCAdded)
-	}
-	if out.LOCRemoved != 0 {
-		t.Errorf("LOCRemoved: got %d want 0", out.LOCRemoved)
-	}
+	assert.Equal(t, 1, out.ReposActive, "ReposActive: got")
+	assert.Equal(t, 3, out.Commits, "Commits: got")
+	assert.Equal(t, 9, out.LOCAdded, "LOCAdded: got")
+	assert.Equal(t, 0, out.LOCRemoved, "LOCRemoved: got")
 	// Each commit touches one file: c1 a.txt, c2 a.txt, c3 b.txt -> 3.
-	if out.FilesChanged != 3 {
-		t.Errorf("FilesChanged: got %d want 3", out.FilesChanged)
-	}
+	assert.Equal(t, 3, out.FilesChanged, "FilesChanged: got")
 	if out.PRsOpened != nil {
 		t.Errorf("PRsOpened: got %v want nil (no GHToken)",
 			*out.PRsOpened)
@@ -2899,9 +2737,7 @@ func TestGetSessionStats_OutcomeStats_NoCwd(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.OutcomeStats != nil {
 		t.Errorf("OutcomeStats: got %+v want nil",
 			stats.OutcomeStats)
@@ -2926,9 +2762,7 @@ func TestGetSessionStats_OutcomeStats_CwdOutsideRepo(t *testing.T) {
 	})
 
 	stats, err := d.GetSessionStats(ctx, StatsFilter{Since: "28d"})
-	if err != nil {
-		t.Fatalf("GetSessionStats: %v", err)
-	}
+	require.NoError(t, err, "GetSessionStats")
 	if stats.OutcomeStats != nil {
 		t.Errorf("OutcomeStats: got %+v want nil",
 			stats.OutcomeStats)

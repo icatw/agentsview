@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type seedStats struct {
@@ -111,9 +114,7 @@ func mustSummary(
 ) AnalyticsSummary {
 	t.Helper()
 	s, err := d.GetAnalyticsSummary(ctx, f)
-	if err != nil {
-		t.Fatalf("GetAnalyticsSummary: %v", err)
-	}
+	require.NoError(t, err, "GetAnalyticsSummary")
 	return s
 }
 
@@ -123,9 +124,7 @@ func mustActivity(
 ) ActivityResponse {
 	t.Helper()
 	r, err := d.GetAnalyticsActivity(ctx, f, gran)
-	if err != nil {
-		t.Fatalf("GetAnalyticsActivity: %v", err)
-	}
+	require.NoError(t, err, "GetAnalyticsActivity")
 	return r
 }
 
@@ -135,9 +134,7 @@ func mustHeatmap(
 ) HeatmapResponse {
 	t.Helper()
 	r, err := d.GetAnalyticsHeatmap(ctx, f, metric)
-	if err != nil {
-		t.Fatalf("GetAnalyticsHeatmap: %v", err)
-	}
+	require.NoError(t, err, "GetAnalyticsHeatmap")
 	return r
 }
 
@@ -147,9 +144,7 @@ func mustProjects(
 ) ProjectsAnalyticsResponse {
 	t.Helper()
 	r, err := d.GetAnalyticsProjects(ctx, f)
-	if err != nil {
-		t.Fatalf("GetAnalyticsProjects: %v", err)
-	}
+	require.NoError(t, err, "GetAnalyticsProjects")
 	return r
 }
 
@@ -159,58 +154,34 @@ func TestGetAnalyticsSummary(t *testing.T) {
 
 	t.Run("EmptyDB", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, baseFilter())
-		if s.TotalSessions != 0 {
-			t.Errorf("TotalSessions = %d, want 0", s.TotalSessions)
-		}
+		assert.Equal(t, 0, s.TotalSessions, "TotalSessions")
 	})
 
 	stats := seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, baseFilter())
-		if s.TotalSessions != stats.TotalSessions {
-			t.Errorf("TotalSessions = %d, want %d", s.TotalSessions, stats.TotalSessions)
-		}
-		if s.TotalMessages != stats.TotalMessages {
-			t.Errorf("TotalMessages = %d, want %d", s.TotalMessages, stats.TotalMessages)
-		}
-		if s.ActiveProjects != stats.ActiveProjects {
-			t.Errorf("ActiveProjects = %d, want %d", s.ActiveProjects, stats.ActiveProjects)
-		}
-		if s.ActiveDays != stats.ActiveDays {
-			t.Errorf("ActiveDays = %d, want %d", s.ActiveDays, stats.ActiveDays)
-		}
-		if s.MostActive != "project-beta" {
-			t.Errorf("MostActive = %q, want project-beta", s.MostActive)
-		}
+		assert.Equal(t, stats.TotalSessions, s.TotalSessions, "TotalSessions")
+		assert.Equal(t, stats.TotalMessages, s.TotalMessages, "TotalMessages")
+		assert.Equal(t, stats.ActiveProjects, s.ActiveProjects, "ActiveProjects")
+		assert.Equal(t, stats.ActiveDays, s.ActiveDays, "ActiveDays")
+		assert.Equal(t, "project-beta", s.MostActive, "MostActive")
 		// 2 projects, both in top 3 → concentration = 1.0
-		if s.Concentration != 1.0 {
-			t.Errorf("Concentration = %f, want 1.0", s.Concentration)
-		}
+		assert.Equal(t, 1.0, s.Concentration, "Concentration")
 
 		// Sorted message counts: [5, 10, 15, 20, 30]
-		if s.MedianMessages != 15 {
-			t.Errorf("MedianMessages = %d, want 15", s.MedianMessages)
-		}
+		assert.Equal(t, 15, s.MedianMessages, "MedianMessages")
 		// P90 index = int(5*0.9) = 4 → value 30
-		if s.P90Messages != 30 {
-			t.Errorf("P90Messages = %d, want 30", s.P90Messages)
-		}
+		assert.Equal(t, 30, s.P90Messages, "P90Messages")
 
 		if s.Agents["claude"] == nil {
 			t.Fatal("expected claude agent entry")
 		}
-		if s.Agents["claude"].Sessions != 4 {
-			t.Errorf("claude sessions = %d, want 4",
-				s.Agents["claude"].Sessions)
-		}
+		assert.Equal(t, 4, s.Agents["claude"].Sessions, "claude sessions")
 		if s.Agents["codex"] == nil {
 			t.Fatal("expected codex agent entry")
 		}
-		if s.Agents["codex"].Sessions != 1 {
-			t.Errorf("codex sessions = %d, want 1",
-				s.Agents["codex"].Sessions)
-		}
+		assert.Equal(t, 1, s.Agents["codex"].Sessions, "codex sessions")
 	})
 
 	t.Run("DateSubset", func(t *testing.T) {
@@ -220,25 +191,19 @@ func TestGetAnalyticsSummary(t *testing.T) {
 			Timezone: "UTC",
 		}
 		s := mustSummary(t, d, ctx, f)
-		if s.TotalSessions != 2 {
-			t.Errorf("TotalSessions = %d, want 2", s.TotalSessions)
-		}
+		assert.Equal(t, 2, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("MachineFilter", func(t *testing.T) {
 		f := baseFilter()
 		f.Machine = "nonexistent"
 		s := mustSummary(t, d, ctx, f)
-		if s.TotalSessions != 0 {
-			t.Errorf("TotalSessions = %d, want 0", s.TotalSessions)
-		}
+		assert.Equal(t, 0, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("EmptyDateRange", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, emptyFilter())
-		if s.TotalSessions != 0 {
-			t.Errorf("TotalSessions = %d, want 0", s.TotalSessions)
-		}
+		assert.Equal(t, 0, s.TotalSessions, "TotalSessions")
 	})
 }
 
@@ -265,9 +230,7 @@ func TestAnalyticsFilterMachineMultiSelect(t *testing.T) {
 	f := baseFilter()
 	f.Machine = "laptop,server"
 	s := mustSummary(t, d, ctx, f)
-	if s.TotalSessions != 2 {
-		t.Fatalf("TotalSessions = %d, want 2", s.TotalSessions)
-	}
+	require.Equal(t, 2, s.TotalSessions, "TotalSessions")
 }
 
 func TestGetAnalyticsActivity(t *testing.T) {
@@ -277,36 +240,23 @@ func TestGetAnalyticsActivity(t *testing.T) {
 
 	t.Run("DayGranularity", func(t *testing.T) {
 		resp := mustActivity(t, d, ctx, baseFilter(), "day")
-		if resp.Granularity != "day" {
-			t.Errorf("Granularity = %q, want day", resp.Granularity)
-		}
-		if len(resp.Series) != stats.ActiveDays {
-			t.Fatalf("len(Series) = %d, want %d", len(resp.Series), stats.ActiveDays)
-		}
+		assert.Equal(t, "day", resp.Granularity, "Granularity")
+		require.Len(t, resp.Series, stats.ActiveDays, "len(Series)")
 		// Day 1: 2 sessions (a1, a2)
-		if resp.Series[0].Sessions != 2 {
-			t.Errorf("Day1 sessions = %d, want 2",
-				resp.Series[0].Sessions)
-		}
+		assert.Equal(t, 2, resp.Series[0].Sessions, "Day1 sessions")
 	})
 
 	t.Run("WeekGranularity", func(t *testing.T) {
 		resp := mustActivity(t, d, ctx, baseFilter(), "week")
 		// 2024-06-01 is Saturday, 2024-06-03 is Monday
 		// So we expect 2 weeks: week of May 27 and week of Jun 3
-		if len(resp.Series) != 2 {
-			t.Errorf("len(Series) = %d, want 2", len(resp.Series))
-		}
+		assert.Equal(t, 2, len(resp.Series), "len(Series)")
 	})
 
 	t.Run("MonthGranularity", func(t *testing.T) {
 		resp := mustActivity(t, d, ctx, baseFilter(), "month")
-		if len(resp.Series) != 1 {
-			t.Errorf("len(Series) = %d, want 1", len(resp.Series))
-		}
-		if resp.Series[0].Sessions != stats.TotalSessions {
-			t.Errorf("month sessions = %d, want %d", resp.Series[0].Sessions, stats.TotalSessions)
-		}
+		assert.Equal(t, 1, len(resp.Series), "len(Series)")
+		assert.Equal(t, stats.TotalSessions, resp.Series[0].Sessions, "month sessions")
 	})
 
 	t.Run("HasRoleCounts", func(t *testing.T) {
@@ -317,15 +267,9 @@ func TestGetAnalyticsActivity(t *testing.T) {
 			totalUser += e.UserMessages
 			totalAsst += e.AssistantMessages
 		}
-		if totalUser+totalAsst != stats.TotalMessages {
-			t.Errorf("total messages = %d, want %d", totalUser+totalAsst, stats.TotalMessages)
-		}
-		if totalUser != stats.TotalUserMessages {
-			t.Errorf("total user messages = %d, want %d", totalUser, stats.TotalUserMessages)
-		}
-		if totalAsst != stats.TotalAssistantMessages {
-			t.Errorf("total assistant messages = %d, want %d", totalAsst, stats.TotalAssistantMessages)
-		}
+		assert.Equal(t, stats.TotalMessages, totalUser+totalAsst, "total messages")
+		assert.Equal(t, stats.TotalUserMessages, totalUser, "total user messages")
+		assert.Equal(t, stats.TotalAssistantMessages, totalAsst, "total assistant messages")
 	})
 }
 
@@ -336,53 +280,34 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 
 	t.Run("MessageMetric", func(t *testing.T) {
 		resp := mustHeatmap(t, d, ctx, baseFilter(), "messages")
-		if resp.Metric != "messages" {
-			t.Errorf("Metric = %q, want messages", resp.Metric)
-		}
+		assert.Equal(t, "messages", resp.Metric, "Metric")
 		// 3 days in range: Jun 1, 2, 3
-		if len(resp.Entries) != stats.ActiveDays {
-			t.Fatalf("len(Entries) = %d, want %d", len(resp.Entries), stats.ActiveDays)
-		}
+		require.Len(t, resp.Entries, stats.ActiveDays, "len(Entries)")
 
 		totalMessages := 0
 		for _, e := range resp.Entries {
 			totalMessages += e.Value
 		}
-		if totalMessages != stats.TotalMessages {
-			t.Errorf("total messages across heatmap = %d, want %d", totalMessages, stats.TotalMessages)
-		}
+		assert.Equal(t, stats.TotalMessages, totalMessages, "total messages across heatmap")
 
 		// Jun 1: 10+20=30, Jun 2: 30+15=45, Jun 3: 5
-		if resp.Entries[0].Value != 30 {
-			t.Errorf("Jun1 value = %d, want 30", resp.Entries[0].Value)
-		}
-		if resp.Entries[1].Value != 45 {
-			t.Errorf("Jun2 value = %d, want 45", resp.Entries[1].Value)
-		}
-		if resp.Entries[2].Value != 5 {
-			t.Errorf("Jun3 value = %d, want 5", resp.Entries[2].Value)
-		}
+		assert.Equal(t, 30, resp.Entries[0].Value, "Jun1 value")
+		assert.Equal(t, 45, resp.Entries[1].Value, "Jun2 value")
+		assert.Equal(t, 5, resp.Entries[2].Value, "Jun3 value")
 	})
 
 	t.Run("SessionMetric", func(t *testing.T) {
 		resp := mustHeatmap(t, d, ctx, baseFilter(), "sessions")
-		if resp.Metric != "sessions" {
-			t.Errorf("Metric = %q, want sessions", resp.Metric)
-		}
+		assert.Equal(t, "sessions", resp.Metric, "Metric")
 
 		totalSessions := 0
 		for _, e := range resp.Entries {
 			totalSessions += e.Value
 		}
-		if totalSessions != stats.TotalSessions {
-			t.Errorf("total sessions across heatmap = %d, want %d", totalSessions, stats.TotalSessions)
-		}
+		assert.Equal(t, stats.TotalSessions, totalSessions, "total sessions across heatmap")
 
 		// Jun 1: 2, Jun 2: 2, Jun 3: 1
-		if resp.Entries[0].Value != 2 {
-			t.Errorf("Jun1 sessions = %d, want 2",
-				resp.Entries[0].Value)
-		}
+		assert.Equal(t, 2, resp.Entries[0].Value, "Jun1 sessions")
 	})
 
 	t.Run("LevelsAssigned", func(t *testing.T) {
@@ -422,9 +347,7 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 		f := emptyFilter()
 		f.To = "2020-01-03"
 		resp := mustHeatmap(t, d, ctx, f, "messages")
-		if len(resp.Entries) != 3 {
-			t.Fatalf("len(Entries) = %d, want 3", len(resp.Entries))
-		}
+		require.Len(t, resp.Entries, 3, "len(Entries) =")
 		for _, e := range resp.Entries {
 			if e.Value != 0 {
 				t.Errorf("date %s value = %d, want 0", e.Date, e.Value)
@@ -443,65 +366,38 @@ func TestGetAnalyticsProjects(t *testing.T) {
 
 	t.Run("FullRange", func(t *testing.T) {
 		resp := mustProjects(t, d, ctx, baseFilter())
-		if len(resp.Projects) != stats.ActiveProjects {
-			t.Fatalf("len(Projects) = %d, want %d", len(resp.Projects), stats.ActiveProjects)
-		}
+		require.Len(t, resp.Projects, stats.ActiveProjects, "len(Projects)")
 
 		totalMessages := 0
 		for _, p := range resp.Projects {
 			totalMessages += p.Messages
 		}
-		if totalMessages != stats.TotalMessages {
-			t.Errorf("total messages across projects = %d, want %d", totalMessages, stats.TotalMessages)
-		}
+		assert.Equal(t, stats.TotalMessages, totalMessages, "total messages across projects")
 
 		// Sorted by message count desc: beta (45) > alpha (35)
-		if resp.Projects[0].Name != "project-beta" {
-			t.Errorf("first project = %q, want project-beta",
-				resp.Projects[0].Name)
-		}
-		if resp.Projects[0].Messages != 45 {
-			t.Errorf("beta messages = %d, want 45",
-				resp.Projects[0].Messages)
-		}
-		if resp.Projects[1].Name != "project-alpha" {
-			t.Errorf("second project = %q, want project-alpha",
-				resp.Projects[1].Name)
-		}
-		if resp.Projects[1].Sessions != 3 {
-			t.Errorf("alpha sessions = %d, want 3",
-				resp.Projects[1].Sessions)
-		}
+		assert.Equal(t, "project-beta", resp.Projects[0].Name, "first project")
+		assert.Equal(t, 45, resp.Projects[0].Messages, "beta messages")
+		assert.Equal(t, "project-alpha", resp.Projects[1].Name, "second project")
+		assert.Equal(t, 3, resp.Projects[1].Sessions, "alpha sessions")
 	})
 
 	t.Run("AgentBreakdown", func(t *testing.T) {
 		resp := mustProjects(t, d, ctx, baseFilter())
 		alpha := resp.Projects[1]
-		if alpha.Agents["claude"] != 2 {
-			t.Errorf("alpha claude = %d, want 2",
-				alpha.Agents["claude"])
-		}
-		if alpha.Agents["codex"] != 1 {
-			t.Errorf("alpha codex = %d, want 1",
-				alpha.Agents["codex"])
-		}
+		assert.Equal(t, 2, alpha.Agents["claude"], "alpha claude")
+		assert.Equal(t, 1, alpha.Agents["codex"], "alpha codex")
 	})
 
 	t.Run("MedianMessages", func(t *testing.T) {
 		resp := mustProjects(t, d, ctx, baseFilter())
 		// Alpha counts sorted: [5, 10, 20], median = 10
 		alpha := resp.Projects[1]
-		if alpha.MedianMessages != 10 {
-			t.Errorf("alpha median = %d, want 10",
-				alpha.MedianMessages)
-		}
+		assert.Equal(t, 10, alpha.MedianMessages, "alpha median")
 	})
 
 	t.Run("EmptyRange", func(t *testing.T) {
 		resp := mustProjects(t, d, ctx, emptyFilter())
-		if len(resp.Projects) != 0 {
-			t.Errorf("len(Projects) = %d, want 0", len(resp.Projects))
-		}
+		assert.Equal(t, 0, len(resp.Projects), "len(Projects)")
 	})
 }
 
@@ -641,14 +537,8 @@ func TestAnalyticsTimezone(t *testing.T) {
 		}
 		resp := mustHeatmap(t, d, ctx, f, "messages")
 		// In UTC, this is Jun 1
-		if resp.Entries[0].Value != 10 {
-			t.Errorf("Jun1 UTC value = %d, want 10",
-				resp.Entries[0].Value)
-		}
-		if resp.Entries[1].Value != 0 {
-			t.Errorf("Jun2 UTC value = %d, want 0",
-				resp.Entries[1].Value)
-		}
+		assert.Equal(t, 10, resp.Entries[0].Value, "Jun1 UTC value")
+		assert.Equal(t, 0, resp.Entries[1].Value, "Jun2 UTC value")
 	})
 
 	t.Run("PlusFiveBucket", func(t *testing.T) {
@@ -659,14 +549,8 @@ func TestAnalyticsTimezone(t *testing.T) {
 		}
 		resp := mustHeatmap(t, d, ctx, f, "messages")
 		// In UTC+5, 23:00Z = 04:00 Jun 2
-		if resp.Entries[0].Value != 0 {
-			t.Errorf("Jun1 PKT value = %d, want 0",
-				resp.Entries[0].Value)
-		}
-		if resp.Entries[1].Value != 10 {
-			t.Errorf("Jun2 PKT value = %d, want 10",
-				resp.Entries[1].Value)
-		}
+		assert.Equal(t, 0, resp.Entries[0].Value, "Jun1 PKT value")
+		assert.Equal(t, 10, resp.Entries[1].Value, "Jun2 PKT value")
 	})
 }
 
@@ -822,13 +706,8 @@ func TestGetAnalyticsHourOfWeek(t *testing.T) {
 
 	t.Run("EmptyDB", func(t *testing.T) {
 		resp, err := d.GetAnalyticsHourOfWeek(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsHourOfWeek: %v", err)
-		}
-		if len(resp.Cells) != 168 {
-			t.Errorf("len(Cells) = %d, want 168",
-				len(resp.Cells))
-		}
+		require.NoError(t, err, "GetAnalyticsHourOfWeek")
+		assert.Len(t, resp.Cells, 168, "len(Cells)")
 		for _, c := range resp.Cells {
 			if c.Messages != 0 {
 				t.Errorf(
@@ -873,19 +752,13 @@ func TestGetAnalyticsHourOfWeek(t *testing.T) {
 
 	t.Run("UTCBucketing", func(t *testing.T) {
 		resp, err := d.GetAnalyticsHourOfWeek(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsHourOfWeek: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsHourOfWeek")
 		// Saturday = ISO day 5 (Mon=0)
 		// hour 9: 2 messages (user@09:00 + assistant@09:30)
 		satH9 := findHOWCell(resp.Cells, 5, 9)
-		if satH9 != 2 {
-			t.Errorf("Sat 09:xx = %d, want 2", satH9)
-		}
+		assert.Equal(t, 2, satH9, "Sat 09:xx")
 		satH23 := findHOWCell(resp.Cells, 5, 23)
-		if satH23 != 1 {
-			t.Errorf("Sat 23:00 = %d, want 1", satH23)
-		}
+		assert.Equal(t, 1, satH23, "Sat 23:00")
 	})
 
 	t.Run("TimezoneShift", func(t *testing.T) {
@@ -895,9 +768,7 @@ func TestGetAnalyticsHourOfWeek(t *testing.T) {
 			Timezone: "Asia/Karachi", // UTC+5
 		}
 		resp, err := d.GetAnalyticsHourOfWeek(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsHourOfWeek: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsHourOfWeek")
 		// 23:00 UTC Sat → 04:00 Sun in UTC+5
 		// Sunday = ISO day 6
 		sunH4 := findHOWCell(resp.Cells, 6, 4)
@@ -935,12 +806,8 @@ func TestGetAnalyticsSessionShape(t *testing.T) {
 		resp, err := d.GetAnalyticsSessionShape(
 			ctx, baseFilter(),
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSessionShape: %v", err)
-		}
-		if resp.Count != 0 {
-			t.Errorf("Count = %d, want 0", resp.Count)
-		}
+		require.NoError(t, err, "GetAnalyticsSessionShape")
+		assert.Equal(t, 0, resp.Count, "Count")
 	})
 
 	// Session with 10 messages, 1h duration
@@ -989,27 +856,17 @@ func TestGetAnalyticsSessionShape(t *testing.T) {
 		resp, err := d.GetAnalyticsSessionShape(
 			ctx, baseFilter(),
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSessionShape: %v", err)
-		}
-		if resp.Count != 2 {
-			t.Errorf("Count = %d, want 2", resp.Count)
-		}
+		require.NoError(t, err, "GetAnalyticsSessionShape")
+		assert.Equal(t, 2, resp.Count, "Count")
 
 		// Length: 10 → "6-15", 25 → "16-30"
 		lenMap := bucketMap(resp.LengthDistribution)
-		if lenMap["6-15"] != 1 {
-			t.Errorf("6-15 = %d, want 1", lenMap["6-15"])
-		}
-		if lenMap["16-30"] != 1 {
-			t.Errorf("16-30 = %d, want 1", lenMap["16-30"])
-		}
+		assert.Equal(t, 1, lenMap["6-15"], "6-15")
+		assert.Equal(t, 1, lenMap["16-30"], "16-30")
 
 		// Duration: only ss1 has both start/end (60m → "1-2h")
 		durMap := bucketMap(resp.DurationDistribution)
-		if durMap["1-2h"] != 1 {
-			t.Errorf("1-2h = %d, want 1", durMap["1-2h"])
-		}
+		assert.Equal(t, 1, durMap["1-2h"], "1-2h")
 		totalDur := 0
 		for _, b := range resp.DurationDistribution {
 			totalDur += b.Count
@@ -1026,30 +883,20 @@ func TestGetAnalyticsSessionShape(t *testing.T) {
 		resp, err := d.GetAnalyticsSessionShape(
 			ctx, baseFilter(),
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSessionShape: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSessionShape")
 		// ss1: 5 user, 5 assistant w/ tool → ratio 5/5=1.0 → "1-2"
 		// ss2: 13 user, 0 tool → ratio 0/13=0 → "<0.5"
 		autoMap := bucketMap(resp.AutonomyDistribution)
-		if autoMap["1-2"] != 1 {
-			t.Errorf("1-2 = %d, want 1", autoMap["1-2"])
-		}
-		if autoMap["<0.5"] != 1 {
-			t.Errorf("<0.5 = %d, want 1", autoMap["<0.5"])
-		}
+		assert.Equal(t, 1, autoMap["1-2"], "1-2")
+		assert.Equal(t, 1, autoMap["<0.5"], "<0.5")
 	})
 
 	t.Run("EmptyRange", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSessionShape(
 			ctx, emptyFilter(),
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSessionShape: %v", err)
-		}
-		if resp.Count != 0 {
-			t.Errorf("Count = %d, want 0", resp.Count)
-		}
+		require.NoError(t, err, "GetAnalyticsSessionShape")
+		assert.Equal(t, 0, resp.Count, "Count")
 	})
 }
 
@@ -1131,9 +978,7 @@ func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 
 	t.Run("EmptyDB", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 0)
 	})
 
@@ -1144,25 +989,19 @@ func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 
 	t.Run("TurnCycle", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 10.0)
 	})
 
 	t.Run("FirstResponse", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 10.0)
 	})
 
 	t.Run("Throughput", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		// Active time: 5 gaps of 10s = 50s ≈ 0.833 min
 		// 6 msgs / 0.833 = ~7.2 msgs/min
 		if resp.Overall.MsgsPerActiveMin < 7.0 || resp.Overall.MsgsPerActiveMin > 7.5 {
@@ -1172,9 +1011,7 @@ func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 
 	t.Run("ByAgent", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 1)
 		assertEq(t, "ByAgent[0].Label", resp.ByAgent[0].Label, "claude")
 		assertEq(t, "ByAgent[0].Sessions", resp.ByAgent[0].Sessions, 1)
@@ -1182,9 +1019,7 @@ func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 
 	t.Run("ByComplexity", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "len(ByComplexity)", len(resp.ByComplexity), 1)
 		assertEq(t, "ByComplexity[0].Label", resp.ByComplexity[0].Label, "1-15")
 	})
@@ -1199,9 +1034,7 @@ func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
 			0, 45 * time.Minute,
 		})
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 0.0)
 	})
 
@@ -1217,9 +1050,7 @@ func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
 			Message{SessionID: "v3", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1, Timestamp: ""},
 		)
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 0.0)
 	})
 
@@ -1236,9 +1067,7 @@ func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
 			Message{SessionID: "v4", Ordinal: 2, Role: "assistant", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:20Z"},
 		)
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 10.0)
 	})
 
@@ -1255,9 +1084,7 @@ func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
 			Message{SessionID: "v5", Ordinal: 2, Role: "assistant", Content: "answer", ContentLength: 6, Timestamp: "2024-06-01T09:00:20Z"},
 		)
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 20.0)
 	})
 
@@ -1273,9 +1100,7 @@ func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
 			Message{SessionID: "v6", Ordinal: 1, Role: "assistant", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:10Z"},
 		)
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 0.0)
 	})
 }
@@ -1305,9 +1130,7 @@ func TestGetAnalyticsVelocity_ToolUsage(t *testing.T) {
 			},
 		)
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 6.0)
 	})
 
@@ -1343,9 +1166,7 @@ func TestGetAnalyticsVelocity_ToolUsage(t *testing.T) {
 			},
 		)
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		if len(resp.ByAgent) < 2 {
 			t.Fatalf("ByAgent has %d entries, want >= 2", len(resp.ByAgent))
 		}
@@ -1363,9 +1184,7 @@ func TestGetAnalyticsVelocity_ToolUsage(t *testing.T) {
 			0, 10 * time.Second,
 		})
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsVelocity")
 		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 0.0)
 	})
 }
@@ -1404,10 +1223,7 @@ func TestVelocityChunkedQuery(t *testing.T) {
 		t.Fatalf("GetAnalyticsVelocity with %d sessions: %v",
 			n, err)
 	}
-	if resp.ByComplexity[0].Sessions != n {
-		t.Errorf("sessions = %d, want %d",
-			resp.ByComplexity[0].Sessions, n)
-	}
+	assert.Equal(t, n, resp.ByComplexity[0].Sessions, "sessions")
 
 	// SessionShape must not fail either
 	shape, err := d.GetAnalyticsSessionShape(ctx, baseFilter())
@@ -1417,9 +1233,7 @@ func TestVelocityChunkedQuery(t *testing.T) {
 			n, err,
 		)
 	}
-	if shape.Count != n {
-		t.Errorf("Count = %d, want %d", shape.Count, n)
-	}
+	assert.Equal(t, n, shape.Count, "Count")
 }
 
 func TestPercentileFloat(t *testing.T) {
@@ -1452,17 +1266,9 @@ func TestGetAnalyticsTools(t *testing.T) {
 
 	t.Run("EmptyDB", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
-		if resp.TotalCalls != 0 {
-			t.Errorf("TotalCalls = %d, want 0",
-				resp.TotalCalls)
-		}
-		if len(resp.ByCategory) != 0 {
-			t.Errorf("len(ByCategory) = %d, want 0",
-				len(resp.ByCategory))
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
+		assert.Equal(t, 0, resp.TotalCalls, "TotalCalls")
+		assert.Len(t, resp.ByCategory, 0, "len(ByCategory)")
 	})
 
 	// Seed sessions with tool_calls.
@@ -1504,130 +1310,73 @@ func TestGetAnalyticsTools(t *testing.T) {
 
 	t.Run("TotalCalls", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
 		// 2 Read + 1 Bash + 1 Edit + 1 Read + 1 Grep = 6
-		if resp.TotalCalls != 6 {
-			t.Errorf("TotalCalls = %d, want 6",
-				resp.TotalCalls)
-		}
+		assert.Equal(t, 6, resp.TotalCalls, "TotalCalls")
 	})
 
 	t.Run("ByCategory", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
 		catMap := make(map[string]int)
 		for _, c := range resp.ByCategory {
 			catMap[c.Category] = c.Count
 		}
-		if catMap["Read"] != 3 {
-			t.Errorf("Read = %d, want 3", catMap["Read"])
-		}
-		if catMap["Bash"] != 1 {
-			t.Errorf("Bash = %d, want 1", catMap["Bash"])
-		}
-		if catMap["Edit"] != 1 {
-			t.Errorf("Edit = %d, want 1", catMap["Edit"])
-		}
-		if catMap["Grep"] != 1 {
-			t.Errorf("Grep = %d, want 1", catMap["Grep"])
-		}
+		assert.Equal(t, 3, catMap["Read"], "Read")
+		assert.Equal(t, 1, catMap["Bash"], "Bash")
+		assert.Equal(t, 1, catMap["Edit"], "Edit")
+		assert.Equal(t, 1, catMap["Grep"], "Grep")
 		// Sorted by count desc: Read first
-		if resp.ByCategory[0].Category != "Read" {
-			t.Errorf("first category = %q, want Read",
-				resp.ByCategory[0].Category)
-		}
+		assert.Equal(t, "Read", resp.ByCategory[0].Category, "first category")
 	})
 
 	t.Run("ByCategoryPct", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
 		// Read: 3/6 = 50%
-		if resp.ByCategory[0].Pct != 50.0 {
-			t.Errorf("Read pct = %f, want 50.0",
-				resp.ByCategory[0].Pct)
-		}
+		assert.Equal(t, 50.0, resp.ByCategory[0].Pct, "Read pct")
 	})
 
 	t.Run("ByAgent", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
-		if len(resp.ByAgent) != 2 {
-			t.Fatalf("len(ByAgent) = %d, want 2",
-				len(resp.ByAgent))
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
+		require.Len(t, resp.ByAgent, 2, "len(ByAgent)")
 		// Alphabetical: claude, codex
-		if resp.ByAgent[0].Agent != "claude" {
-			t.Errorf("first agent = %q, want claude",
-				resp.ByAgent[0].Agent)
-		}
-		if resp.ByAgent[0].Total != 4 {
-			t.Errorf("claude total = %d, want 4",
-				resp.ByAgent[0].Total)
-		}
-		if resp.ByAgent[1].Agent != "codex" {
-			t.Errorf("second agent = %q, want codex",
-				resp.ByAgent[1].Agent)
-		}
-		if resp.ByAgent[1].Total != 2 {
-			t.Errorf("codex total = %d, want 2",
-				resp.ByAgent[1].Total)
-		}
+		assert.Equal(t, "claude", resp.ByAgent[0].Agent, "first agent")
+		assert.Equal(t, 4, resp.ByAgent[0].Total, "claude total")
+		assert.Equal(t, "codex", resp.ByAgent[1].Agent, "second agent")
+		assert.Equal(t, 2, resp.ByAgent[1].Total, "codex total")
 	})
 
 	t.Run("Trend", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
 		// 2024-06-01 is Saturday, 2024-06-02 is Sunday.
 		// Both in same ISO week (May 27 week start).
 		// But 2024-06-03 is Monday, different week.
 		// So trend should have 1 entry (week of May 27).
-		if len(resp.Trend) != 1 {
-			t.Fatalf("len(Trend) = %d, want 1",
-				len(resp.Trend))
-		}
+		require.Len(t, resp.Trend, 1, "len(Trend)")
 		total := 0
 		for _, v := range resp.Trend[0].ByCat {
 			total += v
 		}
-		if total != 6 {
-			t.Errorf("week total = %d, want 6", total)
-		}
+		assert.Equal(t, 6, total, "week total")
 	})
 
 	t.Run("ProjectFilter", func(t *testing.T) {
 		f := baseFilter()
 		f.Project = "alpha"
 		resp, err := d.GetAnalyticsTools(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
-		if resp.TotalCalls != 4 {
-			t.Errorf("TotalCalls = %d, want 4",
-				resp.TotalCalls)
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
+		assert.Equal(t, 4, resp.TotalCalls, "TotalCalls")
 	})
 
 	t.Run("EmptyDateRange", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTools(
 			ctx, emptyFilter(),
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTools: %v", err)
-		}
-		if resp.TotalCalls != 0 {
-			t.Errorf("TotalCalls = %d, want 0",
-				resp.TotalCalls)
-		}
+		require.NoError(t, err, "GetAnalyticsTools")
+		assert.Equal(t, 0, resp.TotalCalls, "TotalCalls")
 	})
 }
 
@@ -1666,14 +1415,8 @@ func TestActivityToolAndThinkingCounts(t *testing.T) {
 	}
 
 	entry := resp.Series[0]
-	if entry.ThinkingMessages != 1 {
-		t.Errorf("ThinkingMessages = %d, want 1",
-			entry.ThinkingMessages)
-	}
-	if entry.ToolCalls != 2 {
-		t.Errorf("ToolCalls = %d, want 2",
-			entry.ToolCalls)
-	}
+	assert.Equal(t, 1, entry.ThinkingMessages, "ThinkingMessages")
+	assert.Equal(t, 2, entry.ToolCalls, "ToolCalls")
 }
 
 func TestGetAnalyticsTopSessions(t *testing.T) {
@@ -1684,17 +1427,9 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
 			ctx, baseFilter(), "messages",
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTopSessions: %v", err)
-		}
-		if len(resp.Sessions) != 0 {
-			t.Errorf("len(Sessions) = %d, want 0",
-				len(resp.Sessions))
-		}
-		if resp.Metric != "messages" {
-			t.Errorf("Metric = %q, want messages",
-				resp.Metric)
-		}
+		require.NoError(t, err, "GetAnalyticsTopSessions")
+		assert.Len(t, resp.Sessions, 0, "len(Sessions)")
+		assert.Equal(t, "messages", resp.Metric, "Metric")
 	})
 
 	stats := seedAnalyticsData(t, d)
@@ -1703,35 +1438,22 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
 			ctx, baseFilter(), "messages",
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTopSessions: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsTopSessions")
 		if len(resp.Sessions) != stats.TotalSessions {
 			t.Fatalf("len(Sessions) = %d, want %d",
 				len(resp.Sessions), stats.TotalSessions)
 		}
 		// First should be the session with most messages (b1=30)
-		if resp.Sessions[0].MessageCount != 30 {
-			t.Errorf("top session messages = %d, want 30",
-				resp.Sessions[0].MessageCount)
-		}
-		if resp.Sessions[0].Project != "project-beta" {
-			t.Errorf("top session project = %q, want project-beta",
-				resp.Sessions[0].Project)
-		}
+		assert.Equal(t, 30, resp.Sessions[0].MessageCount, "top session messages")
+		assert.Equal(t, "project-beta", resp.Sessions[0].Project, "top session project")
 	})
 
 	t.Run("ByDuration", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
 			ctx, baseFilter(), "duration",
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTopSessions: %v", err)
-		}
-		if resp.Metric != "duration" {
-			t.Errorf("Metric = %q, want duration",
-				resp.Metric)
-		}
+		require.NoError(t, err, "GetAnalyticsTopSessions")
+		assert.Equal(t, "duration", resp.Metric, "Metric")
 		// All seeded sessions have 1h duration except a1
 		// which runs from 09:00 to midyear
 		if len(resp.Sessions) == 0 {
@@ -1750,13 +1472,8 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
 			ctx, baseFilter(), "",
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTopSessions: %v", err)
-		}
-		if resp.Metric != "messages" {
-			t.Errorf("Metric = %q, want messages",
-				resp.Metric)
-		}
+		require.NoError(t, err, "GetAnalyticsTopSessions")
+		assert.Equal(t, "messages", resp.Metric, "Metric")
 	})
 
 	t.Run("ProjectFilter", func(t *testing.T) {
@@ -1765,18 +1482,10 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
 			ctx, f, "messages",
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTopSessions: %v", err)
-		}
-		if len(resp.Sessions) != 3 {
-			t.Errorf("len(Sessions) = %d, want 3",
-				len(resp.Sessions))
-		}
+		require.NoError(t, err, "GetAnalyticsTopSessions")
+		assert.Len(t, resp.Sessions, 3, "len(Sessions)")
 		for _, s := range resp.Sessions {
-			if s.Project != "project-alpha" {
-				t.Errorf("session project = %q, want project-alpha",
-					s.Project)
-			}
+			assert.Equal(t, "project-alpha", s.Project, "session project")
 		}
 	})
 
@@ -1784,13 +1493,8 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
 			ctx, emptyFilter(), "messages",
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsTopSessions: %v", err)
-		}
-		if len(resp.Sessions) != 0 {
-			t.Errorf("len(Sessions) = %d, want 0",
-				len(resp.Sessions))
-		}
+		require.NoError(t, err, "GetAnalyticsTopSessions")
+		assert.Len(t, resp.Sessions, 0, "len(Sessions)")
 	})
 }
 
@@ -1803,20 +1507,14 @@ func TestBuildWhereProjectFilter(t *testing.T) {
 		f := baseFilter()
 		f.Project = "project-alpha"
 		s := mustSummary(t, d, ctx, f)
-		if s.TotalSessions != 3 {
-			t.Errorf("TotalSessions = %d, want 3",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 3, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("SummaryWithNonexistentProject", func(t *testing.T) {
 		f := baseFilter()
 		f.Project = "nonexistent"
 		s := mustSummary(t, d, ctx, f)
-		if s.TotalSessions != 0 {
-			t.Errorf("TotalSessions = %d, want 0",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 0, s.TotalSessions, "TotalSessions")
 	})
 }
 
@@ -1942,9 +1640,7 @@ func TestAnalyticsTerminationFilter(t *testing.T) {
 			resp, err := d.GetAnalyticsTopSessions(
 				ctx, f, "messages",
 			)
-			if err != nil {
-				t.Fatalf("GetAnalyticsTopSessions: %v", err)
-			}
+			require.NoError(t, err, "GetAnalyticsTopSessions")
 			if len(resp.Sessions) == 0 {
 				t.Fatal("expected sessions, got 0")
 			}
@@ -1969,10 +1665,7 @@ func TestAnalyticsTerminationFilter(t *testing.T) {
 			f := baseFilter()
 			f.Termination = "unclean"
 			s := mustSummary(t, d, ctx, f)
-			if s.TotalSessions != 2 {
-				t.Errorf("TotalSessions = %d, want 2",
-					s.TotalSessions)
-			}
+			assert.Equal(t, 2, s.TotalSessions, "TotalSessions")
 		})
 	})
 }
@@ -2039,10 +1732,7 @@ func TestTimeFilter(t *testing.T) {
 		ff.Hour = &hour
 		s := mustSummary(t, d, ctx, ff)
 		// tf1 and tf3 have messages at hour 9
-		if s.TotalSessions != 2 {
-			t.Errorf("TotalSessions = %d, want 2",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 2, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("FilterByDow", func(t *testing.T) {
@@ -2051,10 +1741,7 @@ func TestTimeFilter(t *testing.T) {
 		ff.DayOfWeek = &dow
 		s := mustSummary(t, d, ctx, ff)
 		// tf1 and tf2 are on Saturday
-		if s.TotalSessions != 2 {
-			t.Errorf("TotalSessions = %d, want 2",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 2, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("FilterByDowAndHour", func(t *testing.T) {
@@ -2065,19 +1752,13 @@ func TestTimeFilter(t *testing.T) {
 		ff.Hour = &hour
 		s := mustSummary(t, d, ctx, ff)
 		// Only tf2 has messages on Saturday at hour 14
-		if s.TotalSessions != 1 {
-			t.Errorf("TotalSessions = %d, want 1",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 1, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("NoTimeFilter", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, f)
 		// All 3 sessions
-		if s.TotalSessions != 3 {
-			t.Errorf("TotalSessions = %d, want 3",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 3, s.TotalSessions, "TotalSessions")
 	})
 }
 
@@ -2113,30 +1794,21 @@ func TestAnalyticsFilterAgentAndMinUserMessages(
 
 	t.Run("NoFilters", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, f)
-		if s.TotalSessions != 3 {
-			t.Errorf("TotalSessions = %d, want 3",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 3, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("AgentOnly", func(t *testing.T) {
 		af := f
 		af.Agent = "claude"
 		s := mustSummary(t, d, ctx, af)
-		if s.TotalSessions != 2 {
-			t.Errorf("TotalSessions = %d, want 2",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 2, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("MinUserMessagesOnly", func(t *testing.T) {
 		af := f
 		af.MinUserMessages = 5
 		s := mustSummary(t, d, ctx, af)
-		if s.TotalSessions != 2 {
-			t.Errorf("TotalSessions = %d, want 2",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 2, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("AgentAndMinUserMessages", func(t *testing.T) {
@@ -2144,20 +1816,14 @@ func TestAnalyticsFilterAgentAndMinUserMessages(
 		af.Agent = "claude"
 		af.MinUserMessages = 2
 		s := mustSummary(t, d, ctx, af)
-		if s.TotalSessions != 1 {
-			t.Errorf("TotalSessions = %d, want 1",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 1, s.TotalSessions, "TotalSessions")
 	})
 
 	t.Run("ActiveSince", func(t *testing.T) {
 		af := f
 		af.ActiveSince = "2024-06-01T13:00:00Z"
 		s := mustSummary(t, d, ctx, af)
-		if s.TotalSessions != 1 {
-			t.Errorf("TotalSessions = %d, want 1",
-				s.TotalSessions)
-		}
+		assert.Equal(t, 1, s.TotalSessions, "TotalSessions")
 	})
 }
 
@@ -2238,22 +1904,12 @@ func TestActivityExcludesSystemUserMessages(t *testing.T) {
 	)
 	requireNoError(t, err, "GetAnalyticsActivity")
 
-	if len(resp.Series) != 1 {
-		t.Fatalf("got %d entries, want 1", len(resp.Series))
-	}
+	require.Len(t, resp.Series, 1, "len")
 	entry := resp.Series[0]
 	// 3 total messages but only 1 real user message
-	if entry.Messages != 3 {
-		t.Errorf("Messages = %d, want 3", entry.Messages)
-	}
-	if entry.UserMessages != 1 {
-		t.Errorf("UserMessages = %d, want 1 (system excluded)",
-			entry.UserMessages)
-	}
-	if entry.AssistantMessages != 1 {
-		t.Errorf("AssistantMessages = %d, want 1",
-			entry.AssistantMessages)
-	}
+	assert.Equal(t, 3, entry.Messages, "Messages")
+	assert.Equal(t, 1, entry.UserMessages, "UserMessages")
+	assert.Equal(t, 1, entry.AssistantMessages, "AssistantMessages")
 }
 
 func TestGetAnalyticsSignals(t *testing.T) {
@@ -2262,9 +1918,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("EmptyDB", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		assertEq(t, "ScoredSessions", resp.ScoredSessions, 0)
 		assertEq(t, "UnscoredSessions",
 			resp.UnscoredSessions, 0)
@@ -2322,9 +1976,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("ScoredVsUnscored", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		assertEq(t, "ScoredSessions", resp.ScoredSessions, 2)
 		assertEq(t, "UnscoredSessions",
 			resp.UnscoredSessions, 1)
@@ -2332,18 +1984,14 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("GradeDistribution", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		assertEq(t, "grade B", resp.GradeDistribution["B"], 1)
 		assertEq(t, "grade D", resp.GradeDistribution["D"], 1)
 	})
 
 	t.Run("AvgHealthScore", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		if resp.AvgHealthScore == nil {
 			t.Fatal("AvgHealthScore is nil")
 		}
@@ -2354,9 +2002,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("OutcomeDistribution", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		assertEq(t, "completed",
 			resp.OutcomeDistribution["completed"], 1)
 		assertEq(t, "errored",
@@ -2367,9 +2013,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("ToolHealth", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		// 2 + 5 + 0 = 7
 		assertEq(t, "TotalFailureSignals",
 			resp.ToolHealth.TotalFailureSignals, 7)
@@ -2386,9 +2030,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("ContextHealth", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		// sig1 (1) and sig3 (3) have compaction > 0
 		assertEq(t, "SessionsWithCompaction",
 			resp.ContextHealth.SessionsWithCompaction, 2)
@@ -2402,9 +2044,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("Trend", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		// 2 dates: 2024-06-01 (2 sessions), 2024-06-02 (1)
 		assertEq(t, "len(Trend)", len(resp.Trend), 2)
 		// Sorted by date
@@ -2424,9 +2064,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("ByAgent", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		// 2 agents: claude (2 sessions), codex (1)
 		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 2)
 		// Alphabetical: claude first
@@ -2440,9 +2078,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 
 	t.Run("ByProject", func(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		// 2 projects: alpha (2), beta (1)
 		// Sorted by session count desc
 		assertEq(t, "len(ByProject)", len(resp.ByProject), 2)
@@ -2456,9 +2092,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 		f := baseFilter()
 		f.Project = "beta"
 		resp, err := d.GetAnalyticsSignals(ctx, f)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		assertEq(t, "ScoredSessions", resp.ScoredSessions, 0)
 		assertEq(t, "UnscoredSessions",
 			resp.UnscoredSessions, 1)
@@ -2469,9 +2103,7 @@ func TestGetAnalyticsSignals(t *testing.T) {
 		resp, err := d.GetAnalyticsSignals(
 			ctx, emptyFilter(),
 		)
-		if err != nil {
-			t.Fatalf("GetAnalyticsSignals: %v", err)
-		}
+		require.NoError(t, err, "GetAnalyticsSignals")
 		assertEq(t, "ScoredSessions", resp.ScoredSessions, 0)
 	})
 }
