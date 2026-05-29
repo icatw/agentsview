@@ -4,6 +4,7 @@
   import { messages } from "../../stores/messages.svelte.js";
   import { ui } from "../../stores/ui.svelte.js";
   import { sessions } from "../../stores/sessions.svelte.js";
+  import { MessageSquareIcon } from "../../icons.js";
   import { createVirtualizer } from "../../virtual/createVirtualizer.svelte.js";
   import MessageContent from "./MessageContent.svelte";
   import CompactBoundaryDivider from "./CompactBoundaryDivider.svelte";
@@ -523,9 +524,7 @@
 {#if !sessions.activeSessionId}
   <div class="empty-state">
     <div class="empty-icon">
-      <svg width="36" height="36" viewBox="0 0 16 16" fill="var(--text-muted)">
-        <path d="M14 1a1 1 0 011 1v8a1 1 0 01-1 1h-2.5a2 2 0 00-1.6.8L8 14.333 6.1 11.8a2 2 0 00-1.6-.8H2a1 1 0 01-1-1V2a1 1 0 011-1h12z"/>
-      </svg>
+      <MessageSquareIcon size="36" strokeWidth="1.5" aria-hidden="true" />
     </div>
     <p class="empty-text">Select a session to view messages</p>
   </div>

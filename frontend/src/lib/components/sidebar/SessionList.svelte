@@ -4,6 +4,13 @@
   import { starred } from "../../stores/starred.svelte.js";
   import SessionItem from "./SessionItem.svelte";
   import SessionFilterControl from "../filters/SessionFilterControl.svelte";
+  import {
+    ChevronDownIcon,
+    ChevronRightIcon,
+    FolderIcon,
+    UserRoundIcon,
+    UsersRoundIcon,
+  } from "../../icons.js";
   import { formatNumber } from "../../utils/format.js";
   import { agentColor } from "../../utils/agents.js";
   import {
@@ -451,31 +458,18 @@
             title="{collapsed.has(item.label) ? 'Expand' : 'Collapse'} {item.label} group"
             aria-label="{collapsed.has(item.label) ? 'Expand' : 'Collapse'} {item.label} group"
           >
-            <svg
-              class="chevron"
-              class:expanded={!collapsed.has(item.label)}
-              width="10"
-              height="10"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-            >
-              <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z"/>
-            </svg>
+            {#if collapsed.has(item.label)}
+              <ChevronRightIcon class="chevron" size="10" strokeWidth="2.5" aria-hidden="true" />
+            {:else}
+              <ChevronDownIcon class="chevron" size="10" strokeWidth="2.5" aria-hidden="true" />
+            {/if}
             {#if groupMode === "agent"}
               <span
                 class="group-dot"
                 style:background={agentColor(item.label)}
               ></span>
             {:else}
-              <svg
-                class="project-icon"
-                width="11"
-                height="11"
-                viewBox="0 0 16 16"
-                fill="currentColor"
-              >
-                <path d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2c-.33-.44-.85-.7-1.4-.7z"/>
-              </svg>
+              <FolderIcon class="project-icon" size="11" strokeWidth="1.8" aria-hidden="true" />
             {/if}
             <span class="group-name">{item.label}</span>
             <span class="group-count">{item.count}</span>
@@ -490,10 +484,12 @@
             title="{subExpanded ? 'Collapse' : 'Expand'} Subagents group"
             aria-label="{subExpanded ? 'Collapse' : 'Expand'} Subagents group"
           >
-            <svg class="sub-group-arrow" class:expanded={subExpanded} width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z"/></svg>
-            <svg class="sub-group-icon" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M10.56 7.01A3.5 3.5 0 108 0a3.5 3.5 0 002.56 7.01zM8 8.5c-2.7 0-5 1.7-5 4v.75c0 .41.34.75.75.75h8.5c.41 0 .75-.34.75-.75v-.75c0-2.3-2.3-4-5-4z"/>
-            </svg>
+            {#if subExpanded}
+              <ChevronDownIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
+            {:else}
+              <ChevronRightIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
+            {/if}
+            <UserRoundIcon class="sub-group-icon" size="10" strokeWidth="2" aria-hidden="true" />
             <span class="sub-group-label">Subagents</span>
             <span class="sub-group-count">({item.count})</span>
           </button>
@@ -507,11 +503,12 @@
             title="{teamExpanded ? 'Collapse' : 'Expand'} Team group"
             aria-label="{teamExpanded ? 'Collapse' : 'Expand'} Team group"
           >
-            <svg class="sub-group-arrow" class:expanded={teamExpanded} width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z"/></svg>
-            <svg class="sub-group-icon" width="12" height="10" viewBox="0 0 20 16" fill="currentColor" aria-hidden="true">
-              <path d="M7.56 7.01A3.5 3.5 0 105 0a3.5 3.5 0 002.56 7.01zM5 8.5c-2.7 0-5 1.7-5 4v.75c0 .41.34.75.75.75h8.5c.41 0 .75-.34.75-.75v-.75c0-2.3-2.3-4-5-4z"/>
-              <path d="M17.56 7.01A3.5 3.5 0 1015 0a3.5 3.5 0 002.56 7.01zM15 8.5c-2.7 0-5 1.7-5 4v.75c0 .41.34.75.75.75h8.5c.41 0 .75-.34.75-.75v-.75c0-2.3-2.3-4-5-4z" opacity="0.6"/>
-            </svg>
+            {#if teamExpanded}
+              <ChevronDownIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
+            {:else}
+              <ChevronRightIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
+            {/if}
+            <UsersRoundIcon class="sub-group-icon" size="12" strokeWidth="2" aria-hidden="true" />
             <span class="sub-group-label">Team</span>
             <span class="sub-group-count">({item.count})</span>
           </button>
@@ -708,13 +705,8 @@
     background: var(--bg-surface-hover);
   }
 
-  .chevron {
+  :global(.chevron) {
     flex-shrink: 0;
-    transition: transform 0.15s ease;
-  }
-
-  .chevron.expanded {
-    transform: rotate(90deg);
   }
 
   .group-dot {
@@ -724,7 +716,7 @@
     flex-shrink: 0;
   }
 
-  .project-icon {
+  :global(.project-icon) {
     flex-shrink: 0;
     color: var(--text-muted);
   }
@@ -768,18 +760,13 @@
     background: var(--bg-surface-hover);
   }
 
-  .sub-group-arrow {
+  :global(.sub-group-arrow) {
     flex-shrink: 0;
-    transition: transform 150ms ease;
     color: var(--text-muted);
     opacity: 0.5;
   }
 
-  .sub-group-arrow.expanded {
-    transform: rotate(90deg);
-  }
-
-  .sub-group-icon {
+  :global(.sub-group-icon) {
     flex-shrink: 0;
     color: var(--text-muted);
     opacity: 0.6;

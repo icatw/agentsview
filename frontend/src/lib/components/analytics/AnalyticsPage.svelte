@@ -19,6 +19,7 @@
   import { events } from "../../stores/events.svelte.js";
   import { ui } from "../../stores/ui.svelte.js";
   import { exportAnalyticsCSV } from "../../utils/csv-export.js";
+  import { RefreshCwIcon } from "../../icons.js";
 
   function shortTz(tz: string): string {
     const slash = tz.lastIndexOf("/");
@@ -166,9 +167,7 @@
       title="Refresh analytics"
       aria-label="Refresh analytics"
     >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 3a5 5 0 00-4.546 2.914.5.5 0 01-.908-.418A6 6 0 0114 8a.5.5 0 01-1 0 5 5 0 00-5-5zm4.546 7.086a.5.5 0 01.908.418A6 6 0 012 8a.5.5 0 011 0 5 5 0 005 5 5 5 0 004.546-2.914z"/>
-      </svg>
+      <RefreshCwIcon size="14" strokeWidth="2" aria-hidden="true" />
     </button>
     <button class="export-btn" onclick={handleExportCSV}>
       Export CSV
