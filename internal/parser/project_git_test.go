@@ -106,6 +106,29 @@ func TestExtractProjectFromCwdWithBranchContext_GitWorktreeMainRoot(t *testing.T
 		"kit-backed worktree resolution should use the main repo name")
 }
 
+func TestExtractProjectFromCwdPlainRepoDoesNotInvokeGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell git shim")
+	}
+
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	mustMkdirAll(t, binDir)
+	marker := filepath.Join(root, "git-invoked")
+	fakeGit := filepath.Join(binDir, "git")
+	mustWriteFile(t, fakeGit, "#!/bin/sh\n: > "+shellQuote(marker)+"\nexit 1\n")
+	require.NoError(t, os.Chmod(fakeGit, 0o755), "chmod fake git")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	repo := filepath.Join(root, "plain-repo")
+	subdir := filepath.Join(repo, "internal", "parser")
+	mustMkdirAll(t, filepath.Join(repo, ".git"))
+	mustMkdirAll(t, subdir)
+
+	assert.Equal(t, "plain_repo", ExtractProjectFromCwd(subdir))
+	assert.NoFileExists(t, marker, "plain .git directory should resolve without invoking git")
+}
+
 func TestExtractProjectFromCwd_DeletedNestedWorktree(t *testing.T) {
 	// Simulates a nested worktree layout where the session's
 	// worktree has been deleted but a sibling worktree still
@@ -589,6 +612,10 @@ func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644),
 		"WriteFile(%q)", path)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func skipIfNoGit(t *testing.T) {

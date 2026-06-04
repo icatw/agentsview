@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode"
 
-	gitrepo "go.kenn.io/kit/git/repo"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -420,6 +419,7 @@ func findGitRepoRoot(ctx context.Context, cwd string) string {
 	if cwd == "" {
 		return ""
 	}
+	_ = ctx
 
 	dir := cwd
 	cwdMissing := false
@@ -434,14 +434,6 @@ func findGitRepoRoot(ctx context.Context, cwd string) string {
 		}
 		cwdMissing = true
 		dir = filepath.Dir(dir)
-	}
-
-	if !cwdMissing {
-		opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if root, err := gitrepo.MainRoot(opCtx, dir); err == nil {
-			return root
-		}
 	}
 
 	// When the original path is gone, walk up to the first
