@@ -439,6 +439,42 @@ func (te *testEnv) get(
 	return te.getWithContext(t, context.Background(), path)
 }
 
+func TestOpenAPIEndpointDocumentsExistingAPIRoutes(t *testing.T) {
+	te := setup(t)
+
+	w := te.get(t, "/api/openapi.json")
+
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	contentType := w.Header().Get("Content-Type")
+	assert.True(t,
+		strings.Contains(contentType, "application/json") ||
+			strings.Contains(contentType, "application/openapi+json"),
+		"Content-Type = %q", contentType)
+
+	var spec struct {
+		OpenAPI string `json:"openapi"`
+		Info    struct {
+			Title   string `json:"title"`
+			Version string `json:"version"`
+		} `json:"info"`
+		Paths map[string]map[string]any `json:"paths"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &spec))
+	require.Equal(t, "3.1.0", spec.OpenAPI)
+	assert.Equal(t, "AgentsView API", spec.Info.Title)
+	assert.NotEmpty(t, spec.Info.Version)
+
+	require.Contains(t, spec.Paths, "/api/v1/sessions")
+	assert.Contains(t, spec.Paths["/api/v1/sessions"], "get")
+	require.Contains(t, spec.Paths, "/api/v1/sessions/{id}")
+	assert.Contains(t, spec.Paths["/api/v1/sessions/{id}"], "get")
+	assert.Contains(t, spec.Paths["/api/v1/sessions/{id}"], "delete")
+	require.Contains(t, spec.Paths, "/api/v1/sessions/{id}/messages")
+	assert.Contains(t, spec.Paths["/api/v1/sessions/{id}/messages"], "get")
+	require.Contains(t, spec.Paths, "/api/v1/settings")
+	assert.Contains(t, spec.Paths["/api/v1/settings"], "put")
+}
+
 func (te *testEnv) post(
 	t *testing.T, path string, body string,
 ) *httptest.ResponseRecorder {
