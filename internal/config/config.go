@@ -173,6 +173,32 @@ func (c *Config) IsUserConfigured(
 	return c.agentDirSource[agent] != dirDefault
 }
 
+// ValidateRemoteHosts checks the configured remote_hosts entries
+// for semantic errors: a non-empty host and a port within 0..65535
+// (0 means the ssh default). It checks the trimmed values that
+// loadFile already normalized, so what is validated here is exactly
+// what is passed to ssh. Returns an aggregated error naming every
+// offending entry, or nil when all entries are valid.
+func (c Config) ValidateRemoteHosts() error {
+	var problems []string
+	for i, h := range c.RemoteHosts {
+		if h.Host == "" {
+			problems = append(problems,
+				fmt.Sprintf("entry %d: host is required", i+1))
+		}
+		if h.Port < 0 || h.Port > 65535 {
+			problems = append(problems,
+				fmt.Sprintf("entry %d (%q): invalid port %d",
+					i+1, h.Host, h.Port))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("remote_hosts: %s",
+			strings.Join(problems, "; "))
+	}
+	return nil
+}
+
 // Default returns a Config with default values.
 func Default() (Config, error) {
 	home, err := os.UserHomeDir()

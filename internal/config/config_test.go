@@ -976,3 +976,31 @@ func TestLoadFile_RemoteHostsAbsentIsNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.RemoteHosts)
 }
+
+func TestValidateRemoteHosts(t *testing.T) {
+	tests := []struct {
+		name    string
+		hosts   []RemoteHost
+		wantErr []string // substrings expected in error; empty => no error
+	}{
+		{"valid", []RemoteHost{{Host: "a"}, {Host: "b", Port: 22}, {Host: "c", Port: 0}}, nil},
+		{"empty host", []RemoteHost{{Host: ""}}, []string{"host is required"}},
+		{"negative port", []RemoteHost{{Host: "a", Port: -1}}, []string{"invalid port"}},
+		{"port too large", []RemoteHost{{Host: "a", Port: 70000}}, []string{"invalid port"}},
+		{"aggregates both", []RemoteHost{{Host: ""}, {Host: "b", Port: 99999}}, []string{"host is required", "invalid port"}},
+		{"none configured", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Config{RemoteHosts: tt.hosts}.ValidateRemoteHosts()
+			if len(tt.wantErr) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tt.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+		})
+	}
+}
