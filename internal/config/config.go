@@ -85,6 +85,15 @@ type CustomModelRate struct {
 	CacheRead     float64 `json:"cache_read,omitempty" toml:"cache_read"`
 }
 
+// RemoteHost describes one SSH target for config-driven
+// `agentsview sync` fan-out. Host is required; User and Port are
+// optional (Port 0 means the ssh default of 22).
+type RemoteHost struct {
+	Host string `toml:"host" json:"host"`
+	User string `toml:"user,omitempty" json:"user,omitempty"`
+	Port int    `toml:"port,omitempty" json:"port,omitempty"`
+}
+
 // Config holds all application configuration.
 type Config struct {
 	Host                 string                 `json:"host" toml:"host"`
@@ -127,6 +136,12 @@ type Config struct {
 	EventsCoalesceInterval time.Duration `json:"events_coalesce_interval,omitempty" toml:"events_coalesce_interval"`
 
 	CustomModelPricing map[string]CustomModelRate `json:"custom_model_pricing,omitempty" toml:"custom_model_pricing"`
+
+	// RemoteHosts is the config-file list of SSH targets that
+	// `agentsview sync` (with no --host) syncs after the local
+	// pass. CLI/config-file only; never serialized to the
+	// settings API, so there is no web-UI editing of this list.
+	RemoteHosts []RemoteHost `json:"-" toml:"-"`
 
 	// HostExplicit is true when the user passed --host on the CLI.
 	// Used to prevent auto-bind to 0.0.0.0 when the user
@@ -375,6 +390,7 @@ func (c *Config) loadFile() error {
 		Agent                          map[string]AgentConfig     `toml:"agent"`
 		EventsCoalesceInterval         time.Duration              `toml:"events_coalesce_interval"`
 		CustomModelPricing             map[string]CustomModelRate `toml:"custom_model_pricing"`
+		RemoteHosts                    []RemoteHost               `toml:"remote_hosts"`
 	}
 	meta, err := toml.DecodeFile(path, &file)
 	if err != nil {
@@ -456,6 +472,17 @@ func (c *Config) loadFile() error {
 	}
 	if len(file.CustomModelPricing) > 0 {
 		c.CustomModelPricing = file.CustomModelPricing
+	}
+	if len(file.RemoteHosts) > 0 {
+		hosts := make([]RemoteHost, len(file.RemoteHosts))
+		for i, h := range file.RemoteHosts {
+			hosts[i] = RemoteHost{
+				Host: strings.TrimSpace(h.Host),
+				User: strings.TrimSpace(h.User),
+				Port: h.Port,
+			}
+		}
+		c.RemoteHosts = hosts
 	}
 
 	// Parse config-file dir arrays for agents that have a

@@ -945,3 +945,34 @@ func TestLoadFile_CustomModelPricing(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFile_RemoteHosts(t *testing.T) {
+	dir := setupTestEnv(t)
+	path := filepath.Join(dir, configFileName)
+	data := []byte(`[[remote_hosts]]
+host = "devbox1"
+user = "jesse"
+port = 22
+
+[[remote_hosts]]
+host = "  laptop2  "
+`)
+	require.NoError(t, os.WriteFile(path, data, 0o600), "write config")
+
+	cfg, err := LoadMinimal()
+	require.NoError(t, err)
+
+	require.Len(t, cfg.RemoteHosts, 2)
+	assert.Equal(t, RemoteHost{Host: "devbox1", User: "jesse", Port: 22}, cfg.RemoteHosts[0])
+	// host is trimmed at load so validation and SSH see the same value
+	assert.Equal(t, RemoteHost{Host: "laptop2"}, cfg.RemoteHosts[1])
+}
+
+func TestLoadFile_RemoteHostsAbsentIsNil(t *testing.T) {
+	dir := setupTestEnv(t)
+	writeConfig(t, dir, map[string]any{"public_url": "http://example.com"})
+
+	cfg, err := LoadMinimal()
+	require.NoError(t, err)
+	assert.Nil(t, cfg.RemoteHosts)
+}
