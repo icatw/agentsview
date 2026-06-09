@@ -356,7 +356,7 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 			subagentsDir := filepath.Join(
 				projDir, sf.Name(), "subagents",
 			)
-			err := filepath.WalkDir(
+			_ = filepath.WalkDir(
 				subagentsDir,
 				func(path string, sub os.DirEntry, err error) error {
 					if err != nil || sub.IsDir() {
@@ -375,9 +375,6 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 					return nil
 				},
 			)
-			if err != nil {
-				continue
-			}
 		}
 	}
 
