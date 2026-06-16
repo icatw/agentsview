@@ -15,6 +15,7 @@ const (
 	AgentCopilot        AgentType = "copilot"
 	AgentGemini         AgentType = "gemini"
 	AgentOpenCode       AgentType = "opencode"
+	AgentKilo           AgentType = "kilo"
 	AgentOpenHands      AgentType = "openhands"
 	AgentCursor         AgentType = "cursor"
 	AgentIflow          AgentType = "iflow"
@@ -66,6 +67,13 @@ type AgentDef struct {
 	// given a root directory and the raw session ID (prefix
 	// already stripped). Nil for non-file-based agents.
 	FindSourceFunc func(string, string) string
+
+	// WatchRootsFunc resolves the directories to watch for live
+	// updates under a configured root, for agents whose watch
+	// targets depend on the on-disk layout rather than a static
+	// WatchSubdirs list. When set, it takes precedence over
+	// WatchSubdirs. Nil for agents that use WatchSubdirs.
+	WatchRootsFunc func(string) []string
 }
 
 // Registry lists all supported agents. Order is stable and
@@ -135,6 +143,24 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverOpenCodeSessions,
 		FindSourceFunc: FindOpenCodeSourceFile,
+		WatchRootsFunc: ResolveOpenCodeWatchRoots,
+	},
+	{
+		Type:        AgentKilo,
+		DisplayName: "Kilo",
+		EnvVar:      "KILO_DIR",
+		ConfigKey:   "kilo_dirs",
+		DefaultDirs: []string{".local/share/kilo"},
+		IDPrefix:    "kilo:",
+		WatchSubdirs: []string{
+			"storage/session",
+			"storage/message",
+			"storage/part",
+		},
+		FileBased:      true,
+		DiscoverFunc:   DiscoverKiloSessions,
+		FindSourceFunc: FindKiloSourceFile,
+		WatchRootsFunc: ResolveKiloWatchRoots,
 	},
 	{
 		Type:           AgentOpenHands,
