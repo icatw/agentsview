@@ -346,6 +346,10 @@ func ProviderFactories() []ProviderFactory {
 func providerFactoryForDef(def AgentDef) ProviderFactory {
 	def = cloneAgentDef(def)
 	switch def.Type {
+	case AgentAntigravity:
+		return newAntigravityProviderFactory(def)
+	case AgentAntigravityCLI:
+		return newAntigravityCLIProviderFactory(def)
 	case AgentAmp:
 		return newAmpProviderFactory(def)
 	case AgentClaude:
