@@ -232,6 +232,7 @@ func (p *CodexProvider) Parse(
 			Result:      ParseResult{Session: *sess, Messages: msgs},
 			DataVersion: DataVersionCurrent,
 		}},
+		ResultSetComplete: true,
 	}, nil
 }
 ```
@@ -455,6 +456,7 @@ type ParseOutcome struct {
 	Results            []ParseResultOutcome
 	ExcludedSessionIDs []string
 	SourceErrors       []SourceError
+	ResultSetComplete  bool
 	ForceReplace       bool
 	SkipReason         SkipReason
 }
@@ -521,12 +523,20 @@ Runtime behavior:
   retryable `SourceError` affects only the failed session unless the provider
   reports a whole-source `error`.
 - Data-version writes are per result, but clean skip-cache persistence remains
-  source/fingerprint scoped. The engine may write a clean skip-cache entry for a
-  `SourceRef` only when all returned results are `DataVersionCurrent` and there
-  are no retryable `SourceErrors`. Any `DataVersionNeedsRetry` result or
-  retryable per-session error suppresses the clean skip-cache entry for the
-  whole `FingerprintKey`, so future sync can retry the stale session even if
-  other sessions from the same source are current.
+  source/fingerprint scoped. `ResultSetComplete` means the provider has
+  accounted for the complete logical session set represented by the
+  `SourceRef`/`FingerprintKey`: returned results, explicit exclusions, and clean
+  replacements cover every retained session for that source. The engine may
+  write a clean skip-cache entry only when `ResultSetComplete` is true, every
+  returned result is `DataVersionCurrent`, there are no `SourceErrors`, and any
+  previously persisted rows for that `FingerprintKey` are either returned,
+  listed in `ExcludedSessionIDs`, or covered by a clean `ForceReplace`.
+- Any `DataVersionNeedsRetry` result, retryable per-session error, non-retryable
+  per-session error, or incomplete result set suppresses the clean skip-cache
+  entry for the whole `FingerprintKey`. Non-retryable errors may be recorded as
+  diagnostics or failure-cache entries, but they do not prove the source is
+  clean because a future parser version or source change may still need to
+  revisit the same logical session set.
 - During a partial multi-session parse, existing persisted rows that are absent
   from `Results` are retained unless their IDs are listed in
   `ExcludedSessionIDs` or the provider completes a clean `ForceReplace` parse
@@ -875,6 +885,9 @@ Required tests:
 - SQLite fan-out source key, virtual path, and per-session error tests.
 - Data-version tests for current, skipped, retry-needed, and mixed per-session
   parse outcomes from one source.
+- Skip-cache tests for complete clean multi-session parses, incomplete
+  multi-session parses, retry-needed results, retryable `SourceErrors`, and
+  non-retryable `SourceErrors`.
 - Fingerprint performance tests or benchmarks for large roots and composite
   sources, with the pass criteria from the fingerprint section.
 - Provider harness tests for discovery, fingerprint, parse, source lookup, and
@@ -905,7 +918,8 @@ decisions from those structures:
   source are still written;
 - retryable failure: do not cache skip by unchanged mtime and do not mark the
   affected source/session current for the parser data version;
-- non-retryable failure: eligible for skip-cache persistence;
+- non-retryable per-session failure: eligible for failure-cache persistence, but
+  not for a clean source skip-cache entry;
 - full parse fallback from incremental: typed outcome flag;
 - successful lower-resolution fallback: per-result `DataVersionNeedsRetry` plus
   `RetryReason`;
