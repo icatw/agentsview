@@ -71,6 +71,11 @@ type Provider interface {
 	FindSource(context.Context, FindSourceRequest) (SourceRef, bool, error)
 	Fingerprint(context.Context, SourceRef) (SourceFingerprint, error)
 
+	// Parse returns a normalized outcome for one logical source. A non-nil
+	// error is a whole-source failure, including context cancellation; callers
+	// must ignore the returned ParseOutcome. Partial multi-session success is
+	// represented by a nil error with successful Results plus SourceErrors for
+	// isolated per-session failures.
 	Parse(context.Context, ParseRequest) (ParseOutcome, error)
 	ParseIncremental(
 		context.Context,
@@ -139,12 +144,24 @@ func (b ProviderBase) unsupported(feature string) error {
 
 // SourceRef is the engine-visible handle for provider-owned source data.
 type SourceRef struct {
-	Provider       AgentType
-	Key            string
-	DisplayPath    string
+	// Provider identifies the provider that created this source and must match
+	// the provider instance used for subsequent operations.
+	Provider AgentType
+	// Key is stable within the provider across process restarts. It is suitable
+	// for dedupe and diagnostics, but not necessarily for DB freshness checks.
+	Key string
+	// DisplayPath is human-readable and may be a virtual path.
+	DisplayPath string
+	// FingerprintKey is the persisted lookup key for skip-cache and parser data
+	// version checks. Migrated providers should keep it compatible with legacy
+	// file_path values whenever practical.
 	FingerprintKey string
-	ProjectHint    string
-	Opaque         any
+	// ProjectHint is advisory metadata for UI grouping and may be empty.
+	ProjectHint string
+	// Opaque is provider-owned in-memory state. The engine must not persist,
+	// compare, inspect, or log it, and providers must not require it for lookup
+	// from persisted rows.
+	Opaque any
 }
 
 // WatchPlan describes provider-owned filesystem watch roots.
@@ -196,7 +213,8 @@ type ParseRequest struct {
 	ForceParse  bool
 }
 
-// ParseOutcome is the full-parse provider output.
+// ParseOutcome is the full-parse provider output. It is meaningful only when
+// Provider.Parse returns a nil error.
 type ParseOutcome struct {
 	Results            []ParseResultOutcome
 	ExcludedSessionIDs []string
@@ -215,6 +233,8 @@ type ParseResultOutcome struct {
 }
 
 // SourceError reports a per-session parse failure from a multi-session source.
+// Providers use the Parse error return instead when a failure cannot be
+// isolated to a persisted full session ID.
 type SourceError struct {
 	SourceKey   string
 	DisplayPath string

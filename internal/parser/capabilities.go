@@ -13,6 +13,11 @@ const (
 )
 
 // Capabilities groups provider source mechanics and parsed-content features.
+// Capabilities are declarative: a concrete provider that reports Supported must
+// implement the matching behavior rather than relying on ProviderBase defaults.
+// Callers may still invoke optional methods and handle their no-op or typed
+// unsupported results, but scheduling and validation should trust this
+// declaration once a provider has migrated off the legacy adapter.
 type Capabilities struct {
 	Source  SourceCapabilities
 	Content ContentCapabilities

@@ -148,6 +148,64 @@ func TestProviderRegistryMirrorsAgentRegistry(t *testing.T) {
 	}
 }
 
+func TestLegacyProviderCapabilitiesMatchBaseDefaults(t *testing.T) {
+	provider, ok := NewProvider(AgentCodex, ProviderConfig{
+		Roots:   []string{t.TempDir()},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	require.NotNil(t, provider)
+
+	assert.Equal(t, Capabilities{}, provider.Capabilities())
+
+	ctx := context.Background()
+	discovered, err := provider.Discover(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, discovered)
+
+	plan, err := provider.WatchPlan(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, plan.Roots)
+
+	changed, err := provider.SourcesForChangedPath(ctx, ChangedPathRequest{
+		Path:      "/tmp/session.jsonl",
+		EventKind: "write",
+		WatchRoot: "/tmp",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, changed)
+
+	source, found, err := provider.FindSource(ctx, FindSourceRequest{
+		RawSessionID:   "session",
+		FullSessionID:  "codex:session",
+		StoredFilePath: "/tmp/session.jsonl",
+		FingerprintKey: "/tmp/session.jsonl",
+	})
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Empty(t, source)
+
+	_, err = provider.Fingerprint(ctx, SourceRef{
+		Provider:       AgentCodex,
+		Key:            "session",
+		DisplayPath:    "/tmp/session.jsonl",
+		FingerprintKey: "/tmp/session.jsonl",
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrUnsupportedProviderFeature))
+
+	incremental, status, err := provider.ParseIncremental(ctx, IncrementalRequest{
+		Source:       SourceRef{Provider: AgentCodex, Key: "session"},
+		Fingerprint:  SourceFingerprint{Key: "/tmp/session.jsonl"},
+		SessionID:    "codex:session",
+		StartOrdinal: 1,
+		Machine:      "devbox",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, IncrementalUnsupported, status)
+	assert.Empty(t, incremental)
+}
+
 func TestProviderFactoryLookupAndConfigSnapshot(t *testing.T) {
 	cfg := ProviderConfig{
 		Roots:   []string{"/tmp/one", "/tmp/two"},
