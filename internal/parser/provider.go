@@ -360,6 +360,8 @@ func providerFactoryForDef(def AgentDef) ProviderFactory {
 		return newPiProviderFactory(def)
 	case AgentQwen:
 		return newQwenProviderFactory(def)
+	case AgentWorkBuddy:
+		return newWorkBuddyProviderFactory(def)
 	case AgentZencoder:
 		return newZencoderProviderFactory(def)
 	default:
