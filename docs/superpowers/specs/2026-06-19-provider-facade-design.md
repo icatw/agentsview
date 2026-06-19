@@ -488,6 +488,11 @@ Runtime behavior:
 - Multi-session providers return one `ParseResultOutcome` per successfully
   parsed session and `SourceErrors` for per-session failures, so good sessions
   can still be ingested.
+- `SourceError.SessionID` is required for per-session failures from
+  multi-session providers. `SourceKey` and `DisplayPath` are diagnostic source
+  identifiers, not substitutes for persisted session identity. If the provider
+  cannot isolate a failure to a session ID, it must return a whole-source
+  `error` instead of a `SourceError`.
 - `Retryable` decides whether a failure can be cached by mtime.
 - `ForceReplace` is the generic signal for full parses that must rewrite
   existing ordinals.
@@ -505,6 +510,12 @@ Runtime behavior:
   be current while another result from the same source needs retry, and a
   retryable `SourceError` affects only the failed session unless the provider
   reports a whole-source `error`.
+- During a partial multi-session parse, existing persisted rows that are absent
+  from `Results` are retained unless their IDs are listed in
+  `ExcludedSessionIDs` or the provider completes a clean `ForceReplace` parse
+  for the owning logical source. A retryable `SourceError` leaves that session's
+  existing row stale and eligible for a future retry instead of deleting it or
+  marking it current.
 - `SkipReason` replaces implicit "nil session means skip" behavior. Skips are
   explicit outcomes and should not be conflated with retryable parse failures.
 - Providers do not write to the DB.
