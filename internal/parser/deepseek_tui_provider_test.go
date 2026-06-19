@@ -69,12 +69,13 @@ func TestDeepSeekTUIProviderSourceMethods(t *testing.T) {
 	assert.Equal(t, sourcePath, changed[0].DisplayPath)
 }
 
-func TestDeepSeekTUIProviderFollowsSymlinkedSessionFiles(t *testing.T) {
+func TestDeepSeekTUIProviderSourceMethodsFollowSymlinkedSessionFile(t *testing.T) {
 	root := t.TempDir()
-	targetPath := filepath.Join(t.TempDir(), "target.json")
-	linkPath := filepath.Join(root, "session_123.json")
+	targetDir := t.TempDir()
+	targetPath := filepath.Join(targetDir, "session_123.json")
+	sourcePath := filepath.Join(root, "session_123.json")
 	writeSourceFile(t, targetPath, deepSeekTUIProviderFixture())
-	if err := os.Symlink(targetPath, linkPath); err != nil {
+	if err := os.Symlink(targetPath, sourcePath); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
@@ -87,22 +88,22 @@ func TestDeepSeekTUIProviderFollowsSymlinkedSessionFiles(t *testing.T) {
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
 	require.Len(t, discovered, 1)
-	assert.Equal(t, linkPath, discovered[0].DisplayPath)
+	assert.Equal(t, sourcePath, discovered[0].DisplayPath)
 
 	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
-		RawSessionID: "session_123",
+		FullSessionID: "host~deepseek-tui:session_123",
 	})
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, linkPath, found.DisplayPath)
+	assert.Equal(t, sourcePath, found.DisplayPath)
 
 	changed, err := provider.SourcesForChangedPath(
 		context.Background(),
-		ChangedPathRequest{Path: linkPath, EventKind: "write", WatchRoot: root},
+		ChangedPathRequest{Path: sourcePath, EventKind: "write", WatchRoot: root},
 	)
 	require.NoError(t, err)
 	require.Len(t, changed, 1)
-	assert.Equal(t, linkPath, changed[0].DisplayPath)
+	assert.Equal(t, sourcePath, changed[0].DisplayPath)
 }
 
 func TestDeepSeekTUIProviderParse(t *testing.T) {
