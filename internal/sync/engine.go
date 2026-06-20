@@ -10102,8 +10102,7 @@ func (e *Engine) SyncSingleSessionContext(
 	if singleSourceFound {
 		path = providerDiscoveredPath(singleSource)
 	}
-	if path == "" &&
-		e.providerMigrationModes[def.Type] == parser.ProviderMigrationProviderAuthoritative {
+	if path == "" {
 		path = e.db.GetSessionFilePath(sessionID)
 	}
 	if path == "" {

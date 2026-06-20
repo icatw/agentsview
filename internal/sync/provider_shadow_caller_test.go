@@ -923,6 +923,66 @@ func TestProcessFileProviderAuthoritativeNotFoundErrors(t *testing.T) {
 	assert.Empty(t, provider.calls)
 }
 
+func TestSyncSingleSessionShadowModeUsesStoredPathFallback(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-single.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"shadow single",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+			testjsonl.ClaudeAssistantJSON(
+				"legacy remains authoritative",
+				"2026-06-01T10:01:00Z",
+			),
+		)),
+		0o644,
+	))
+	findFound := false
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		findFound: &findFound,
+	}
+	database := dbtest.OpenTestDB(t)
+	filePath := sourcePath
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:       "shadow-single",
+		Project:  "demo",
+		Machine:  "devbox",
+		Agent:    string(parser.AgentClaude),
+		FilePath: &filePath,
+	}))
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
+		},
+	})
+
+	require.NoError(t, engine.SyncSingleSession("shadow-single"))
+
+	sess, err := database.GetSession(context.Background(), "shadow-single")
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, "demo", sess.Project)
+	assert.Contains(t, provider.calls, "parse")
+}
+
 func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "skip-provider-owned.jsonl")
