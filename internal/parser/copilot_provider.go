@@ -98,12 +98,19 @@ func (p *copilotProvider) Parse(
 	if req.Fingerprint.Hash != "" {
 		sess.File.Hash = req.Fingerprint.Hash
 	}
+	if req.Fingerprint.Size > 0 {
+		sess.File.Size = req.Fingerprint.Size
+	}
+	if req.Fingerprint.MTimeNS > 0 {
+		sess.File.Mtime = req.Fingerprint.MTimeNS
+	}
 	sess.UsageEvents = usage
 	return ParseOutcome{
 		Results: []ParseResultOutcome{{
 			Result: ParseResult{
-				Session:  *sess,
-				Messages: msgs,
+				Session:     *sess,
+				Messages:    msgs,
+				UsageEvents: usage,
 			},
 			DataVersion: DataVersionCurrent,
 		}},
@@ -165,7 +172,7 @@ func (s copilotSourceSet) SourcesForChangedPath(
 		return nil, err
 	}
 	for _, root := range s.roots {
-		source, ok := s.sourceForChangedPath(root, req.Path)
+		source, ok := s.sourceForChangedPath(root, req)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -265,18 +272,45 @@ func (s copilotSourceSet) pathFromSource(source SourceRef) (string, bool) {
 	return "", false
 }
 
-func (s copilotSourceSet) sourceForChangedPath(root, path string) (SourceRef, bool) {
+func (s copilotSourceSet) sourceForChangedPath(
+	root string,
+	req ChangedPathRequest,
+) (SourceRef, bool) {
+	path := req.Path
 	if filepath.Base(path) == "workspace.yaml" {
 		return s.sourceRef(root, filepath.Join(filepath.Dir(path), "events.jsonl"))
 	}
-	return s.sourceRef(root, path)
+	if source, ok := s.sourceRef(root, path); ok {
+		return source, true
+	}
+	if !jsonlMissingPathFallbackAllowed(req) {
+		return SourceRef{}, false
+	}
+	if filepath.Base(path) == "events.jsonl" {
+		barePath := filepath.Join(
+			root,
+			copilotStateDir,
+			filepath.Base(filepath.Dir(path))+".jsonl",
+		)
+		if source, ok := s.sourceRef(root, barePath); ok {
+			return source, true
+		}
+	}
+	return s.sourceRefForPath(root, path, false)
 }
 
 func (s copilotSourceSet) sourceRef(root, path string) (SourceRef, bool) {
+	return s.sourceRefForPath(root, path, true)
+}
+
+func (s copilotSourceSet) sourceRefForPath(
+	root, path string,
+	requireRegular bool,
+) (SourceRef, bool) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
 	rel, ok := relUnder(root, path)
-	if !ok || !IsRegularFile(path) {
+	if !ok || (requireRegular && !IsRegularFile(path)) {
 		return SourceRef{}, false
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")

@@ -169,6 +169,12 @@ func (s geminiSourceSet) SourcesForChangedPath(
 		if ok {
 			return []SourceRef{source}, nil
 		}
+		if jsonlMissingPathFallbackAllowed(req) {
+			source, ok = s.sourceRefForPath(root, req.Path, false)
+			if ok {
+				return []SourceRef{source}, nil
+			}
+		}
 	}
 	return nil, nil
 }
@@ -256,10 +262,17 @@ func (s geminiSourceSet) pathFromSource(source SourceRef) (string, bool) {
 }
 
 func (s geminiSourceSet) sourceRef(root, path string) (SourceRef, bool) {
+	return s.sourceRefForPath(root, path, true)
+}
+
+func (s geminiSourceSet) sourceRefForPath(
+	root, path string,
+	requireRegular bool,
+) (SourceRef, bool) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
 	rel, ok := relUnder(root, path)
-	if !ok || !IsRegularFile(path) {
+	if !ok || (requireRegular && !IsRegularFile(path)) {
 		return SourceRef{}, false
 	}
 	sepParts := strings.Split(filepath.ToSlash(rel), "/")
