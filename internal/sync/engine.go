@@ -5538,8 +5538,11 @@ func (e *Engine) shouldSkipCachedProviderFile(
 		if e.pathRewriter != nil {
 			lookupPath = e.pathRewriter(lookupPath)
 		}
-		storedSize, _, ok := e.db.GetFileInfoByPath(lookupPath)
+		storedSize, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
 		if !ok {
+			return false
+		}
+		if fingerprint.MTimeNS != 0 && storedMtime != fingerprint.MTimeNS {
 			return false
 		}
 		if fingerprint.Size != 0 && storedSize != fingerprint.Size {

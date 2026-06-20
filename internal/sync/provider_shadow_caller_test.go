@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1215,6 +1216,79 @@ func TestProcessFileProviderAuthoritativePersistentSkipRequiresStoredHash(
 	))
 	engine.InjectSkipCache(map[string]int64{
 		sourcePath + "#source-key": storedMtime,
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.NoError(t, result.err)
+	assert.True(t, result.noSession)
+	assert.Contains(t, provider.calls, "parse")
+}
+
+func TestProcessFileProviderAuthoritativePersistentSkipRequiresStoredMtime(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "legacy-persisted-provider-skip-mtime.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+			fingerprint: parser.SourceFingerprint{
+				Key:     sourcePath,
+				Size:    info.Size(),
+				MTimeNS: info.ModTime().UnixNano(),
+			},
+			outcome: parser.ParseOutcome{
+				ResultSetComplete: true,
+				SkipReason:        parser.SkipNoSession,
+			},
+		},
+		source: parser.SourceRef{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourcePath + "#source-key",
+		},
+	}
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+	storedSize := info.Size()
+	storedMtime := info.ModTime().Add(-time.Hour).UnixNano()
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:        "claude:legacy-mtime-skip",
+		Agent:     string(parser.AgentClaude),
+		Machine:   "devbox",
+		FilePath:  &sourcePath,
+		FileSize:  &storedSize,
+		FileMtime: &storedMtime,
+	}))
+	require.NoError(t, database.SetSessionDataVersion(
+		"claude:legacy-mtime-skip",
+		db.CurrentDataVersion(),
+	))
+	engine.InjectSkipCache(map[string]int64{
+		sourcePath + "#source-key": info.ModTime().UnixNano(),
 	})
 
 	result := engine.processFile(context.Background(), parser.DiscoveredFile{
