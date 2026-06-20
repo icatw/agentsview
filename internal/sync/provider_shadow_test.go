@@ -96,6 +96,54 @@ func TestObserveProviderSourcePlansEffectsWithoutWriter(t *testing.T) {
 	assert.Empty(t, observation.Planned.SSEScopes)
 }
 
+func TestCompareProviderObservationDetectsSessionMetadataMismatch(t *testing.T) {
+	providerResult := parser.ParseResult{
+		Session: parser.ParsedSession{
+			ID:              "codex:one",
+			Agent:           parser.AgentCodex,
+			Project:         "proj",
+			Machine:         "devbox",
+			ParentSessionID: "codex:provider-parent",
+		},
+	}
+	legacyResult := providerResult
+	legacyResult.Session.ParentSessionID = "codex:legacy-parent"
+
+	mismatches := compareProviderObservationToProcessResult(
+		ProviderObservation{
+			Results: []parser.ParseResult{providerResult},
+		},
+		processResult{
+			results: []parser.ParseResult{legacyResult},
+		},
+	)
+
+	require.NotEmpty(t, mismatches)
+	assert.Contains(t, mismatches[0], "session")
+}
+
+func TestCompareProviderObservationDetectsSourceErrorContentMismatch(t *testing.T) {
+	mismatches := compareProviderObservationToProcessResult(
+		ProviderObservation{
+			SourceErrors: []parser.SourceError{{
+				DisplayPath: "source.jsonl",
+				SessionID:   "codex:bad",
+				Err:         errors.New("provider parse failed"),
+			}},
+		},
+		processResult{
+			sessionErrs: []sessionParseError{{
+				sessionID:   "codex:bad",
+				virtualPath: "source.jsonl",
+				err:         errors.New("legacy parse failed"),
+			}},
+		},
+	)
+
+	require.NotEmpty(t, mismatches)
+	assert.Contains(t, mismatches[0], "source errors")
+}
+
 func TestObserveProviderSourceRejectsProviderMismatch(t *testing.T) {
 	provider := &shadowTestProvider{
 		ProviderBase: parser.ProviderBase{

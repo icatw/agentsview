@@ -148,28 +148,10 @@ func compareProviderObservationToProcessResult(
 	for i := 0; i < len(observation.Results) && i < len(legacy.results); i++ {
 		providerResult := observation.Results[i]
 		legacyResult := legacy.results[i]
-		if providerResult.Session.ID != legacyResult.Session.ID {
+		if !reflect.DeepEqual(providerResult.Session, legacyResult.Session) {
 			mismatches = append(mismatches, fmt.Sprintf(
-				"result[%d] session id: provider=%q legacy=%q",
-				i, providerResult.Session.ID, legacyResult.Session.ID,
-			))
-		}
-		if providerResult.Session.Agent != legacyResult.Session.Agent {
-			mismatches = append(mismatches, fmt.Sprintf(
-				"result[%d] agent: provider=%q legacy=%q",
-				i, providerResult.Session.Agent, legacyResult.Session.Agent,
-			))
-		}
-		if providerResult.Session.Project != legacyResult.Session.Project {
-			mismatches = append(mismatches, fmt.Sprintf(
-				"result[%d] project: provider=%q legacy=%q",
-				i, providerResult.Session.Project, legacyResult.Session.Project,
-			))
-		}
-		if providerResult.Session.Machine != legacyResult.Session.Machine {
-			mismatches = append(mismatches, fmt.Sprintf(
-				"result[%d] machine: provider=%q legacy=%q",
-				i, providerResult.Session.Machine, legacyResult.Session.Machine,
+				"result[%d] session differs: provider=%+v legacy=%+v",
+				i, providerResult.Session, legacyResult.Session,
 			))
 		}
 		if !reflect.DeepEqual(providerResult.Messages, legacyResult.Messages) {
@@ -191,10 +173,12 @@ func compareProviderObservationToProcessResult(
 			observation.ExcludedSessionIDs, legacy.excludedSessionIDs,
 		))
 	}
-	if len(observation.SourceErrors) != len(legacy.sessionErrs) {
+	providerSourceErrors := comparableProviderSourceErrors(observation.SourceErrors)
+	legacySourceErrors := comparableLegacySourceErrors(legacy.sessionErrs)
+	if !reflect.DeepEqual(providerSourceErrors, legacySourceErrors) {
 		mismatches = append(mismatches, fmt.Sprintf(
-			"source error count: provider=%d legacy=%d",
-			len(observation.SourceErrors), len(legacy.sessionErrs),
+			"source errors differ: provider=%v legacy=%v",
+			providerSourceErrors, legacySourceErrors,
 		))
 	}
 	if observation.ForceReplace != legacy.forceReplace {
@@ -204,6 +188,47 @@ func compareProviderObservationToProcessResult(
 		))
 	}
 	return mismatches
+}
+
+type comparableSourceError struct {
+	SessionID string
+	Path      string
+	Err       string
+}
+
+func comparableProviderSourceErrors(sourceErrors []parser.SourceError) []comparableSourceError {
+	comparable := make([]comparableSourceError, 0, len(sourceErrors))
+	for _, sourceErr := range sourceErrors {
+		path := sourceErr.DisplayPath
+		if path == "" {
+			path = sourceErr.SourceKey
+		}
+		comparable = append(comparable, comparableSourceError{
+			SessionID: sourceErr.SessionID,
+			Path:      path,
+			Err:       errString(sourceErr.Err),
+		})
+	}
+	return comparable
+}
+
+func comparableLegacySourceErrors(sessionErrs []sessionParseError) []comparableSourceError {
+	comparable := make([]comparableSourceError, 0, len(sessionErrs))
+	for _, sessionErr := range sessionErrs {
+		comparable = append(comparable, comparableSourceError{
+			SessionID: sessionErr.sessionID,
+			Path:      sessionErr.virtualPath,
+			Err:       errString(sessionErr.err),
+		})
+	}
+	return comparable
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func validateProviderOutcome(

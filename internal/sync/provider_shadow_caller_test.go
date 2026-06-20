@@ -42,6 +42,11 @@ func TestProcessFileShadowObservesProviderWithoutReplacingLegacy(t *testing.T) {
 	require.Empty(t, legacyExcluded)
 	info, err := os.Stat(sourcePath)
 	require.NoError(t, err)
+	providerResult := legacyResults[0]
+	providerResult.Session.File.Inode, providerResult.Session.File.Device = getFileIdentity(info)
+	hash, err := ComputeFileHash(sourcePath)
+	require.NoError(t, err)
+	providerResult.Session.File.Hash = hash
 
 	source := parser.SourceRef{
 		Provider:       parser.AgentClaude,
@@ -65,7 +70,7 @@ func TestProcessFileShadowObservesProviderWithoutReplacingLegacy(t *testing.T) {
 			},
 			outcome: parser.ParseOutcome{
 				Results: []parser.ParseResultOutcome{{
-					Result:      legacyResults[0],
+					Result:      providerResult,
 					DataVersion: parser.DataVersionCurrent,
 				}},
 				ResultSetComplete: true,
