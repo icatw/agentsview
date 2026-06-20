@@ -358,6 +358,7 @@ func coworkTranscriptForMetadataPath(root, path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	var found string
 	for _, entry := range entries {
 		if !isDirOrSymlink(entry, projectsDir) {
 			continue
@@ -377,11 +378,14 @@ func coworkTranscriptForMetadataPath(root, path string) (string, bool) {
 			}
 			stem := strings.TrimSuffix(name, ".jsonl")
 			if IsValidSessionID(stem) && !strings.HasPrefix(stem, "agent-") {
-				return filepath.Join(projectDir, name), true
+				if found != "" {
+					return "", false
+				}
+				found = filepath.Join(projectDir, name)
 			}
 		}
 	}
-	return "", false
+	return found, found != ""
 }
 
 func coworkProviderCapabilities() Capabilities {

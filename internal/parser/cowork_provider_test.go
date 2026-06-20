@@ -237,6 +237,42 @@ func TestCoworkProviderParse(t *testing.T) {
 	assert.Len(t, result.Result.Messages, 2)
 }
 
+func TestCoworkProviderMetadataRemovalRejectsAmbiguousMainTranscripts(t *testing.T) {
+	root := t.TempDir()
+	cli := "c0000000-0000-4000-8000-000000000104"
+	metaPath, transcript := writeCoworkSession(t, root, coworkFixture{
+		org:             "org",
+		workspace:       "ws",
+		sessionUUID:     "50000000-0000-4000-8000-000000000104",
+		cliSessionID:    cli,
+		encodedProject:  "-sessions-demo",
+		transcriptLines: coworkTranscriptLines(cli),
+	})
+	otherPath := filepath.Join(
+		filepath.Dir(filepath.Dir(transcript)),
+		"-sessions-other",
+		"c0000000-0000-4000-8000-000000000105.jsonl",
+	)
+	writeSourceFile(
+		t,
+		otherPath,
+		strings.Join(coworkTranscriptLines("c0000000-0000-4000-8000-000000000105"), "\n")+"\n",
+	)
+
+	provider, ok := NewProvider(AgentCowork, ProviderConfig{
+		Roots: []string{root},
+	})
+	require.True(t, ok)
+
+	require.NoError(t, os.Remove(metaPath))
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: metaPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, changed)
+}
+
 func TestCoworkProviderFullSessionIDPrefixLookup(t *testing.T) {
 	root := t.TempDir()
 	cli := "c0000000-0000-4000-8000-000000000103"
