@@ -613,6 +613,15 @@ Runtime behavior:
   marking it current.
 - `SkipReason` replaces implicit "nil session means skip" behavior. Skips are
   explicit outcomes and should not be conflated with retryable parse failures.
+- Provider cache identity and `ResultSetComplete` semantics are root hook
+  invariants, not per-provider policy. Provider branches may add source-family
+  coverage, but they must not redefine cache keys, omission/deletion behavior,
+  or retry-state persistence.
+- When a migrated provider's fingerprint key differs from the legacy
+  `file.Path`, the provider path reads, writes, and clears only the provider
+  fingerprint key. Old legacy skip-cache entries may remain in the persisted
+  archive as inert compatibility leftovers; they must not be consulted for a
+  provider-authoritative source once its provider key is known.
 - Providers do not write to the DB.
 - Providers do not mutate, delete, or repair source files.
 
