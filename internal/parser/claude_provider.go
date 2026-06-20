@@ -122,8 +122,13 @@ func (p *claudeProvider) ParseIncremental(
 		return IncrementalOutcome{}, IncrementalUnsupported,
 			fmt.Errorf("claude source path unavailable")
 	}
-	if req.Fingerprint.Size > 0 && req.Fingerprint.Size <= req.Offset {
-		return IncrementalOutcome{}, IncrementalNoNewData, nil
+	if req.Fingerprint.Size > 0 {
+		if req.Fingerprint.Size < req.Offset {
+			return IncrementalOutcome{}, IncrementalNeedsFullParse, nil
+		}
+		if req.Fingerprint.Size == req.Offset {
+			return IncrementalOutcome{}, IncrementalNoNewData, nil
+		}
 	}
 	newMsgs, endedAt, consumed, err := ParseClaudeSessionFrom(
 		path,
@@ -214,19 +219,20 @@ func (s claudeSourceSet) SourcesForChangedPath(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	allowMissing := jsonlMissingPathFallbackAllowed(req)
 	if req.WatchRoot != "" {
 		root := filepath.Clean(req.WatchRoot)
 		if !s.hasRoot(root) {
 			return nil, nil
 		}
-		source, ok := s.sourceForPath(root, req.Path)
+		source, ok := s.sourceForChangedPath(root, req.Path, allowMissing)
 		if !ok {
 			return nil, nil
 		}
 		return []SourceRef{source}, nil
 	}
 	for _, root := range s.roots {
-		source, ok := s.sourceForPath(root, req.Path)
+		source, ok := s.sourceForChangedPath(root, req.Path, allowMissing)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -321,7 +327,20 @@ func (s claudeSourceSet) pathFromSource(source SourceRef) (string, bool) {
 }
 
 func (s claudeSourceSet) sourceForPath(root, path string) (SourceRef, bool) {
-	return s.sourceRef(filepath.Clean(root), filepath.Clean(path))
+	return s.sourceForChangedPath(root, path, false)
+}
+
+func (s claudeSourceSet) sourceForChangedPath(
+	root,
+	path string,
+	allowMissing bool,
+) (SourceRef, bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	if allowMissing {
+		return s.sourceRefFromPath(root, path)
+	}
+	return s.sourceRef(root, path)
 }
 
 func (s claudeSourceSet) sourceRef(root, path string) (SourceRef, bool) {
@@ -330,6 +349,12 @@ func (s claudeSourceSet) sourceRef(root, path string) (SourceRef, bool) {
 	if !IsRegularFile(path) {
 		return SourceRef{}, false
 	}
+	return s.sourceRefFromPath(root, path)
+}
+
+func (s claudeSourceSet) sourceRefFromPath(root, path string) (SourceRef, bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
 	project, ok := claudeProjectHintFromPath(root, path)
 	if !ok {
 		return SourceRef{}, false

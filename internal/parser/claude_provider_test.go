@@ -103,6 +103,24 @@ func TestClaudeProviderSourceMethods(t *testing.T) {
 	require.Len(t, changed, 1)
 	assert.Equal(t, subagentPath, changed[0].DisplayPath)
 
+	require.NoError(t, os.Remove(sourcePath))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: sourcePath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, sourcePath, changed[0].DisplayPath)
+
+	require.NoError(t, os.Remove(subagentPath))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: subagentPath, EventKind: "rename", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, subagentPath, changed[0].DisplayPath)
+
 	ignored, err := provider.SourcesForChangedPath(
 		context.Background(),
 		ChangedPathRequest{
@@ -123,10 +141,23 @@ func TestClaudeProviderDiscoversSymlinkedProjectDirectory(t *testing.T) {
 	targetProject := filepath.Join(targetRoot, projectDir)
 	sourceProject := filepath.Join(root, projectDir)
 	sourcePath := filepath.Join(sourceProject, sessionID+".jsonl")
+	subagentPath := filepath.Join(
+		sourceProject,
+		sessionID,
+		"subagents",
+		"jobs",
+		"job-1",
+		"agent-linked.jsonl",
+	)
 	writeSourceFile(
 		t,
 		filepath.Join(targetProject, sessionID+".jsonl"),
 		claudeProviderFixture("from symlink"),
+	)
+	writeSourceFile(
+		t,
+		filepath.Join(targetProject, sessionID, "subagents", "jobs", "job-1", "agent-linked.jsonl"),
+		claudeProviderFixture("from symlink subagent"),
 	)
 	if err := os.Symlink(targetProject, sourceProject); err != nil {
 		t.Skipf("symlink not supported: %v", err)
@@ -140,8 +171,8 @@ func TestClaudeProviderDiscoversSymlinkedProjectDirectory(t *testing.T) {
 
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
-	require.Len(t, discovered, 1)
-	assert.Equal(t, sourcePath, discovered[0].DisplayPath)
+	require.Len(t, discovered, 2)
+	assert.ElementsMatch(t, []string{sourcePath, subagentPath}, sourceDisplayPaths(discovered))
 
 	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
 		RawSessionID: sessionID,
@@ -149,6 +180,13 @@ func TestClaudeProviderDiscoversSymlinkedProjectDirectory(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, sourcePath, found.DisplayPath)
+
+	found, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID: "agent-linked",
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, subagentPath, found.DisplayPath)
 }
 
 func TestClaudeProviderParse(t *testing.T) {
@@ -242,6 +280,37 @@ func TestClaudeProviderParseIncremental(t *testing.T) {
 	assert.Equal(t, 3, outcome.Messages[1].Ordinal)
 	assert.Equal(t, RoleAssistant, outcome.Messages[1].Role)
 	assert.Contains(t, outcome.Messages[1].Content, "got it")
+}
+
+func TestClaudeProviderParseIncrementalTruncatedNeedsFullParse(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "truncated.jsonl")
+	initial := claudeProviderFixture("hello world")
+	writeSourceFile(t, sourcePath, initial)
+
+	provider, ok := NewProvider(AgentClaude, ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID: "truncated",
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	outcome, status, err := provider.ParseIncremental(
+		context.Background(),
+		IncrementalRequest{
+			Source:      source,
+			Fingerprint: SourceFingerprint{Key: sourcePath, Size: int64(len(initial) / 2)},
+			SessionID:   "truncated",
+			Offset:      int64(len(initial)),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, IncrementalNeedsFullParse, status)
+	assert.False(t, outcome.ForceReplace)
 }
 
 func claudeProviderFixture(firstMessage string) string {

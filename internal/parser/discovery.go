@@ -603,7 +603,7 @@ func FindClaudeSourceFile(
 	// <project>/<session>/subagents/**/agent-<id>.jsonl
 	if strings.HasPrefix(sessionID, "agent-") {
 		for _, entry := range entries {
-			if !entry.IsDir() {
+			if !isDirOrSymlink(entry, projectsDir) {
 				continue
 			}
 			projDir := filepath.Join(
