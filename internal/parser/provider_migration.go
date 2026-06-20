@@ -38,7 +38,7 @@ var providerMigrationModes = map[AgentType]ProviderMigrationMode{
 	AgentDeepSeekTUI:    ProviderMigrationShadowCompare,
 	AgentOpenClaw:       ProviderMigrationLegacyOnly,
 	AgentQClaw:          ProviderMigrationLegacyOnly,
-	AgentKimi:           ProviderMigrationLegacyOnly,
+	AgentKimi:           ProviderMigrationShadowCompare,
 	AgentClaudeAI:       ProviderMigrationLegacyOnly,
 	AgentChatGPT:        ProviderMigrationLegacyOnly,
 	AgentKiro:           ProviderMigrationLegacyOnly,
