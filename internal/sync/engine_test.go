@@ -2106,6 +2106,58 @@ func TestEngine_ClassifyPathsOpenCodeFamilyRemovedSessionFile(
 	}
 }
 
+func TestEngine_ClassifyPathsProviderRemoveSkipsMissingGeminiSource(
+	t *testing.T,
+) {
+	db := openTestDB(t)
+	geminiDir := t.TempDir()
+	engine := NewEngine(db, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentGemini: {geminiDir},
+		},
+		Machine: "local",
+	})
+
+	sessionPath := filepath.Join(
+		geminiDir, "tmp", "alias", "chats", "session-001.json",
+	)
+	dbtest.WriteTestFile(t, sessionPath, []byte("{}"))
+	require.NoError(t, os.Remove(sessionPath), "Remove(%q)", sessionPath)
+
+	files := engine.classifyPaths([]string{sessionPath})
+	assert.Empty(t, files)
+}
+
+func TestEngine_ClassifyPathsProviderSidecarKeepsExistingGeminiSources(
+	t *testing.T,
+) {
+	db := openTestDB(t)
+	geminiDir := t.TempDir()
+	engine := NewEngine(db, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentGemini: {geminiDir},
+		},
+		Machine: "local",
+	})
+
+	projectsPath := filepath.Join(geminiDir, "projects.json")
+	dbtest.WriteTestFile(
+		t,
+		projectsPath,
+		[]byte(`{"projects":{"/Users/alice/code/sample":"alias"}}`),
+	)
+	sessionPath := filepath.Join(
+		geminiDir, "tmp", "alias", "chats", "session-001.json",
+	)
+	dbtest.WriteTestFile(t, sessionPath, []byte("{}"))
+
+	files := engine.classifyPaths([]string{projectsPath})
+	require.Len(t, files, 1)
+	assert.Equal(t, sessionPath, files[0].Path)
+	assert.Equal(t, parser.AgentGemini, files[0].Agent)
+	assert.True(t, files[0].ForceParse)
+}
+
 func TestEngine_ClassifyPathsOpenCodeRemovedPartDir(
 	t *testing.T,
 ) {
