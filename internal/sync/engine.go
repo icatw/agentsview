@@ -484,7 +484,8 @@ func (e *Engine) classifyPaths(
 	}
 	files = e.expandClaudeDuplicateCandidates(files)
 	files = dedupeDiscoveredFiles(files)
-	return e.dedupeClaudeDiscoveredFiles(files)
+	files = e.dedupeClaudeDiscoveredFiles(files)
+	return e.attachChangedPathProviderSources(context.Background(), files)
 }
 
 func mergeChangedPathDiscoveredFile(
@@ -596,7 +597,7 @@ func (e *Engine) classifyProviderChangedPath(
 					Agent:           agent,
 					ForceParse:      providerChangedPathForceParse(agent, sourcePath, path, eventKind, mode),
 					ProviderSource:  &sourceCopy,
-					ProviderProcess: mode == parser.ProviderMigrationProviderAuthoritative,
+					ProviderProcess: processFileUsesProvider(agent),
 				})
 			}
 		}
@@ -703,6 +704,165 @@ func providerDeletedPhysicalSQLiteSource(
 	default:
 		return false
 	}
+}
+
+func (e *Engine) attachProviderSources(
+	ctx context.Context,
+	scope *rootSyncScope,
+	files []parser.DiscoveredFile,
+) []parser.DiscoveredFile {
+	if len(files) == 0 {
+		return files
+	}
+	sources := e.discoverProviderSources(ctx, scope)
+	if len(sources) == 0 {
+		return files
+	}
+	for i := range files {
+		key := discoveredFileKey(files[i])
+		source, ok := sources[key]
+		if !ok {
+			continue
+		}
+		sourceCopy := source
+		files[i].ProviderSource = &sourceCopy
+		files[i].ProviderProcess = processFileUsesProvider(files[i].Agent)
+		if files[i].Project == "" {
+			files[i].Project = source.ProjectHint
+		}
+	}
+	return files
+}
+
+func (e *Engine) attachChangedPathProviderSources(
+	ctx context.Context,
+	files []parser.DiscoveredFile,
+) []parser.DiscoveredFile {
+	providers := make(map[parser.AgentType]parser.Provider)
+	for i := range files {
+		if files[i].ProviderSource != nil {
+			files[i].ProviderProcess = files[i].ProviderProcess ||
+				processFileUsesProvider(files[i].Agent)
+			continue
+		}
+		mode := e.providerMigrationModes[files[i].Agent]
+		switch mode {
+		case parser.ProviderMigrationShadowCompare,
+			parser.ProviderMigrationProviderAuthoritative:
+		default:
+			continue
+		}
+		provider, ok := providers[files[i].Agent]
+		if !ok {
+			factory := e.providerFactories[files[i].Agent]
+			if factory == nil {
+				continue
+			}
+			provider = factory.NewProvider(parser.ProviderConfig{
+				Roots:   e.agentDirs[files[i].Agent],
+				Machine: e.machine,
+			})
+			providers[files[i].Agent] = provider
+		}
+		source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
+			StoredFilePath:     files[i].Path,
+			FingerprintKey:     files[i].Path,
+			RequireFreshSource: true,
+		})
+		if err != nil {
+			log.Printf(
+				"%s provider changed-path source lookup: %v",
+				files[i].Agent, err,
+			)
+			continue
+		}
+		if !found {
+			continue
+		}
+		if source.Provider == "" {
+			source.Provider = files[i].Agent
+		}
+		sourceCopy := source
+		files[i].ProviderSource = &sourceCopy
+		files[i].ProviderProcess = processFileUsesProvider(files[i].Agent)
+		if files[i].Project == "" {
+			files[i].Project = source.ProjectHint
+		}
+	}
+	return files
+}
+
+func (e *Engine) discoverProviderSources(
+	ctx context.Context,
+	scope *rootSyncScope,
+) map[string]parser.SourceRef {
+	sources := make(map[string]parser.SourceRef)
+	ambiguous := make(map[string]struct{})
+	agents := make([]parser.AgentType, 0, len(e.providerFactories))
+	for agent := range e.providerFactories {
+		agents = append(agents, agent)
+	}
+	slices.SortFunc(agents, func(a, b parser.AgentType) int {
+		return strings.Compare(string(a), string(b))
+	})
+	for _, agentType := range agents {
+		factory := e.providerFactories[agentType]
+		if factory == nil {
+			continue
+		}
+		def := factory.Definition()
+		if !def.FileBased {
+			continue
+		}
+		switch e.providerMigrationModes[def.Type] {
+		case parser.ProviderMigrationShadowCompare,
+			parser.ProviderMigrationProviderAuthoritative:
+		default:
+			continue
+		}
+		roots := e.agentDirs[def.Type]
+		if !scope.includesAny(roots) {
+			continue
+		}
+		provider := factory.NewProvider(parser.ProviderConfig{
+			Roots:   roots,
+			Machine: e.machine,
+		})
+		discovered, err := provider.Discover(ctx)
+		if err != nil {
+			log.Printf("%s provider discovery: %v", def.Type, err)
+			continue
+		}
+		for _, source := range discovered {
+			sourcePath := providerDiscoveredPath(source)
+			if sourcePath == "" {
+				continue
+			}
+			agent := source.Provider
+			if agent == "" {
+				agent = def.Type
+				source.Provider = agent
+			}
+			file := parser.DiscoveredFile{
+				Path:  sourcePath,
+				Agent: agent,
+			}
+			key := discoveredFileKey(file)
+			if _, skip := ambiguous[key]; skip {
+				continue
+			}
+			if existing, ok := sources[key]; ok {
+				if providerDiscoveredPath(existing) != sourcePath ||
+					existing.Provider != source.Provider {
+					delete(sources, key)
+					ambiguous[key] = struct{}{}
+					continue
+				}
+			}
+			sources[key] = source
+		}
+	}
+	return sources
 }
 
 func dedupeDiscoveredFiles(
@@ -2892,6 +3052,7 @@ func (e *Engine) syncAllLocked(
 	all = dedupeDiscoveredFiles(all)
 	all = e.dedupeClaudeDiscoveredFiles(all)
 	all = e.filterShadowedLegacyKiroFiles(all)
+	all = e.attachProviderSources(ctx, scope, all)
 
 	verbose := onProgress == nil
 
@@ -4502,6 +4663,9 @@ func (e *Engine) processProviderFile(
 	mode := e.providerMigrationModes[file.Agent]
 	usesProvider := processFileUsesProvider(file.Agent)
 	if mode != parser.ProviderMigrationProviderAuthoritative && !usesProvider {
+		return processResult{}, false
+	}
+	if file.ProviderSource != nil && !file.ProviderProcess {
 		return processResult{}, false
 	}
 

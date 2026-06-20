@@ -43,9 +43,10 @@ func TestProcessFileProviderAuthoritativeUsesProviderSourceRef(t *testing.T) {
 	})
 
 	res := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:           sourcePath,
-		Agent:          parser.AgentClaude,
-		ProviderSource: &source,
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
 	})
 
 	require.NoError(t, res.err)
@@ -78,6 +79,33 @@ func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	assert.Equal(t, sourcePath, files[0].Path)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
 	assert.True(t, files[0].ForceParse)
+	assert.False(t, files[0].ProviderProcess)
+}
+
+func TestClassifyPathsAttachesProviderSourceWithoutMigratingProcess(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-classify-ordinary"
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, sessionID,
+	)
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+
+	files := engine.classifyPaths([]string{sourcePath})
+
+	require.Len(t, files, 1)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, sourcePath, files[0].Path)
+	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+	assert.False(t, files[0].ForceParse)
+	assert.False(t, files[0].ProviderProcess)
+
+	_, ok := engine.processProviderFile(context.Background(), files[0])
+	assert.False(t, ok)
 }
 
 func writeProcessProviderClaudeSession(
@@ -151,11 +179,20 @@ func TestProcessFileProviderChangedPathForgeVirtualSource(t *testing.T) {
 		Machine: "devbox",
 	})
 
+	for _, eventPath := range []string{
+		dbPath,
+		dbPath + "-wal",
+		dbPath + "-shm",
+	} {
+		files := engine.classifyProviderChangedPath(eventPath)
+		require.Len(t, files, 1, eventPath)
+		assert.Equal(t, dbPath+"#forge-provider-process", files[0].Path)
+		assert.Equal(t, parser.AgentForge, files[0].Agent)
+		assert.False(t, files[0].ForceParse, eventPath)
+		assert.True(t, files[0].ProviderProcess)
+	}
+
 	files := engine.classifyProviderChangedPath(dbPath)
-	require.Len(t, files, 1)
-	assert.Equal(t, dbPath+"#forge-provider-process", files[0].Path)
-	assert.Equal(t, parser.AgentForge, files[0].Agent)
-	assert.False(t, files[0].ForceParse)
 
 	res := engine.processFile(context.Background(), files[0])
 

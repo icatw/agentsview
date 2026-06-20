@@ -55,8 +55,8 @@ type DiscoveredFile struct {
 	Project         string     // pre-extracted project name
 	Agent           AgentType  // which agent this file belongs to
 	ForceParse      bool       // bypass stored-state skips for sidecar-driven refreshes
-	ProviderSource  *SourceRef // provider-owned source identity, when known
-	ProviderProcess bool       // true when this caller may parse via ProviderSource
+	ProviderSource  *SourceRef // provider-owned source identity, when discovered by provider path
+	ProviderProcess bool       // true when this sync caller may parse through ProviderSource
 }
 
 // OpenCodeSourceMode identifies the usable OpenCode storage
