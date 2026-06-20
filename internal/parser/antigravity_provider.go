@@ -212,15 +212,27 @@ func (s antigravitySourceSet) FindSource(
 	if err := ctx.Err(); err != nil {
 		return SourceRef{}, false, err
 	}
+	freshStoredSource := req.RequireFreshSource &&
+		(req.StoredFilePath != "" || req.FingerprintKey != "")
 	for _, path := range []string{req.StoredFilePath, req.FingerprintKey} {
 		if path == "" {
 			continue
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path, true); ok {
+				src := source.Opaque.(antigravitySource)
+				if req.RawSessionID != "" && src.ID != req.RawSessionID {
+					continue
+				}
+				if req.RequireFreshSource && !IsRegularFile(src.Path) {
+					continue
+				}
 				return source, true, nil
 			}
 		}
+	}
+	if freshStoredSource {
+		return SourceRef{}, false, nil
 	}
 	if req.RawSessionID == "" {
 		return SourceRef{}, false, nil

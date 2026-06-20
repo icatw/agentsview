@@ -232,15 +232,22 @@ func (s antigravityCLISourceSet) FindSource(
 	if err := ctx.Err(); err != nil {
 		return SourceRef{}, false, err
 	}
+	freshStoredSource := req.RequireFreshSource &&
+		(req.StoredFilePath != "" || req.FingerprintKey != "")
 	for _, path := range []string{req.StoredFilePath, req.FingerprintKey} {
 		if path == "" {
 			continue
 		}
 		for _, root := range s.roots {
-			if source, ok := s.storedSourceRef(root, path); ok {
+			if source, ok := s.storedSourceRef(
+				root, path, req.RawSessionID, req.RequireFreshSource,
+			); ok {
 				return source, true, nil
 			}
 		}
+	}
+	if freshStoredSource {
+		return SourceRef{}, false, nil
 	}
 	if req.RawSessionID == "" {
 		return SourceRef{}, false, nil
@@ -560,15 +567,22 @@ func antigravityCLIHistoryChangeIsDestructive(req ChangedPathRequest) bool {
 }
 
 func (s antigravityCLISourceSet) storedSourceRef(
-	root, path string,
+	root, path, rawSessionID string,
+	requireFresh bool,
 ) (SourceRef, bool) {
 	id, ok := antigravityCLISessionIDForPath(root, path)
 	if !ok {
 		return SourceRef{}, false
 	}
+	if rawSessionID != "" && id != rawSessionID {
+		return SourceRef{}, false
+	}
 	projectID := strings.TrimPrefix(id, antigravityImplicitTag)
 	if currentPath := FindAntigravityCLISourceFile(root, id); currentPath != "" {
 		return s.sourceRef(root, currentPath, s.projectForID(root, projectID), false)
+	}
+	if requireFresh {
+		return SourceRef{}, false
 	}
 	return s.sourceRef(root, path, s.projectForID(root, projectID), true)
 }
