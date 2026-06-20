@@ -108,6 +108,30 @@ func TestClassifyPathsAttachesProviderSourceWithoutMigratingProcess(t *testing.T
 	assert.False(t, ok)
 }
 
+func TestAttachProviderSourcesCarriesSourceRefForFullSyncDiscovery(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-full-discovery"
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, sessionID,
+	)
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+
+	files := engine.attachProviderSources(context.Background(), nil, []parser.DiscoveredFile{{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	}})
+
+	require.Len(t, files, 1)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+	assert.False(t, files[0].ProviderProcess)
+}
+
 func writeProcessProviderClaudeSession(
 	t *testing.T,
 	root string,
