@@ -10,53 +10,52 @@ import (
 type ProviderMigrationMode string
 
 const (
-	ProviderMigrationLegacyOnly            ProviderMigrationMode = "legacy-only"
 	ProviderMigrationShadowCompare         ProviderMigrationMode = "shadow-compare"
 	ProviderMigrationProviderAuthoritative ProviderMigrationMode = "provider-authoritative"
 	ProviderMigrationImportOnly            ProviderMigrationMode = "import-only"
 )
 
 var providerMigrationModes = map[AgentType]ProviderMigrationMode{
-	AgentClaude:         ProviderMigrationShadowCompare,
-	AgentCowork:         ProviderMigrationShadowCompare,
-	AgentCodex:          ProviderMigrationShadowCompare,
-	AgentCopilot:        ProviderMigrationShadowCompare,
-	AgentGemini:         ProviderMigrationShadowCompare,
-	AgentMiMoCode:       ProviderMigrationShadowCompare,
-	AgentOpenCode:       ProviderMigrationShadowCompare,
-	AgentKilo:           ProviderMigrationShadowCompare,
-	AgentOpenHands:      ProviderMigrationShadowCompare,
-	AgentCursor:         ProviderMigrationShadowCompare,
-	AgentIflow:          ProviderMigrationShadowCompare,
-	AgentAmp:            ProviderMigrationShadowCompare,
-	AgentZencoder:       ProviderMigrationShadowCompare,
-	AgentVSCodeCopilot:  ProviderMigrationShadowCompare,
-	AgentVSCopilot:      ProviderMigrationShadowCompare,
-	AgentPi:             ProviderMigrationShadowCompare,
-	AgentQwen:           ProviderMigrationShadowCompare,
-	AgentCommandCode:    ProviderMigrationShadowCompare,
-	AgentDeepSeekTUI:    ProviderMigrationShadowCompare,
-	AgentOpenClaw:       ProviderMigrationShadowCompare,
-	AgentQClaw:          ProviderMigrationShadowCompare,
-	AgentKimi:           ProviderMigrationShadowCompare,
+	AgentClaude:         ProviderMigrationProviderAuthoritative,
+	AgentCowork:         ProviderMigrationProviderAuthoritative,
+	AgentCodex:          ProviderMigrationProviderAuthoritative,
+	AgentCopilot:        ProviderMigrationProviderAuthoritative,
+	AgentGemini:         ProviderMigrationProviderAuthoritative,
+	AgentMiMoCode:       ProviderMigrationProviderAuthoritative,
+	AgentOpenCode:       ProviderMigrationProviderAuthoritative,
+	AgentKilo:           ProviderMigrationProviderAuthoritative,
+	AgentOpenHands:      ProviderMigrationProviderAuthoritative,
+	AgentCursor:         ProviderMigrationProviderAuthoritative,
+	AgentIflow:          ProviderMigrationProviderAuthoritative,
+	AgentAmp:            ProviderMigrationProviderAuthoritative,
+	AgentZencoder:       ProviderMigrationProviderAuthoritative,
+	AgentVSCodeCopilot:  ProviderMigrationProviderAuthoritative,
+	AgentVSCopilot:      ProviderMigrationProviderAuthoritative,
+	AgentPi:             ProviderMigrationProviderAuthoritative,
+	AgentQwen:           ProviderMigrationProviderAuthoritative,
+	AgentCommandCode:    ProviderMigrationProviderAuthoritative,
+	AgentDeepSeekTUI:    ProviderMigrationProviderAuthoritative,
+	AgentOpenClaw:       ProviderMigrationProviderAuthoritative,
+	AgentQClaw:          ProviderMigrationProviderAuthoritative,
+	AgentKimi:           ProviderMigrationProviderAuthoritative,
 	AgentClaudeAI:       ProviderMigrationImportOnly,
 	AgentChatGPT:        ProviderMigrationImportOnly,
-	AgentKiro:           ProviderMigrationShadowCompare,
-	AgentKiroIDE:        ProviderMigrationShadowCompare,
-	AgentCortex:         ProviderMigrationShadowCompare,
-	AgentHermes:         ProviderMigrationShadowCompare,
-	AgentWorkBuddy:      ProviderMigrationShadowCompare,
-	AgentForge:          ProviderMigrationShadowCompare,
-	AgentPiebald:        ProviderMigrationShadowCompare,
-	AgentWarp:           ProviderMigrationShadowCompare,
-	AgentPositron:       ProviderMigrationShadowCompare,
-	AgentAntigravity:    ProviderMigrationShadowCompare,
-	AgentAntigravityCLI: ProviderMigrationShadowCompare,
-	AgentVibe:           ProviderMigrationShadowCompare,
-	AgentZed:            ProviderMigrationShadowCompare,
-	AgentQwenPaw:        ProviderMigrationShadowCompare,
-	AgentGptme:          ProviderMigrationShadowCompare,
-	AgentShelley:        ProviderMigrationShadowCompare,
+	AgentKiro:           ProviderMigrationProviderAuthoritative,
+	AgentKiroIDE:        ProviderMigrationProviderAuthoritative,
+	AgentCortex:         ProviderMigrationProviderAuthoritative,
+	AgentHermes:         ProviderMigrationProviderAuthoritative,
+	AgentWorkBuddy:      ProviderMigrationProviderAuthoritative,
+	AgentForge:          ProviderMigrationProviderAuthoritative,
+	AgentPiebald:        ProviderMigrationProviderAuthoritative,
+	AgentWarp:           ProviderMigrationProviderAuthoritative,
+	AgentPositron:       ProviderMigrationProviderAuthoritative,
+	AgentAntigravity:    ProviderMigrationProviderAuthoritative,
+	AgentAntigravityCLI: ProviderMigrationProviderAuthoritative,
+	AgentVibe:           ProviderMigrationProviderAuthoritative,
+	AgentZed:            ProviderMigrationProviderAuthoritative,
+	AgentQwenPaw:        ProviderMigrationProviderAuthoritative,
+	AgentGptme:          ProviderMigrationProviderAuthoritative,
+	AgentShelley:        ProviderMigrationProviderAuthoritative,
 }
 
 // ProviderMigrationModes returns the current provider migration manifest.
@@ -99,26 +98,8 @@ func validateProviderMigrationMode(
 	mode ProviderMigrationMode,
 ) error {
 	def := factory.Definition()
-	legacy := isLegacyProviderFactory(factory)
 	switch mode {
-	case ProviderMigrationLegacyOnly:
-		if !legacy {
-			return fmt.Errorf(
-				"%s: concrete provider must opt into %s before leaving %s",
-				def.Type,
-				ProviderMigrationShadowCompare,
-				ProviderMigrationLegacyOnly,
-			)
-		}
 	case ProviderMigrationShadowCompare, ProviderMigrationProviderAuthoritative:
-		if legacy {
-			return fmt.Errorf(
-				"%s: %s requires a concrete provider; keep %s while using the legacy adapter",
-				def.Type,
-				mode,
-				ProviderMigrationLegacyOnly,
-			)
-		}
 	case ProviderMigrationImportOnly:
 		if !isImportOnlyAgentType(def.Type) {
 			return fmt.Errorf(
@@ -127,23 +108,10 @@ func validateProviderMigrationMode(
 				ProviderMigrationImportOnly,
 			)
 		}
-		if legacy {
-			return fmt.Errorf(
-				"%s: %s requires a concrete import-only provider; keep %s while using the legacy adapter",
-				def.Type,
-				ProviderMigrationImportOnly,
-				ProviderMigrationLegacyOnly,
-			)
-		}
 	default:
 		return fmt.Errorf("%s: invalid provider migration mode %q", def.Type, mode)
 	}
 	return nil
-}
-
-func isLegacyProviderFactory(factory ProviderFactory) bool {
-	_, ok := factory.(legacyProviderFactory)
-	return ok
 }
 
 func isImportOnlyAgentType(agent AgentType) bool {

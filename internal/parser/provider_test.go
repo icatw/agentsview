@@ -299,7 +299,21 @@ func TestProviderMigrationModesCoverRegistry(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestProviderMigrationModesRejectConcreteProviderLeftLegacyOnly(t *testing.T) {
+func TestProviderMigrationModesTipIsAuthoritative(t *testing.T) {
+	modes := ProviderMigrationModes()
+	for _, factory := range ProviderFactories() {
+		agent := factory.Definition().Type
+		mode, ok := modes[agent]
+		require.Truef(t, ok, "missing migration mode for %s", agent)
+		if isImportOnlyAgentType(agent) {
+			assert.Equal(t, ProviderMigrationImportOnly, mode, "%s", agent)
+			continue
+		}
+		assert.Equal(t, ProviderMigrationProviderAuthoritative, mode, "%s", agent)
+	}
+}
+
+func TestProviderMigrationModesRejectLegacyOnlyMode(t *testing.T) {
 	factory := testProviderFactory{
 		def: AgentDef{
 			Type:        AgentCodex,
@@ -307,30 +321,13 @@ func TestProviderMigrationModesRejectConcreteProviderLeftLegacyOnly(t *testing.T
 		},
 	}
 	modes := map[AgentType]ProviderMigrationMode{
-		AgentCodex: ProviderMigrationLegacyOnly,
+		AgentCodex: ProviderMigrationMode("legacy-only"),
 	}
 
 	err := ValidateProviderMigrationModes([]ProviderFactory{factory}, modes)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), string(AgentCodex))
-	assert.Contains(t, err.Error(), string(ProviderMigrationShadowCompare))
-}
-
-func TestProviderMigrationModesRejectConcreteModeForLegacyFactory(t *testing.T) {
-	factory := legacyProviderFactory{
-		def: AgentDef{
-			Type:        AgentCodex,
-			DisplayName: "Codex",
-		},
-	}
-	modes := map[AgentType]ProviderMigrationMode{
-		AgentCodex: ProviderMigrationShadowCompare,
-	}
-
-	err := ValidateProviderMigrationModes([]ProviderFactory{factory}, modes)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), string(AgentCodex))
-	assert.Contains(t, err.Error(), string(ProviderMigrationLegacyOnly))
+	assert.Contains(t, err.Error(), "invalid provider migration mode")
 }
 
 func TestProviderMigrationModesRestrictImportOnlyMode(t *testing.T) {
