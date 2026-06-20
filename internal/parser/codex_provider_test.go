@@ -291,12 +291,12 @@ func TestCodexProviderFindSourceAcceptsLegacyShapedStoredPath(t *testing.T) {
 	assert.Len(t, result.Result.Messages, 1)
 }
 
-func TestCodexProviderChangedPathCanonicalizesArchivedDuplicate(t *testing.T) {
+func TestCodexProviderChangedPathPreservesArchivedDuplicate(t *testing.T) {
 	base := t.TempDir()
 	liveRoot := filepath.Join(base, "sessions")
 	archivedRoot := filepath.Join(base, "archived_sessions")
 	uuid := "019eb791-cf7d-75c1-8439-9ed74c1229e7"
-	livePath := writeCodexProviderSession(t, liveRoot, uuid, "live")
+	writeCodexProviderSession(t, liveRoot, uuid, "live")
 	archivedPath := writeCodexProviderArchivedSession(
 		t, archivedRoot, uuid, "archived",
 	)
@@ -311,7 +311,7 @@ func TestCodexProviderChangedPathCanonicalizesArchivedDuplicate(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, changed, 1)
-	assert.Equal(t, livePath, changed[0].DisplayPath)
+	assert.Equal(t, archivedPath, changed[0].DisplayPath)
 }
 
 func TestCodexProviderChangedPathClassifiesRemovedTranscript(t *testing.T) {

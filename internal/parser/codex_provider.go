@@ -266,10 +266,6 @@ func (s codexSourceSet) SourcesForChangedPath(
 			source, ok = s.directPathSource(root, req.Path, true)
 		}
 		if ok {
-			source, _, err := s.canonicalSource(ctx, source)
-			if err != nil {
-				return nil, err
-			}
 			return []SourceRef{source}, nil
 		}
 		if !jsonlMissingPathFallbackAllowed(req) {
@@ -280,10 +276,6 @@ func (s codexSourceSet) SourcesForChangedPath(
 			source, ok = s.directPathSource(root, req.Path, false)
 		}
 		if ok {
-			source, _, err := s.canonicalSource(ctx, source)
-			if err != nil {
-				return nil, err
-			}
 			return []SourceRef{source}, nil
 		}
 	}

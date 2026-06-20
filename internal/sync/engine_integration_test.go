@@ -2295,6 +2295,57 @@ func TestSyncAllSinceCodexKeepsChangedArchivedDuplicate(t *testing.T) {
 	assert.Equal(t, archivedPath, env.db.GetSessionFilePath("codex:"+uuid))
 }
 
+func TestSyncPathsCodexKeepsChangedArchivedDuplicate(t *testing.T) {
+	root := t.TempDir()
+	codexDir := filepath.Join(root, "sessions")
+	archivedDir := filepath.Join(root, "archived_sessions")
+	require.NoError(t, os.MkdirAll(codexDir, 0o755))
+	require.NoError(t, os.MkdirAll(archivedDir, 0o755))
+	env := setupTestEnv(t, WithCodexDirs([]string{codexDir, archivedDir}))
+
+	uuid := "f6a7b8c9-6789-0123-def0-345678901235"
+	liveContent := testjsonl.NewSessionBuilder().
+		AddCodexMeta(tsEarly, uuid, "/home/user/code/api", "user").
+		AddCodexMessage(tsEarlyS1, "user", "Stale live copy").
+		String()
+	archivedContent := testjsonl.NewSessionBuilder().
+		AddCodexMeta(tsEarly, uuid, "/home/user/code/api", "user").
+		AddCodexMessage(tsEarlyS1, "user", "Archived copy").
+		AddCodexMessage(tsEarlyS5, "assistant", "Archived update").
+		String()
+
+	livePath := env.writeCodexSession(
+		t,
+		filepath.Join("2026", "05", "04"),
+		"rollout-2026-05-04T02-10-04-"+uuid+".jsonl",
+		liveContent,
+	)
+	archivedPath := env.writeSession(
+		t, archivedDir,
+		"rollout-2026-05-04T14-31-58-"+uuid+".jsonl",
+		liveContent,
+	)
+
+	initialTime := time.Now().Add(-2 * time.Hour)
+	require.NoError(t, os.Chtimes(livePath, initialTime, initialTime), "chtimes live")
+	require.NoError(t, os.Chtimes(archivedPath, initialTime, initialTime), "chtimes archived")
+
+	env.engine.SyncAll(context.Background(), nil)
+	assert.Equal(t, livePath, env.db.GetSessionFilePath("codex:"+uuid))
+
+	newTime := time.Now().Add(-30 * time.Minute)
+	require.NoError(t, os.WriteFile(archivedPath, []byte(archivedContent), 0o644))
+	require.NoError(t, os.Chtimes(archivedPath, newTime, newTime), "chtimes archived")
+
+	env.engine.SyncPaths([]string{archivedPath})
+
+	sess, err := env.db.GetSessionFull(context.Background(), "codex:"+uuid)
+	require.NoError(t, err, "GetSessionFull")
+	require.NotNil(t, sess, "expected archived Codex session to sync")
+	assert.Equal(t, archivedPath, env.db.GetSessionFilePath("codex:"+uuid))
+	assertSessionMessageCount(t, env.db, "codex:"+uuid, 2)
+}
+
 func TestSyncAllSinceCodexRefreshesSessionNameFromIndex(t *testing.T) {
 	root := t.TempDir()
 	codexDir := filepath.Join(root, "sessions")
