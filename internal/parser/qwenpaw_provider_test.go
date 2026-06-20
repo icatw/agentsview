@@ -131,6 +131,27 @@ func TestQwenPawProviderSourceMethods(t *testing.T) {
 	assert.Empty(t, changed)
 }
 
+func TestQwenPawProviderFindSourceUsesStoredPathOutsideRoots(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := qwenPawProviderWriteSession(
+		t, root, "my_ws", "", "default_1", "stored path question",
+	)
+	provider, ok := NewProvider(AgentQwenPaw, ProviderConfig{
+		Roots:   []string{t.TempDir()},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+
+	source, found, err := provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID:  "qwenpaw:my_ws:default_1",
+		StoredFilePath: sourcePath,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, sourcePath, source.DisplayPath)
+	assert.Equal(t, "my_ws", source.ProjectHint)
+}
+
 func TestQwenPawProviderParse(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := qwenPawProviderWriteSession(

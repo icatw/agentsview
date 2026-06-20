@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,34 @@ func TestCommandCodeProviderSourceMethods(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, changed, 1)
 	assert.Equal(t, sourcePath, changed[0].DisplayPath)
+}
+
+func TestCommandCodeProviderFingerprintIncludesMetaMtime(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "users-alice-code-sample-project")
+	sourcePath := filepath.Join(projectDir, "sess_123.jsonl")
+	metaPath := filepath.Join(projectDir, "sess_123.meta.json")
+	writeSourceFile(t, sourcePath, commandCodeProviderFixture())
+	writeSourceFile(t, metaPath, `{"cwd":"/tmp/project"}`)
+	sourceTime := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	metaTime := sourceTime.Add(5 * time.Second)
+	require.NoError(t, os.Chtimes(sourcePath, sourceTime, sourceTime))
+	require.NoError(t, os.Chtimes(metaPath, metaTime, metaTime))
+
+	provider, ok := NewProvider(AgentCommandCode, ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+
+	source, found, err := provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID: "commandcode:sess_123",
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	fingerprint, err := provider.Fingerprint(context.Background(), source)
+	require.NoError(t, err)
+	assert.Equal(t, metaTime.UnixNano(), fingerprint.MTimeNS)
 }
 
 func TestCommandCodeProviderDiscoversSymlinkedProjectDirectory(t *testing.T) {

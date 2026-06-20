@@ -196,7 +196,7 @@ func TestSyncSingleSessionPiebaldFork(t *testing.T) {
 
 	src := env.engine.FindSourceFile("piebald:42-200")
 	wantSrc := filepath.Join(env.piebaldDir, "app.db")
-	assert.Equal(t, wantSrc, src)
+	assert.Equal(t, wantSrc+"#42", src)
 
 	mtime := env.engine.SourceMtime("piebald:42-200")
 	assert.NotZero(t, mtime, "SourceMtime(fork) returned zero")
@@ -241,7 +241,7 @@ func TestSyncSingleSessionPiebald(t *testing.T) {
 
 	src := env.engine.FindSourceFile("piebald:7")
 	wantSrc := filepath.Join(env.piebaldDir, "app.db")
-	assert.Equal(t, wantSrc, src)
+	assert.Equal(t, wantSrc+"#7", src)
 
 	mtime := env.engine.SourceMtime("piebald:7")
 	require.NotZero(t, mtime, "SourceMtime returned zero")

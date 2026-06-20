@@ -202,7 +202,7 @@ func TestSyncSingleSessionForge(t *testing.T) {
 
 	src := env.engine.FindSourceFile("forge:forge-sync-single")
 	wantSrc := filepath.Join(env.forgeDir, ".forge.db")
-	assert.Equal(t, wantSrc, src)
+	assert.Equal(t, wantSrc+"#forge-sync-single", src)
 
 	mtime := env.engine.SourceMtime("forge:forge-sync-single")
 	require.NotZero(t, mtime, "SourceMtime returned zero")

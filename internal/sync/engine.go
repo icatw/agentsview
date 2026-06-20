@@ -8999,92 +8999,52 @@ func countUserMsgs(msgs []parser.ParsedMessage) int {
 // ID, e.g. Zencoder header ID vs filename), then falls back
 // to agent-specific path reconstruction.
 func (e *Engine) FindSourceFile(sessionID string) string {
+	_, source, ok := e.findProviderSource(context.Background(), sessionID)
+	if !ok {
+		return ""
+	}
+	return providerDiscoveredPath(source)
+}
+
+func (e *Engine) findProviderSource(
+	ctx context.Context,
+	sessionID string,
+) (parser.Provider, parser.SourceRef, bool) {
 	host, rawID := parser.StripHostPrefix(sessionID)
 	if host != "" {
 		// Remote sessions have no local source file.
-		return ""
+		return nil, parser.SourceRef{}, false
 	}
 
 	def, ok := parser.AgentByPrefix(sessionID)
 	if !ok {
-		return ""
+		return nil, parser.SourceRef{}, false
+	}
+
+	provider, ok := parser.NewProvider(def.Type, parser.ProviderConfig{
+		Roots:   e.agentDirs[def.Type],
+		Machine: e.machine,
+	})
+	if !ok {
+		return nil, parser.SourceRef{}, false
 	}
 	rawSessionID := strings.TrimPrefix(rawID, def.IDPrefix)
-	if !def.FileBased {
-		switch def.Type {
-		case parser.AgentWarp:
-			for _, d := range e.agentDirs[def.Type] {
-				dbPath := parser.FindWarpDBPath(d)
-				if dbPath == "" {
-					continue
-				}
-				if _, _, err := parser.ParseWarpSession(dbPath, rawSessionID, e.machine); err == nil {
-					return dbPath
-				}
-			}
-		case parser.AgentForge:
-			for _, d := range e.agentDirs[def.Type] {
-				dbPath := parser.FindForgeDBPath(d)
-				if dbPath == "" {
-					continue
-				}
-				if _, _, err := parser.ParseForgeSession(dbPath, rawSessionID, e.machine); err == nil {
-					return dbPath
-				}
-			}
-		case parser.AgentPiebald:
-			chatID, _, _ := strings.Cut(rawSessionID, "-")
-			for _, d := range e.agentDirs[def.Type] {
-				dbPath := parser.FindPiebaldDBPath(d)
-				if dbPath == "" {
-					continue
-				}
-				results, err := parser.ParsePiebaldSessionResults(dbPath, chatID, e.machine)
-				if err == nil && piebaldResultsContain(results, sessionID) {
-					return dbPath
-				}
-			}
-		}
-		return ""
+	storedPath := e.db.GetSessionFilePath(sessionID)
+	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
+		RawSessionID:       rawSessionID,
+		FullSessionID:      sessionID,
+		StoredFilePath:     storedPath,
+		FingerprintKey:     storedPath,
+		RequireFreshSource: true,
+	})
+	if err != nil {
+		log.Printf("%s provider source lookup for %s: %v", def.Type, sessionID, err)
+		return nil, parser.SourceRef{}, false
 	}
-	if def.FindSourceFunc == nil {
-		return ""
+	if !found {
+		return nil, parser.SourceRef{}, false
 	}
-
-	if def.Type == parser.AgentKiro {
-		for _, dir := range e.agentDirs[parser.AgentKiro] {
-			dbPath := parser.FindKiroSQLiteDBPath(dir)
-			if dbPath == "" ||
-				!parser.KiroSQLiteSessionExists(
-					dbPath, rawSessionID,
-				) {
-				continue
-			}
-			return parser.KiroSQLiteVirtualPath(
-				dbPath, rawSessionID,
-			)
-		}
-	}
-
-	// Prefer stored file_path — it's authoritative and handles
-	// cases where the session ID doesn't match the filename.
-	// Resolve virtual paths (e.g. Visual Studio Copilot's
-	// <traceFile>#<conversationID>) for the existence check, but
-	// return the stored path so downstream parsing stays scoped to
-	// the requested conversation rather than the whole trace file.
-	if fp := e.db.GetSessionFilePath(sessionID); fp != "" {
-		if _, err := os.Stat(parser.ResolveSourceFilePath(fp)); err == nil {
-			return fp
-		}
-	}
-
-	bareID := strings.TrimPrefix(rawID, def.IDPrefix)
-	for _, d := range e.agentDirs[def.Type] {
-		if f := def.FindSourceFunc(d, bareID); f != "" {
-			return f
-		}
-	}
-	return ""
+	return provider, source, true
 }
 
 // SourceMtime returns the current source-backed mtime for a
@@ -9092,177 +9052,21 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 // file, but OpenCode storage sessions derive their effective mtime
 // from the session JSON plus related message/part files.
 func (e *Engine) SourceMtime(sessionID string) int64 {
-	host, rawID := parser.StripHostPrefix(sessionID)
-	if host != "" {
-		return 0
-	}
-
-	def, ok := parser.AgentByPrefix(sessionID)
+	provider, source, ok := e.findProviderSource(
+		context.Background(), sessionID,
+	)
 	if !ok {
 		return 0
 	}
-	rawSessionID := strings.TrimPrefix(rawID, def.IDPrefix)
-	if !def.FileBased {
-		switch def.Type {
-		case parser.AgentWarp:
-			for _, d := range e.agentDirs[def.Type] {
-				dbPath := parser.FindWarpDBPath(d)
-				if dbPath == "" {
-					continue
-				}
-				metas, err := parser.ListWarpSessionMeta(dbPath)
-				if err != nil {
-					continue
-				}
-				for _, meta := range metas {
-					if meta.SessionID == rawSessionID {
-						return meta.FileMtime
-					}
-				}
-			}
-		case parser.AgentForge:
-			for _, d := range e.agentDirs[def.Type] {
-				dbPath := parser.FindForgeDBPath(d)
-				if dbPath == "" {
-					continue
-				}
-				metas, err := parser.ListForgeSessionMeta(dbPath)
-				if err != nil {
-					continue
-				}
-				for _, meta := range metas {
-					if meta.SessionID == rawSessionID {
-						return meta.FileMtime
-					}
-				}
-			}
-		case parser.AgentPiebald:
-			chatID, _, _ := strings.Cut(rawSessionID, "-")
-			for _, d := range e.agentDirs[def.Type] {
-				dbPath := parser.FindPiebaldDBPath(d)
-				if dbPath == "" {
-					continue
-				}
-				metas, err := parser.ListPiebaldSessionMeta(dbPath)
-				if err != nil {
-					continue
-				}
-				var mtime int64
-				for _, meta := range metas {
-					if meta.SessionID == chatID {
-						mtime = meta.FileMtime
-						break
-					}
-				}
-				if mtime == 0 {
-					continue
-				}
-				// Base chat IDs are confirmed by meta. Fork IDs
-				// need a parse to verify the requested fork exists.
-				if chatID == rawSessionID {
-					return mtime
-				}
-				results, err := parser.ParsePiebaldSessionResults(dbPath, chatID, e.machine)
-				if err == nil && piebaldResultsContain(results, sessionID) {
-					return mtime
-				}
-			}
-		}
-		return 0
-	}
-
-	path := e.FindSourceFile(sessionID)
-	if path == "" {
-		return 0
-	}
-
-	if isOpenCodeFormatStorageAgent(def.Type) {
-		mtime, err := openCodeFormatSourceMtime(def.Type, path)
-		if err != nil {
-			return 0
-		}
-		return mtime
-	}
-	if def.Type == parser.AgentKiro {
-		if _, _, ok := parser.ParseKiroSQLiteVirtualPath(path); ok {
-			mtime, err := parser.KiroSQLiteSourceMtime(path)
-			if err != nil {
-				return 0
-			}
-			return mtime
-		}
-	}
-	if def.Type == parser.AgentZed {
-		if _, _, ok := parser.ParseZedSQLiteVirtualPath(path); ok {
-			mtime, err := parser.ZedSQLiteSourceMtime(path)
-			if err != nil {
-				return 0
-			}
-			return mtime
-		}
-	}
-	if def.Type == parser.AgentShelley {
-		if _, _, ok := parser.ParseShelleyVirtualPath(path); ok {
-			mtime, err := parser.ShelleySourceMtime(path)
-			if err != nil {
-				return 0
-			}
-			return mtime
-		}
-	}
-	if def.Type == parser.AgentAntigravityCLI {
-		info, err := parser.AntigravityCLIFileInfo(path)
-		if err != nil {
-			return 0
-		}
-		return info.ModTime().UnixNano()
-	}
-	if def.Type == parser.AgentAntigravity {
-		info, err := parser.AntigravityFileInfo(path)
-		if err != nil {
-			return 0
-		}
-		return info.ModTime().UnixNano()
-	}
-	if def.Type == parser.AgentCowork {
-		info, err := os.Stat(path)
-		if err != nil {
-			return 0
-		}
-		return parser.CoworkSessionMtime(path, info.ModTime().UnixNano())
-	}
-	if def.Type == parser.AgentCommandCode {
-		info, err := os.Stat(path)
-		if err != nil {
-			return 0
-		}
-		return commandCodeEffectiveInfo(path, info).ModTime().UnixNano()
-	}
-	if def.Type == parser.AgentVSCopilot {
-		// A conversation's transcript is rebuilt from every sibling trace
-		// file, so the watcher fallback must compare a composite mtime
-		// spanning all of them, not just the representative trace file.
-		_, mtime := parser.VisualStudioCopilotTraceFingerprint(
-			parser.ResolveSourceFilePath(path),
-		)
-		return mtime
-	}
-	if def.Type == parser.AgentVibe {
-		info, err := os.Stat(path)
-		if err != nil {
-			return 0
-		}
-		return vibeEffectiveInfo(path, info).ModTime().UnixNano()
-	}
-
-	// FindSourceFile may return a virtual path (e.g. Visual Studio
-	// Copilot's <traceFile>#<conversationID>); resolve it to the
-	// physical source for the stat.
-	info, err := os.Stat(parser.ResolveSourceFilePath(path))
+	fingerprint, err := provider.Fingerprint(
+		context.Background(), source,
+	)
 	if err != nil {
+		def := provider.Definition()
+		log.Printf("%s provider source mtime for %s: %v", def.Type, sessionID, err)
 		return 0
 	}
-	return info.ModTime().UnixNano()
+	return fingerprint.MTimeNS
 }
 
 // SyncSingleSession re-syncs a single session by its ID and

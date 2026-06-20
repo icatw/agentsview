@@ -23,6 +23,7 @@ type dbBackedProviderSpec struct {
 	listMeta     func(string) ([]dbBackedSessionMeta, error)
 	parse        func(string, string, string) ([]ParseResult, error)
 	normalizeRaw func(string) string
+	validateFind func(string, string, string, string) bool
 	caps         Capabilities
 }
 
@@ -78,10 +79,24 @@ func (p *dbBackedProvider) FindSource(
 	req FindSourceRequest,
 ) (SourceRef, bool, error) {
 	req = providerFindRequestWithRawSessionID(p.Def, req)
+	requestedRaw := req.RawSessionID
 	if p.spec.normalizeRaw != nil {
 		req.RawSessionID = p.spec.normalizeRaw(req.RawSessionID)
 	}
-	return p.sources.FindSource(ctx, req)
+	source, ok, err := p.sources.FindSource(ctx, req)
+	if err != nil || !ok || p.spec.validateFind == nil {
+		return source, ok, err
+	}
+	src, sourceOK := p.sources.sourceFromRef(source)
+	if !sourceOK {
+		return SourceRef{}, false, nil
+	}
+	if !p.spec.validateFind(
+		src.DBPath, requestedRaw, req.FullSessionID, p.Config.Machine,
+	) {
+		return SourceRef{}, false, nil
+	}
+	return source, true, nil
 }
 
 func (p *dbBackedProvider) Fingerprint(
@@ -512,6 +527,22 @@ func piebaldProviderSpec() dbBackedProviderSpec {
 		normalizeRaw: func(raw string) string {
 			chatID, _, _ := strings.Cut(raw, "-")
 			return chatID
+		},
+		validateFind: func(dbPath, rawID, fullID, machine string) bool {
+			chatID, _, _ := strings.Cut(rawID, "-")
+			if chatID == rawID || fullID == "" {
+				return true
+			}
+			results, err := ParsePiebaldSessionResults(dbPath, chatID, machine)
+			if err != nil {
+				return false
+			}
+			for _, result := range results {
+				if result.Session.ID == fullID {
+					return true
+				}
+			}
+			return false
 		},
 		caps: piebaldProviderCapabilities(),
 	}

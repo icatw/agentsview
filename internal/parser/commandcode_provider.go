@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -68,7 +69,22 @@ func (p *commandCodeProvider) Fingerprint(
 	ctx context.Context,
 	source SourceRef,
 ) (SourceFingerprint, error) {
-	return p.sources.Fingerprint(ctx, source)
+	fingerprint, err := p.sources.Fingerprint(ctx, source)
+	if err != nil {
+		return SourceFingerprint{}, err
+	}
+	path, ok := p.sources.pathFromSource(source)
+	if !ok {
+		return SourceFingerprint{}, fmt.Errorf("commandcode source path unavailable")
+	}
+	metaPath := strings.TrimSuffix(path, ".jsonl") + ".meta.json"
+	if metaInfo, err := os.Stat(metaPath); err == nil {
+		fingerprint.Size += metaInfo.Size()
+		if metaMtime := metaInfo.ModTime().UnixNano(); metaMtime > fingerprint.MTimeNS {
+			fingerprint.MTimeNS = metaMtime
+		}
+	}
+	return fingerprint, nil
 }
 
 func (p *commandCodeProvider) Parse(

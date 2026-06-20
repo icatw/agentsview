@@ -65,6 +65,7 @@ func (p *qwenPawProvider) FindSource(
 	if err := ctx.Err(); err != nil {
 		return SourceRef{}, false, err
 	}
+	req = providerFindRequestWithRawSessionID(p.Def, req)
 	for _, path := range []string{req.StoredFilePath, req.FingerprintKey} {
 		if path == "" {
 			continue
@@ -72,8 +73,10 @@ func (p *qwenPawProvider) FindSource(
 		if source, ok := p.sources.sourceForPath(path); ok {
 			return source, true, nil
 		}
+		if source, ok := p.sourceForStoredPath(path, req.RawSessionID); ok {
+			return source, true, nil
+		}
 	}
-	req = providerFindRequestWithRawSessionID(p.Def, req)
 	if req.RawSessionID == "" {
 		return SourceRef{}, false, nil
 	}
@@ -87,6 +90,42 @@ func (p *qwenPawProvider) FindSource(
 		}
 	}
 	return SourceRef{}, false, nil
+}
+
+func (p *qwenPawProvider) sourceForStoredPath(
+	path string,
+	rawID string,
+) (SourceRef, bool) {
+	info, ok := p.sources.sourceFileInfo(path)
+	if !ok || rawID == "" {
+		return SourceRef{}, false
+	}
+	parts := strings.Split(rawID, ":")
+	var suffix []string
+	switch len(parts) {
+	case 2:
+		suffix = []string{parts[0], "sessions", parts[1] + ".json"}
+	case 3:
+		suffix = []string{parts[0], "sessions", parts[1], parts[2] + ".json"}
+	default:
+		return SourceRef{}, false
+	}
+	for _, part := range parts {
+		if !IsValidQwenPawIDPart(part) {
+			return SourceRef{}, false
+		}
+	}
+	cleanPath := filepath.Clean(path)
+	rel := filepath.Join(suffix...)
+	if !strings.HasSuffix(cleanPath, rel) {
+		return SourceRef{}, false
+	}
+	root := strings.TrimSuffix(cleanPath, rel)
+	root = strings.TrimSuffix(root, string(filepath.Separator))
+	if root == "" {
+		root = string(filepath.Separator)
+	}
+	return p.sources.sourceRef(root, cleanPath, info)
 }
 
 func (p *qwenPawProvider) Fingerprint(
