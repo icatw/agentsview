@@ -213,6 +213,39 @@ func TestCompareProviderObservationDetectsPlannedDataVersionMismatch(t *testing.
 	assert.Contains(t, mismatches[0], "planned.data_versions")
 }
 
+func TestCompareProviderObservationIgnoresProviderOnlyRetryReason(t *testing.T) {
+	result := parser.ParseResult{
+		Session: parser.ParsedSession{
+			ID:    "codex:one",
+			Agent: parser.AgentCodex,
+			File: parser.FileInfo{
+				Path: "source.jsonl",
+			},
+		},
+	}
+
+	mismatches := compareProviderObservationToProcessResult(
+		ProviderObservation{
+			Results: []parser.ParseResult{result},
+			Planned: ProviderPlannedEffects{
+				SourceKeys: []string{"source.jsonl"},
+				DataVersions: []ProviderPlannedDataVersion{{
+					SessionID:   "codex:one",
+					State:       parser.DataVersionNeedsRetry,
+					RetryReason: "fallback parser",
+				}},
+			},
+		},
+		processResult{
+			results:    []parser.ParseResult{result},
+			needsRetry: true,
+		},
+		parser.DiscoveredFile{Path: "source.jsonl"},
+	)
+
+	assert.Empty(t, mismatches)
+}
+
 func TestObserveProviderSourceRejectsProviderMismatch(t *testing.T) {
 	provider := &shadowTestProvider{
 		ProviderBase: parser.ProviderBase{

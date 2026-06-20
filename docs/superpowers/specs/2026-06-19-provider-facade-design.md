@@ -959,9 +959,10 @@ helpers but keep side effects isolated:
    data-version state, source metadata, and per-session errors.
 1. Represent provider-side effects as in-memory planned effects, not live DB
    mutations. Planned effects include source metadata writes, data-version
-   writes, skip-cache updates, diagnostics, and SSE topics. Integration tests
-   may additionally run against disposable stores, but shadow mode never
-   receives the live writer.
+   writes, skip-cache updates, and diagnostics. Integration tests may
+   additionally run against disposable stores, but shadow mode never receives
+   the live writer. SSE/event scope parity is deferred until the
+   provider-authoritative caller owns live event emission.
 1. Report mismatches as test failures in the migration harness. Runtime
    diagnostics are opt-in developer diagnostics only; they must not create
    user-visible parse diagnostics or SSE-visible state. The provider side must
@@ -974,14 +975,17 @@ not an abstract parser-local model:
   `SourceRef.FingerprintKey`, then `SourceRef.Key`;
 - skip-cache keys follow the same key order the legacy engine uses before a
   persisted skip decision;
-- data-version entries represent the concrete session rows the engine would
-  stamp after successful writes, including `DataVersionNeedsRetry` and its retry
-  reason;
+- data-version entries represent process-result-level write intent for the
+  concrete session rows the engine would stamp after successful writes,
+  including current versus `DataVersionNeedsRetry` state; retry-reason text is
+  provider-local until the legacy process result exposes equivalent detail;
 - diagnostics mirror the legacy parse diagnostic fields, including display path,
   source key, session ID, error, and retryability, but are never written to the
   live diagnostics table in shadow mode;
-- SSE scopes are comparison data only until the stack reaches
-  provider-authoritative mode.
+- legacy skip, incremental, and whole-source error states are recorded as
+  non-comparable in the root `processFile` hook. Provider `SkipReason` parity is
+  handled by provider-local/source-level tests until a later caller task defines
+  a legacy skip-reason projection.
 
 Provider output must be namespaced before it can produce planned effects and
 before any remote machine prefix is applied. `ParseResult.Session.Agent` must
@@ -1100,14 +1104,16 @@ sequence:
    must cover malformed or obsolete virtual paths, debug-only diagnostics, DB
    row deletion, DB file deletion, and stale hints that belong to a different
    physical DB under the same watch root.
-1. Move the remaining source-processing callers into the caller-level dual-run
-   harness: changed-path sync and `SyncSingleSession`. The root harness already
-   shadows `processFile` for full sync. During migration these callers compare
-   provider output against legacy for parsed output, skip-cache, data-version,
-   source metadata, diagnostics, excluded IDs, and retry state; only the legacy
-   result writes. Changed-path comparison must populate `StoredSourcePaths` from
-   scoped persisted session metadata and include DB row deletion and DB file
-   deletion integration tests.
+1. Move the remaining source-processing caller semantics into the caller-level
+   dual-run harness: changed-path sync and `SyncSingleSession`. The root harness
+   already shadows the shared `processFile` path, so these tasks must add
+   caller-specific source selection, stored-source hints, and acceptance
+   coverage rather than adding a second shadow hook. During migration these
+   callers compare provider output against legacy for parsed output, skip-cache,
+   data-version, source metadata, diagnostics, excluded IDs, and retry state;
+   only the legacy result writes. Changed-path comparison must populate
+   `StoredSourcePaths` from scoped persisted session metadata and include DB row
+   deletion and DB file deletion integration tests.
 1. Move lookup/watch callers into the caller-level dual-run harness: session
    watch flows, export/source lookup, source mtime, and token-usage raw source
    probing. During migration these callers compare lookup freshness, virtual

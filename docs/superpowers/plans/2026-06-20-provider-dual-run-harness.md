@@ -57,7 +57,9 @@ writer. Its source key is the fingerprint key when available, then
 same engine order used for persisted skip decisions. Its data-version entries
 match the rows the legacy engine would stamp after successful writes, including
 retry state from `DataVersionNeedsRetry`. Its diagnostics mirror parse
-diagnostics without inserting them into the live store.
+diagnostics without inserting them into the live store. Provider retry-reason
+text and SSE scopes are outside the root process-result comparison until a later
+caller task exposes equivalent legacy data.
 
 Performance rule: shadow comparison may double-parse a source only while that
 provider is actively migrating. Large roots and shared database providers need
@@ -229,17 +231,19 @@ Expected: PASS.
 
 **Files:**
 
-The root harness branch wires `processFile` full-sync shadow comparison. The
+The root harness branch wires the shared `processFile` shadow comparison. The
 remaining caller families below stay as later sync migration work so provider
-branches can still review one behavior group at a time.
+branches can add caller-specific source selection, hint lookup, and acceptance
+coverage one behavior group at a time.
 
 **Step 1: Wire remaining source-processing callers into shadow comparison**
 
-Move changed-path sync and `SyncSingleSession` into the caller-level dual-run
-wrapper. The wrapper must read the migration manifest, run legacy
-authoritatively, run provider observation for `shadow-compare` agents, compare
-parsed output and planned effects, and leave live DB/diagnostic/SSE state driven
-only by the legacy result.
+Move changed-path sync and `SyncSingleSession` semantics into the caller-level
+dual-run wrapper without adding a duplicate `processFile` hook. The wrapper must
+read the migration manifest, run legacy authoritatively, run provider
+observation for `shadow-compare` agents, compare parsed output and planned
+effects, and leave live DB/diagnostic/SSE state driven only by the legacy
+result.
 
 **Step 2: Add lookup/watch/diagnostic caller coverage**
 

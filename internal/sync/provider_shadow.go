@@ -339,10 +339,15 @@ func errString(err error) string {
 
 type comparablePlanned struct {
 	SourceKeys    []string
-	DataVersions  []ProviderPlannedDataVersion
+	DataVersions  []comparablePlannedDataVersion
 	SkipCacheKeys []string
 	Diagnostics   []comparablePlannedDiagnostic
 	SSEScopes     []string
+}
+
+type comparablePlannedDataVersion struct {
+	SessionID string
+	State     parser.DataVersionState
 }
 
 type comparablePlannedDiagnostic struct {
@@ -356,9 +361,22 @@ type comparablePlannedDiagnostic struct {
 func comparablePlannedEffects(planned ProviderPlannedEffects) comparablePlanned {
 	comparable := comparablePlanned{
 		SourceKeys:    slices.Clone(planned.SourceKeys),
-		DataVersions:  slices.Clone(planned.DataVersions),
 		SkipCacheKeys: slices.Clone(planned.SkipCacheKeys),
 		SSEScopes:     slices.Clone(planned.SSEScopes),
+	}
+	comparable.DataVersions = make(
+		[]comparablePlannedDataVersion,
+		0,
+		len(planned.DataVersions),
+	)
+	for _, dataVersion := range planned.DataVersions {
+		comparable.DataVersions = append(
+			comparable.DataVersions,
+			comparablePlannedDataVersion{
+				SessionID: dataVersion.SessionID,
+				State:     dataVersion.State,
+			},
+		)
 	}
 	comparable.Diagnostics = make(
 		[]comparablePlannedDiagnostic,
