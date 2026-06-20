@@ -33,7 +33,7 @@ var providerMigrationModes = map[AgentType]ProviderMigrationMode{
 	AgentVSCodeCopilot:  ProviderMigrationLegacyOnly,
 	AgentVSCopilot:      ProviderMigrationLegacyOnly,
 	AgentPi:             ProviderMigrationShadowCompare,
-	AgentQwen:           ProviderMigrationLegacyOnly,
+	AgentQwen:           ProviderMigrationShadowCompare,
 	AgentCommandCode:    ProviderMigrationShadowCompare,
 	AgentDeepSeekTUI:    ProviderMigrationShadowCompare,
 	AgentOpenClaw:       ProviderMigrationLegacyOnly,
