@@ -246,6 +246,9 @@ func (s shelleySourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path); ok {
+				if req.RequireFreshSource && !shelleySourceExists(source) {
+					continue
+				}
 				return source, true, nil
 			}
 		}
@@ -263,6 +266,21 @@ func (s shelleySourceSet) FindSource(
 		}
 	}
 	return SourceRef{}, false, nil
+}
+
+func shelleySourceExists(source SourceRef) bool {
+	src, ok := source.Opaque.(shelleySource)
+	if !ok {
+		ptr, ok := source.Opaque.(*shelleySource)
+		if !ok || ptr == nil {
+			return false
+		}
+		src = *ptr
+	}
+	if src.ConversationID == "" {
+		return IsRegularFile(src.DBPath)
+	}
+	return ShelleyConversationExists(src.DBPath, src.ConversationID)
 }
 
 func (s shelleySourceSet) Fingerprint(

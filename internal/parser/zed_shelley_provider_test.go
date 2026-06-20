@@ -2,6 +2,7 @@ package parser
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -209,6 +210,88 @@ func TestZedProviderClassifiesDeletedPhysicalDB(t *testing.T) {
 	assert.True(t, outcome.ForceReplace)
 	assert.Equal(t, SkipNoSession, outcome.SkipReason)
 	assert.Empty(t, outcome.Results)
+}
+
+func TestZedProviderStoredVirtualPathFreshness(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, zedThreadsDBRelPath)
+	threadID := "10431c84-c47b-4e6c-b2df-f9f3b9ad025b"
+	require.NoError(t, os.MkdirAll(filepath.Dir(dbPath), 0o755))
+	createZedThreadsDBAt(t, dbPath, []zedTestThread{{
+		id:        threadID,
+		summary:   "Provider thread",
+		updatedAt: "2026-06-08T09:14:10Z",
+		dataType:  "json",
+		data:      []byte(`{"messages":[{"User":{"content":[{"Text":"Hello Zed"}]}}]}`),
+	}})
+	virtualPath := ZedSQLiteVirtualPath(dbPath, threadID)
+
+	provider, ok := NewProvider(AgentZed, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, virtualPath, found.DisplayPath)
+
+	db, err := sql.Open("sqlite3", dbPath)
+	require.NoError(t, err)
+	_, err = db.Exec(`DELETE FROM threads WHERE id = ?`, threadID)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	_, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a deleted virtual row")
+
+	staleSource, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: virtualPath,
+	})
+	require.NoError(t, err)
+	require.True(t, ok, "non-fresh lookup keeps tombstone source identity")
+	outcome, err := provider.Parse(context.Background(), ParseRequest{
+		Source: staleSource,
+	})
+	require.NoError(t, err)
+	assert.True(t, outcome.ResultSetComplete)
+	assert.True(t, outcome.ForceReplace)
+	assert.Equal(t, SkipNoSession, outcome.SkipReason)
+	assert.Empty(t, outcome.Results)
+}
+
+func TestZedProviderRejectsInvalidStoredVirtualPaths(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, zedThreadsDBRelPath)
+	threadID := "10431c84-c47b-4e6c-b2df-f9f3b9ad025b"
+	require.NoError(t, os.MkdirAll(filepath.Dir(dbPath), 0o755))
+	createZedThreadsDBAt(t, dbPath, []zedTestThread{{
+		id:        threadID,
+		summary:   "Provider thread",
+		updatedAt: "2026-06-08T09:14:10Z",
+		dataType:  "json",
+		data:      []byte(`{"messages":[{"User":{"content":[{"Text":"Hello Zed"}]}}]}`),
+	}})
+
+	provider, ok := NewProvider(AgentZed, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+
+	for _, path := range []string{
+		dbPath + "#",
+		filepath.Join(root, "threads", "threads-copy.db") + "#" + threadID,
+		filepath.Join(root, "debug", "threads.db") + "#" + threadID,
+	} {
+		_, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+			StoredFilePath:     path,
+			RequireFreshSource: true,
+		})
+		require.NoError(t, err)
+		assert.False(t, ok, "stored path %q", path)
+	}
 }
 
 func TestZedProviderIgnoresUnrelatedSidecarBasename(t *testing.T) {
@@ -435,6 +518,69 @@ func TestShelleyProviderClassifiesDeletedPhysicalDB(t *testing.T) {
 	assert.True(t, outcome.ForceReplace)
 	assert.Equal(t, SkipNoSession, outcome.SkipReason)
 	assert.Empty(t, outcome.Results)
+}
+
+func TestShelleyProviderStoredVirtualPathFreshness(t *testing.T) {
+	root, dbPath, db := newShelleyTestDB(t)
+	seedShelleyMainConversation(t, db)
+	virtualPath := ShelleyVirtualPath(dbPath, "cMAIN1")
+
+	provider, ok := NewProvider(AgentShelley, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, virtualPath, found.DisplayPath)
+
+	_, err = db.Exec(`DELETE FROM messages WHERE conversation_id = ?`, "cMAIN1")
+	require.NoError(t, err)
+	_, err = db.Exec(`DELETE FROM conversations WHERE conversation_id = ?`, "cMAIN1")
+	require.NoError(t, err)
+
+	_, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a deleted virtual row")
+
+	staleSource, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: virtualPath,
+	})
+	require.NoError(t, err)
+	require.True(t, ok, "non-fresh lookup keeps tombstone source identity")
+	outcome, err := provider.Parse(context.Background(), ParseRequest{
+		Source: staleSource,
+	})
+	require.NoError(t, err)
+	assert.True(t, outcome.ResultSetComplete)
+	assert.True(t, outcome.ForceReplace)
+	assert.Equal(t, SkipNoSession, outcome.SkipReason)
+	assert.Empty(t, outcome.Results)
+}
+
+func TestShelleyProviderRejectsInvalidStoredVirtualPaths(t *testing.T) {
+	root, dbPath, db := newShelleyTestDB(t)
+	seedShelleyMainConversation(t, db)
+
+	provider, ok := NewProvider(AgentShelley, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+
+	for _, path := range []string{
+		dbPath + "#",
+		filepath.Join(root, "shelley-debug.db") + "#cMAIN1",
+		filepath.Join(root, "nested", shelleyDBName) + "#cMAIN1",
+	} {
+		_, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+			StoredFilePath:     path,
+			RequireFreshSource: true,
+		})
+		require.NoError(t, err)
+		assert.False(t, ok, "stored path %q", path)
+	}
 }
 
 func TestShelleyProviderIgnoresUnrelatedSidecarBasename(t *testing.T) {

@@ -251,6 +251,9 @@ func (s zedSourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path); ok {
+				if req.RequireFreshSource && !zedSourceExists(source) {
+					continue
+				}
 				return source, true, nil
 			}
 		}
@@ -268,6 +271,21 @@ func (s zedSourceSet) FindSource(
 		}
 	}
 	return SourceRef{}, false, nil
+}
+
+func zedSourceExists(source SourceRef) bool {
+	src, ok := source.Opaque.(zedSource)
+	if !ok {
+		ptr, ok := source.Opaque.(*zedSource)
+		if !ok || ptr == nil {
+			return false
+		}
+		src = *ptr
+	}
+	if src.SessionID == "" {
+		return IsRegularFile(src.DBPath)
+	}
+	return ZedSQLiteSessionExists(src.DBPath, src.SessionID)
 }
 
 func (s zedSourceSet) Fingerprint(
