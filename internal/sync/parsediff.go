@@ -15,9 +15,9 @@ import (
 
 // ParseDiffOptions configures a report-only re-parse comparison.
 type ParseDiffOptions struct {
-	// Agents restricts the run; empty means every file-based agent with
-	// a DiscoverFunc. Agents without an on-disk source to re-parse
-	// (database-backed or import-only) are rejected with an error.
+	// Agents restricts the run; empty means every provider-discoverable
+	// source. Agents without provider source discovery are rejected with an
+	// error.
 	Agents []parser.AgentType
 	// Limit caps the number of source files parsed, newest mtime first
 	// across all agents. 0 means no limit.
@@ -78,6 +78,9 @@ func (e *Engine) ParseDiff(ctx context.Context, opts ParseDiffOptions) (*ParseDi
 	}
 	for _, def := range resolved {
 		if providerDiscovered[def.Type] {
+			continue
+		}
+		if def.DiscoverFunc == nil {
 			continue
 		}
 		for _, d := range e.agentDirs[def.Type] {
@@ -260,9 +263,9 @@ func (e *Engine) parseDiffProviderSources(
 }
 
 // resolveParseDiffAgents validates the requested agent set against
-// the registry and returns the matching defs in registry order. Only
-// file-based agents with a DiscoverFunc have an on-disk source to
-// re-parse.
+// the registry and returns the matching defs in registry order. Provider source
+// discovery defines the parse-diff surface so DB-backed virtual sources stay
+// aligned with normal sync.
 func resolveParseDiffAgents(
 	requested []parser.AgentType,
 ) ([]parser.AgentDef, error) {
@@ -270,7 +273,7 @@ func resolveParseDiffAgents(
 	allowedSet := make(map[parser.AgentType]bool)
 	var names []string
 	for _, def := range parser.Registry {
-		if def.FileBased && def.DiscoverFunc != nil {
+		if parser.ProviderSupportsSourceDiscovery(def.Type) {
 			allowed = append(allowed, def)
 			allowedSet[def.Type] = true
 			names = append(names, string(def.Type))

@@ -159,6 +159,15 @@ func TestProviderRegistryHasNoLegacyFallback(t *testing.T) {
 	}
 }
 
+func TestProviderSupportsSourceDiscovery(t *testing.T) {
+	for _, agent := range []AgentType{AgentClaude, AgentForge, AgentWarp} {
+		assert.True(t, ProviderSupportsSourceDiscovery(agent), agent)
+	}
+	for _, agent := range []AgentType{AgentClaudeAI, AgentChatGPT, "missing"} {
+		assert.False(t, ProviderSupportsSourceDiscovery(agent), agent)
+	}
+}
+
 func TestProviderFactoryForDefPanicsForUnhandledAgent(t *testing.T) {
 	assert.PanicsWithValue(t,
 		"missing provider factory for unhandled-test-agent",

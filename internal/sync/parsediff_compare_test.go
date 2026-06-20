@@ -1721,6 +1721,31 @@ func TestParseDiffCollectFileAttributesVirtualJobErrorToExactPath(
 	assert.False(t, visited[good.ID])
 }
 
+func TestResolveParseDiffAgentsUsesProviderDiscoverySupport(t *testing.T) {
+	resolved, err := resolveParseDiffAgents([]parser.AgentType{
+		parser.AgentForge,
+	})
+	require.NoError(t, err)
+	if assert.Len(t, resolved, 1) {
+		assert.Equal(t, parser.AgentForge, resolved[0].Type)
+	}
+
+	resolved, err = resolveParseDiffAgents(nil)
+	require.NoError(t, err)
+	var foundForge bool
+	for _, def := range resolved {
+		if def.Type == parser.AgentForge {
+			foundForge = true
+		}
+		assert.NotEqual(t, parser.AgentChatGPT, def.Type)
+	}
+	assert.True(t, foundForge)
+
+	_, err = resolveParseDiffAgents([]parser.AgentType{parser.AgentChatGPT})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no on-disk source to re-parse")
+}
+
 func TestParseDiffReportHasFailures(t *testing.T) {
 	tests := []struct {
 		name   string
