@@ -4706,6 +4706,12 @@ func (e *Engine) processProviderFile(
 	if !found {
 		return processResult{}, false
 	}
+	file, source, err = e.preferProviderDuplicateSource(
+		ctx, provider, file, source,
+	)
+	if err != nil {
+		return processResult{err: err}, true
+	}
 
 	fingerprint, err := provider.Fingerprint(ctx, source)
 	if err != nil {
@@ -5123,6 +5129,64 @@ func (e *Engine) providerSourceForDiscoveredFile(
 		file.Agent,
 		file.Path,
 	)
+}
+
+func (e *Engine) preferProviderDuplicateSource(
+	ctx context.Context,
+	provider parser.Provider,
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+) (parser.DiscoveredFile, parser.SourceRef, error) {
+	if file.Agent != parser.AgentClaude {
+		return file, source, nil
+	}
+	sessionID := claudeSessionIDFromPath(providerDiscoveredPath(source))
+	if sessionID == "" {
+		sessionID = claudeSessionIDFromPath(file.Path)
+	}
+	if sessionID == "" {
+		return file, source, nil
+	}
+	fullID := e.idPrefix + sessionID
+	storedPath := e.db.GetSessionFilePath(fullID)
+	if storedPath == "" || e.effectiveSourcePath(file.Path) != storedPath {
+		return file, source, nil
+	}
+	discovered, err := provider.Discover(ctx)
+	if err != nil {
+		return file, source, err
+	}
+	candidates := make([]parser.DiscoveredFile, 0, len(discovered))
+	sourcesByPath := make(map[string]parser.SourceRef, len(discovered))
+	for _, candidate := range discovered {
+		if candidate.Provider == "" {
+			candidate.Provider = file.Agent
+		}
+		path := providerDiscoveredPath(candidate)
+		if path == "" || claudeSessionIDFromPath(path) != sessionID {
+			continue
+		}
+		candidates = append(candidates, parser.DiscoveredFile{
+			Path:  path,
+			Agent: file.Agent,
+		})
+		sourcesByPath[path] = candidate
+	}
+	if len(candidates) < 2 {
+		return file, source, nil
+	}
+	chosen := e.pickPreferredClaudeDiscoveredFile(sessionID, candidates)
+	chosenSource, ok := sourcesByPath[chosen.Path]
+	if !ok || chosen.Path == file.Path {
+		return file, source, nil
+	}
+	file.Path = chosen.Path
+	if file.Project == "" {
+		file.Project = chosenSource.ProjectHint
+	}
+	sourceCopy := chosenSource
+	file.ProviderSource = &sourceCopy
+	return file, chosenSource, nil
 }
 
 func providerProcessCacheKey(

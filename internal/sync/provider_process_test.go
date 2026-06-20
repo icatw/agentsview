@@ -99,6 +99,77 @@ func TestProcessFileProviderAuthoritativeHonorsDiscoveredProject(t *testing.T) {
 	assert.Equal(t, "stored_project", res.results[0].Session.Project)
 }
 
+func TestProcessFileProviderAuthoritativeClaudeDuplicatePrefersAppendProgress(t *testing.T) {
+	archiveRoot := t.TempDir()
+	liveRoot := t.TempDir()
+	sessionID := "provider-duplicate-preferred"
+	archivePath := writeProcessProviderClaudeSession(
+		t, archiveRoot, sessionID,
+	)
+	livePath := writeProcessProviderClaudeSession(
+		t, liveRoot, sessionID,
+	)
+
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {archiveRoot, liveRoot},
+		},
+		Machine: "devbox",
+	})
+
+	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  archivePath,
+		Agent: parser.AgentClaude,
+	})
+	require.NoError(t, initial.err)
+	require.Len(t, initial.results, 1)
+	written, _, failed := engine.writeBatch(
+		[]pendingWrite{{
+			sess: initial.results[0].Session,
+			msgs: initial.results[0].Messages,
+		}},
+		syncWriteDefault,
+		false,
+	)
+	require.Equal(t, 0, failed)
+	require.Equal(t, 1, written)
+
+	f, err := os.OpenFile(livePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.WriteString(testjsonl.ClaudeAssistantJSON(
+		"live follow-up",
+		"2026-06-01T10:02:00Z",
+	) + "\n")
+	require.NoError(t, f.Close())
+	require.NoError(t, err)
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{archiveRoot, liveRoot},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	archiveSource, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		StoredFilePath: archivePath,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            archivePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &archiveSource,
+		ProviderProcess: true,
+	})
+
+	require.NoError(t, res.err)
+	require.Len(t, res.results, 1)
+	assert.False(t, res.skip)
+	assert.Equal(t, livePath, res.results[0].Session.File.Path)
+	assert.Len(t, res.results[0].Messages, 3)
+	assert.Equal(t, "live follow-up", res.results[0].Messages[2].Content)
+}
+
 func TestProcessFileProviderAuthoritativeUsesIncrementalParse(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-incremental"
