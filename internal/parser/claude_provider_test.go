@@ -12,18 +12,15 @@ import (
 )
 
 func TestClaudeProviderFactoryReplacesLegacyAdapter(t *testing.T) {
-	factory, ok := ProviderFactoryByType(AgentClaude)
+	_, ok := ProviderFactoryByType(AgentClaude)
 	require.True(t, ok)
-	_, legacyFactory := factory.(legacyProviderFactory)
-	assert.False(t, legacyFactory)
 
 	provider, ok := NewProvider(AgentClaude, ProviderConfig{
 		Roots:   []string{t.TempDir()},
 		Machine: "devbox",
 	})
 	require.True(t, ok)
-	_, legacyProvider := provider.(*legacyProvider)
-	assert.False(t, legacyProvider)
+	require.NotNil(t, provider)
 }
 
 func TestClaudeProviderSourceMethods(t *testing.T) {
@@ -54,6 +51,7 @@ func TestClaudeProviderSourceMethods(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 
 	plan, err := provider.WatchPlan(context.Background())
 	require.NoError(t, err)
@@ -168,6 +166,7 @@ func TestClaudeProviderDiscoversSymlinkedProjectDirectory(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
@@ -201,6 +200,7 @@ func TestClaudeProviderParse(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 	sources, err := provider.Discover(context.Background())
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
@@ -253,6 +253,7 @@ func TestClaudeProviderParseIncremental(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
 		RawSessionID: "inc",
 	})

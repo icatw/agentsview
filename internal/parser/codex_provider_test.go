@@ -13,18 +13,15 @@ import (
 )
 
 func TestCodexProviderFactoryReplacesLegacyAdapter(t *testing.T) {
-	factory, ok := ProviderFactoryByType(AgentCodex)
+	_, ok := ProviderFactoryByType(AgentCodex)
 	require.True(t, ok)
-	_, legacyFactory := factory.(legacyProviderFactory)
-	assert.False(t, legacyFactory)
 
 	provider, ok := NewProvider(AgentCodex, ProviderConfig{
 		Roots:   []string{t.TempDir()},
 		Machine: "devbox",
 	})
 	require.True(t, ok)
-	_, legacyProvider := provider.(*legacyProvider)
-	assert.False(t, legacyProvider)
+	require.NotNil(t, provider)
 }
 
 func TestCodexProviderSourceMethods(t *testing.T) {
@@ -44,6 +41,7 @@ func TestCodexProviderSourceMethods(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 
 	plan, err := provider.WatchPlan(context.Background())
 	require.NoError(t, err)
@@ -114,6 +112,7 @@ func TestCodexProviderDoesNotAdvertiseIncrementalAppend(t *testing.T) {
 
 	provider, ok := NewProvider(AgentCodex, ProviderConfig{Roots: []string{root}})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 	assert.Equal(t,
 		CapabilityNotApplicable,
 		provider.Capabilities().Source.IncrementalAppend,

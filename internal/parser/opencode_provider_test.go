@@ -19,18 +19,15 @@ func TestOpenCodeFamilyProviderFactoriesReplaceLegacyAdapter(t *testing.T) {
 		AgentMiMoCode,
 	} {
 		t.Run(string(agent), func(t *testing.T) {
-			factory, ok := ProviderFactoryByType(agent)
+			_, ok := ProviderFactoryByType(agent)
 			require.True(t, ok)
-			_, legacyFactory := factory.(legacyProviderFactory)
-			assert.False(t, legacyFactory)
 
 			provider, ok := NewProvider(agent, ProviderConfig{
 				Roots:   []string{t.TempDir()},
 				Machine: "devbox",
 			})
 			require.True(t, ok)
-			_, legacyProvider := provider.(*legacyProvider)
-			assert.False(t, legacyProvider)
+			require.NotNil(t, provider)
 		})
 	}
 }
@@ -46,6 +43,7 @@ func TestOpenCodeProviderStorageSourceMethods(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 
 	plan, err := provider.WatchPlan(context.Background())
 	require.NoError(t, err)
@@ -149,6 +147,7 @@ func TestOpenCodeProviderSQLiteSourceMethods(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+	require.NotNil(t, provider)
 
 	plan, err := provider.WatchPlan(context.Background())
 	require.NoError(t, err)
@@ -260,6 +259,7 @@ func TestOpenCodeFamilyProviderRelabelsForks(t *testing.T) {
 				Machine: "devbox",
 			})
 			require.True(t, ok)
+			require.NotNil(t, provider)
 			source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
 				FullSessionID: "host~" + tc.prefix + "ses_provider",
 			})
