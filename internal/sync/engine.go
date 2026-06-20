@@ -4560,11 +4560,7 @@ func (e *Engine) observeProviderShadow(
 		Roots:   e.agentDirs[file.Agent],
 		Machine: e.machine,
 	})
-	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
-		StoredFilePath:     file.Path,
-		FingerprintKey:     file.Path,
-		RequireFreshSource: !e.forceParse,
-	})
+	source, found, err := e.providerSourceForDiscoveredFile(ctx, provider, file)
 	comparison.Err = err
 	if err == nil && found {
 		comparison.Source = source
@@ -4574,7 +4570,7 @@ func (e *Engine) observeProviderShadow(
 			ProviderObserveRequest{
 				Source:     source,
 				Machine:    e.machine,
-				ForceParse: e.forceParse,
+				ForceParse: e.forceParse || file.ForceParse,
 			},
 		)
 		if comparison.Err == nil {
