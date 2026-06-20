@@ -401,6 +401,13 @@ func (j syncJob) skipCacheKey() string {
 	return j.path
 }
 
+func (r processResult) skipCacheKey(path string) string {
+	if r.cacheKey != "" {
+		return r.cacheKey
+	}
+	return path
+}
+
 // SyncPaths syncs only the specified changed file paths
 // instead of discovering and hashing all session files.
 // Paths that don't match known session file patterns are
@@ -3777,7 +3784,7 @@ func (e *Engine) collectAndBatch(
 			continue
 		}
 		if r.skip {
-			if r.cacheSkip && r.mtime != 0 {
+			if r.cacheSkip && r.mtime != 0 && !r.noCacheSkip {
 				e.cacheSkip(r.skipCacheKey(), r.mtime)
 			}
 			stats.RecordSkip()
@@ -3808,7 +3815,7 @@ func (e *Engine) collectAndBatch(
 				stats.filesOK++
 				stats.parserExcludedFiles++
 			}
-			if r.cacheSkip {
+			if r.cacheSkip && !r.noCacheSkip {
 				e.cacheSkip(r.skipCacheKey(), r.mtime)
 			}
 			progress.SessionsDone++
@@ -3954,6 +3961,9 @@ type processResult struct {
 	// retrySessionIDs carries provider per-result data-version state.
 	// Legacy parsers use needsRetry as a source-wide fallback.
 	retrySessionIDs map[string]bool
+	// suppressPresenceSweep marks an incomplete source result where
+	// missing stored sessions are expected rather than parser drift.
+	suppressPresenceSweep bool
 }
 
 func (r processResult) needsRetryForSession(sessionID string) bool {
@@ -3963,11 +3973,8 @@ func (r processResult) needsRetryForSession(sessionID string) bool {
 	return r.needsRetry
 }
 
-func (r processResult) hasRetryResults() bool {
-	if r.retrySessionIDs != nil {
-		return len(r.retrySessionIDs) > 0
-	}
-	return r.needsRetry
+func (r processResult) suppressesPresenceSweepForRetry() bool {
+	return r.retrySessionIDs == nil && r.needsRetry
 }
 
 func (e *Engine) processFile(
@@ -4040,7 +4047,7 @@ func (e *Engine) processFile(
 	// migrateLegacyCodexExecSkips, so this check can treat
 	// the skip cache as authoritative without per-file
 	// re-validation.
-	if cacheSkip && !e.forceParse { // parse-diff: ignore the skip cache
+	if cacheSkip && !e.forceParse && !file.ForceParse { // parse-diff: ignore the skip cache
 		e.skipMu.RLock()
 		cachedMtime, cached := e.skipCache[file.Path]
 		e.skipMu.RUnlock()
@@ -4201,10 +4208,11 @@ func (e *Engine) processProviderFile(
 	})
 	if err != nil {
 		return processResult{
-			err:       err,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: cacheSkip,
-			cacheKey:  cacheKey,
+			err:         err,
+			mtime:       fingerprint.MTimeNS,
+			cacheSkip:   cacheSkip,
+			cacheKey:    cacheKey,
+			noCacheSkip: true,
 		}, true
 	}
 	if err := validateProviderOutcome(
@@ -4214,28 +4222,33 @@ func (e *Engine) processProviderFile(
 		outcome,
 	); err != nil {
 		return processResult{
-			err:       err,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: cacheSkip,
-			cacheKey:  cacheKey,
+			err:         err,
+			mtime:       fingerprint.MTimeNS,
+			cacheSkip:   cacheSkip,
+			cacheKey:    cacheKey,
+			noCacheSkip: true,
 		}, true
 	}
+	cleanCache := providerOutcomeAllowsCleanSkipCache(outcome)
 	if outcome.SkipReason != parser.SkipNone {
 		return processResult{
-			skip:      true,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: cacheSkip,
-			cacheKey:  cacheKey,
+			skip:        true,
+			mtime:       fingerprint.MTimeNS,
+			cacheSkip:   cacheSkip,
+			cacheKey:    cacheKey,
+			noCacheSkip: !cleanCache,
 		}, true
 	}
 
 	res := processResult{
-		results:            parseOutcomeResults(outcome.Results),
-		excludedSessionIDs: append([]string(nil), outcome.ExcludedSessionIDs...),
-		mtime:              fingerprint.MTimeNS,
-		cacheSkip:          cacheSkip,
-		cacheKey:           cacheKey,
-		forceReplace:       outcome.ForceReplace,
+		results:               parseOutcomeResults(outcome.Results),
+		excludedSessionIDs:    append([]string(nil), outcome.ExcludedSessionIDs...),
+		mtime:                 fingerprint.MTimeNS,
+		cacheSkip:             cacheSkip,
+		cacheKey:              cacheKey,
+		noCacheSkip:           !cleanCache,
+		forceReplace:          outcome.ForceReplace,
+		suppressPresenceSweep: !outcome.ResultSetComplete,
 	}
 	for _, result := range outcome.Results {
 		if result.DataVersion == parser.DataVersionNeedsRetry {
@@ -4255,6 +4268,21 @@ func (e *Engine) processProviderFile(
 		}
 	}
 	return res, true
+}
+
+func providerOutcomeAllowsCleanSkipCache(outcome parser.ParseOutcome) bool {
+	if !outcome.ResultSetComplete {
+		return false
+	}
+	if len(outcome.SourceErrors) > 0 {
+		return false
+	}
+	for _, result := range outcome.Results {
+		if result.DataVersion == parser.DataVersionNeedsRetry {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Engine) providerSourceForDiscoveredFile(
@@ -8656,8 +8684,9 @@ func (e *Engine) SyncSingleSessionContext(
 	// the file, even if it was cached as non-interactive
 	// during a bulk SyncAll.
 	file := parser.DiscoveredFile{
-		Path:  path,
-		Agent: agent,
+		Path:       path,
+		Agent:      agent,
+		ForceParse: true,
 	}
 	if e.shouldCacheSkip(file) {
 		e.clearSkip(path)
@@ -8794,12 +8823,15 @@ func (e *Engine) SyncSingleSessionContext(
 	res := e.processFile(ctx, file)
 	if res.err != nil {
 		if res.cacheSkip && res.mtime != 0 && !res.noCacheSkip {
-			e.cacheSkip(path, res.mtime)
+			e.cacheSkip(res.skipCacheKey(path), res.mtime)
 		}
 		return res.err
 	}
 	if res.skip {
 		return nil
+	}
+	if res.cacheSkip {
+		e.clearSkip(res.skipCacheKey(path))
 	}
 
 	// Delete parser-excluded sessions before writing the parsed

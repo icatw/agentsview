@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/agentsview/internal/db"
 	"go.kenn.io/agentsview/internal/dbtest"
 	"go.kenn.io/agentsview/internal/parser"
 	"go.kenn.io/agentsview/internal/testjsonl"
@@ -324,6 +326,228 @@ func TestProcessFileProviderAuthoritativeKeepsRetryStatePerResult(t *testing.T) 
 	require.Len(t, result.results, 2)
 	assert.False(t, result.needsRetryForSession("provider-current"))
 	assert.True(t, result.needsRetryForSession("provider-retry"))
+}
+
+func TestProcessFileProviderAuthoritativeSuppressesUncleanSkipCache(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "unclean-provider-owned.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	source := parser.SourceRef{
+		Provider:       parser.AgentClaude,
+		Key:            sourcePath,
+		DisplayPath:    sourcePath,
+		FingerprintKey: sourcePath + "#source-key",
+	}
+	makeEngine := func(outcome parser.ParseOutcome, parseErr error) *Engine {
+		t.Helper()
+		provider := &shadowCallerProvider{
+			shadowTestProvider: shadowTestProvider{
+				ProviderBase: parser.ProviderBase{
+					Def: parser.AgentDef{
+						Type:        parser.AgentClaude,
+						DisplayName: "Claude Code",
+					},
+				},
+				fingerprint: parser.SourceFingerprint{
+					Key:     sourcePath + "#fingerprint",
+					Size:    info.Size(),
+					MTimeNS: info.ModTime().UnixNano(),
+				},
+				outcome:  outcome,
+				parseErr: parseErr,
+			},
+			source: source,
+		}
+		return NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+			AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+			Machine:   "devbox",
+			ProviderFactories: []parser.ProviderFactory{
+				shadowCallerFactory{provider: provider},
+			},
+			ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+				parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+			},
+		})
+	}
+
+	tests := []struct {
+		name     string
+		outcome  parser.ParseOutcome
+		parseErr error
+		wantErr  bool
+	}{
+		{
+			name:    "whole source parse error",
+			wantErr: true,
+			parseErr: errors.New(
+				"provider source failed",
+			),
+		},
+		{
+			name: "incomplete empty result set",
+			outcome: parser.ParseOutcome{
+				ResultSetComplete: false,
+			},
+		},
+		{
+			name: "source error",
+			outcome: parser.ParseOutcome{
+				ResultSetComplete: true,
+				SourceErrors: []parser.SourceError{{
+					SourceKey: sourcePath,
+					Err:       errors.New("session failed"),
+				}},
+			},
+		},
+		{
+			name: "retry result",
+			outcome: parser.ParseOutcome{
+				ResultSetComplete: true,
+				Results: []parser.ParseResultOutcome{{
+					Result: parser.ParseResult{Session: parser.ParsedSession{
+						ID: "provider-retry", Agent: parser.AgentClaude,
+					}},
+					DataVersion: parser.DataVersionNeedsRetry,
+				}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := makeEngine(tt.outcome, tt.parseErr)
+
+			result := engine.processFile(context.Background(), parser.DiscoveredFile{
+				Path:  sourcePath,
+				Agent: parser.AgentClaude,
+			})
+
+			if tt.wantErr {
+				require.Error(t, result.err)
+			} else {
+				require.NoError(t, result.err)
+			}
+			assert.True(t, result.cacheSkip)
+			assert.True(t, result.noCacheSkip)
+
+			stats := engine.collectAndBatch(
+				context.Background(),
+				singleSyncJob(syncJob{processResult: result, path: sourcePath}),
+				1,
+				1,
+				nil,
+				syncWriteDefault,
+			)
+			if tt.wantErr {
+				assert.Equal(t, 1, stats.Failed)
+			}
+			cache := engine.SnapshotSkipCache()
+			assert.NotContains(t, cache, sourcePath+"#source-key")
+			assert.NotContains(t, cache, sourcePath)
+		})
+	}
+}
+
+func TestSyncSingleSessionProviderAuthoritativeBypassesProviderSkipCache(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "single-provider-owned.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	sourceKey := sourcePath + "#source-key"
+	providerResult := parser.ParseResult{
+		Session: parser.ParsedSession{
+			ID:           "provider-owned",
+			Project:      "provider-project",
+			Agent:        parser.AgentClaude,
+			Machine:      "devbox",
+			StartedAt:    info.ModTime(),
+			EndedAt:      info.ModTime(),
+			MessageCount: 1,
+			File: parser.FileInfo{
+				Path:  sourcePath,
+				Mtime: info.ModTime().UnixNano(),
+			},
+		},
+		Messages: []parser.ParsedMessage{{
+			Role:      parser.RoleUser,
+			Content:   "explicit provider resync",
+			Timestamp: info.ModTime(),
+			Ordinal:   0,
+		}},
+	}
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+			fingerprint: parser.SourceFingerprint{
+				Key:     sourcePath + "#fingerprint",
+				Size:    info.Size(),
+				MTimeNS: info.ModTime().UnixNano(),
+			},
+			outcome: parser.ParseOutcome{
+				Results: []parser.ParseResultOutcome{{
+					Result:      providerResult,
+					DataVersion: parser.DataVersionCurrent,
+				}},
+				ResultSetComplete: true,
+			},
+		},
+		source: parser.SourceRef{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourceKey,
+			ProjectHint:    "provider-project",
+		},
+	}
+	database := dbtest.OpenTestDB(t)
+	filePath := sourcePath
+	fileSize := info.Size()
+	fileMtime := info.ModTime().UnixNano()
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:        "provider-owned",
+		Project:   "old-project",
+		Machine:   "devbox",
+		Agent:     string(parser.AgentClaude),
+		FilePath:  &filePath,
+		FileSize:  &fileSize,
+		FileMtime: &fileMtime,
+	}))
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+	engine.InjectSkipCache(map[string]int64{
+		sourceKey: info.ModTime().UnixNano(),
+	})
+
+	require.NoError(t, engine.SyncSingleSession("provider-owned"))
+
+	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
+	assert.True(t, provider.parseRequest.ForceParse)
+	cache := engine.SnapshotSkipCache()
+	assert.NotContains(t, cache, sourceKey)
+}
+
+func singleSyncJob(job syncJob) <-chan syncJob {
+	results := make(chan syncJob, 1)
+	results <- job
+	close(results)
+	return results
 }
 
 func TestProcessFileProviderAuthoritativeForceParseAllowsStaleSourceLookup(t *testing.T) {

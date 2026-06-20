@@ -553,9 +553,12 @@ func (e *Engine) parseDiffCollectFile(
 		report.Totals.ExcludedByParser++
 	}
 
-	// needsRetry output is transient and low fidelity; missing
-	// sessions there are expected, not parser drift.
-	if !job.hasRetryResults() {
+	// Legacy source-wide needsRetry output and incomplete provider
+	// result sets are transient and low fidelity; missing sessions
+	// there are expected, not parser drift. Provider per-session
+	// retry state is handled above and should not hide unrelated
+	// missing sessions from the same complete source.
+	if !job.suppressesPresenceSweepForRetry() && !job.suppressPresenceSweep {
 		*presencePaths = append(*presencePaths, base)
 	}
 	return nil
