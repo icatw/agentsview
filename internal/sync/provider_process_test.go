@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.kenn.io/agentsview/internal/db"
 	"go.kenn.io/agentsview/internal/dbtest"
 	"go.kenn.io/agentsview/internal/parser"
 	"go.kenn.io/agentsview/internal/testjsonl"
@@ -168,6 +169,73 @@ func TestProcessFileProviderAuthoritativeClaudeDuplicatePrefersAppendProgress(t 
 	assert.Equal(t, livePath, res.results[0].Session.File.Path)
 	assert.Len(t, res.results[0].Messages, 3)
 	assert.Equal(t, "live follow-up", res.results[0].Messages[2].Content)
+}
+
+func TestProcessFileProviderAuthoritativeClaudeExcludedIDsDeletePrefixedRows(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-excluded-usage"
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", sessionID+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.ClaudeUserJSON(
+			"/usage",
+			"2026-06-01T10:00:00Z",
+			"/Users/dev/code/demo",
+		)+"\n"),
+		0o644,
+	))
+
+	database := dbtest.OpenTestDB(t)
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:      "host~" + sessionID,
+		Project: "stale",
+		Machine: "host",
+		Agent:   string(parser.AgentClaude),
+	}))
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		IDPrefix: "host~",
+		Machine:  "devbox",
+	})
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		StoredFilePath: sourcePath,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
+	})
+	require.NoError(t, res.err)
+	assert.Empty(t, res.results)
+	assert.Equal(t, []string{sessionID}, res.excludedSessionIDs)
+
+	results := make(chan syncJob, 1)
+	results <- syncJob{
+		processResult: res,
+		path:          sourcePath,
+	}
+	close(results)
+	stats := engine.collectAndBatch(context.Background(), results, 1, 1, nil, syncWriteDefault)
+
+	assert.Equal(t, []string{"host~" + sessionID}, stats.parserExcludedIDs)
+	assert.Equal(t, 1, stats.filesOK)
+	assert.Equal(t, 1, stats.parserExcludedFiles)
+	got, err := database.GetSession(context.Background(), "host~"+sessionID)
+	require.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 func TestProcessFileProviderAuthoritativeUsesIncrementalParse(t *testing.T) {
