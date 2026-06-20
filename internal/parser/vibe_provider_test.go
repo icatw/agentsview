@@ -34,6 +34,8 @@ func TestVibeProviderSourceMethods(t *testing.T) {
 	writeSourceFile(t, metaPath, vibeProviderMetaFixture("uuid-1234", "Provider title"))
 	writeSourceFile(t, filepath.Join(root, "scratch", "messages.jsonl"), "{}\n")
 	writeSourceFile(t, filepath.Join(root, "session_missing_messages", "meta.json"), "{}\n")
+	nestedPath := filepath.Join(root, "nested", "session_20260613_123456_nested", "messages.jsonl")
+	writeSourceFile(t, nestedPath, vibeProviderMessagesFixture("nested"))
 
 	provider, ok := NewProvider(AgentVibe, ProviderConfig{
 		Roots:   []string{root},
@@ -131,6 +133,23 @@ func TestVibeProviderSourceMethods(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Empty(t, ignored)
+
+	nested, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: nestedPath, EventKind: "write", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, nested)
+
+	require.NoError(t, os.Remove(messagesPath))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: messagesPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, messagesPath, changed[0].DisplayPath)
+	assert.Equal(t, sessionDir, changed[0].ProjectHint)
 
 	wrongRoot, err := provider.SourcesForChangedPath(
 		context.Background(),

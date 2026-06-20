@@ -177,14 +177,22 @@ func (s vibeSourceSet) SourcesForChangedPath(
 		if !s.hasRoot(root) {
 			return nil, nil
 		}
-		source, ok := s.sourceForEventPath(root, req.Path)
+		source, ok := s.sourceForEventPath(
+			root,
+			req.Path,
+			jsonlMissingPathFallbackAllowed(req),
+		)
 		if !ok {
 			return nil, nil
 		}
 		return []SourceRef{source}, nil
 	}
 	for _, root := range s.roots {
-		source, ok := s.sourceForEventPath(root, req.Path)
+		source, ok := s.sourceForEventPath(
+			root,
+			req.Path,
+			jsonlMissingPathFallbackAllowed(req),
+		)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -285,14 +293,18 @@ func (s vibeSourceSet) pathFromSource(source SourceRef) (string, bool) {
 
 func (s vibeSourceSet) sourceForPath(path string) (SourceRef, bool) {
 	for _, root := range s.roots {
-		if source, ok := s.sourceForEventPath(root, path); ok {
+		if source, ok := s.sourceForEventPath(root, path, false); ok {
 			return source, true
 		}
 	}
 	return SourceRef{}, false
 }
 
-func (s vibeSourceSet) sourceForEventPath(root, path string) (SourceRef, bool) {
+func (s vibeSourceSet) sourceForEventPath(
+	root,
+	path string,
+	allowMissing bool,
+) (SourceRef, bool) {
 	rel, ok := vibeRelPath(root, path)
 	if !ok {
 		return SourceRef{}, false
@@ -301,11 +313,18 @@ func (s vibeSourceSet) sourceForEventPath(root, path string) (SourceRef, bool) {
 	if len(parts) != 2 || !isVibeSessionDirName(parts[0]) {
 		return SourceRef{}, false
 	}
+	messagesPath := filepath.Join(filepath.Clean(root), parts[0], "messages.jsonl")
 	switch parts[1] {
 	case "messages.jsonl":
-		return s.sourceRef(root, filepath.Join(filepath.Clean(root), parts[0], "messages.jsonl"))
+		if allowMissing {
+			return vibeSourceRefFromSessionDir(root, parts[0], messagesPath)
+		}
+		return s.sourceRef(root, messagesPath)
 	case "meta.json":
-		return s.sourceRef(root, filepath.Join(filepath.Clean(root), parts[0], "messages.jsonl"))
+		if allowMissing && !isVibeMessagesFile(messagesPath) {
+			return vibeSourceRefFromSessionDir(root, parts[0], messagesPath)
+		}
+		return s.sourceRef(root, messagesPath)
 	default:
 		return SourceRef{}, false
 	}
@@ -325,12 +344,19 @@ func (s vibeSourceSet) sourceRef(root, path string) (SourceRef, bool) {
 	if len(parts) != 2 || !isVibeSessionDirName(parts[0]) || parts[1] != "messages.jsonl" {
 		return SourceRef{}, false
 	}
+	return vibeSourceRefFromSessionDir(root, parts[0], path)
+}
+
+func vibeSourceRefFromSessionDir(root, sessionDir, path string) (SourceRef, bool) {
+	if !isVibeSessionDirName(sessionDir) {
+		return SourceRef{}, false
+	}
 	return SourceRef{
 		Provider:       AgentVibe,
 		Key:            path,
 		DisplayPath:    path,
 		FingerprintKey: path,
-		ProjectHint:    parts[0],
+		ProjectHint:    sessionDir,
 		Opaque: vibeSource{
 			Root: root,
 			Path: path,
