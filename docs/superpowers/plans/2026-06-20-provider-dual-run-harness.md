@@ -229,14 +229,14 @@ Expected: PASS.
 
 **Files:**
 
-Add or modify these in a later sync migration branch, not this root harness
-branch. They are included here to preserve ordering, but they are not part of
-the root harness execution checklist.
+The root harness branch wires `processFile` full-sync shadow comparison. The
+remaining caller families below stay as later sync migration work so provider
+branches can still review one behavior group at a time.
 
-**Step 1: Wire production callers into shadow comparison**
+**Step 1: Wire remaining source-processing callers into shadow comparison**
 
-Move full sync, changed-path sync, and `SyncSingleSession` into a caller-level
-dual-run wrapper. The wrapper must read the migration manifest, run legacy
+Move changed-path sync and `SyncSingleSession` into the caller-level dual-run
+wrapper. The wrapper must read the migration manifest, run legacy
 authoritatively, run provider observation for `shadow-compare` agents, compare
 parsed output and planned effects, and leave live DB/diagnostic/SSE state driven
 only by the legacy result.

@@ -34,10 +34,13 @@ type ProviderObservation struct {
 // remains authoritative; this value records the side-effect-free provider
 // observation and any differences from the legacy processResult.
 type ProviderShadowComparison struct {
-	File        parser.DiscoveredFile
-	Observation ProviderObservation
-	Mismatches  []string
-	Err         error
+	File                parser.DiscoveredFile
+	Mode                parser.ProviderMigrationMode
+	Source              parser.SourceRef
+	Observation         ProviderObservation
+	Mismatches          []string
+	NotComparableReason string
+	Err                 error
 }
 
 // ProviderPlannedEffects describes writes the provider path would have made.
@@ -137,6 +140,7 @@ func ObserveProviderSource(
 func compareProviderObservationToProcessResult(
 	observation ProviderObservation,
 	legacy processResult,
+	file parser.DiscoveredFile,
 ) []string {
 	var mismatches []string
 	if len(observation.Results) != len(legacy.results) {
@@ -169,7 +173,7 @@ func compareProviderObservationToProcessResult(
 	}
 	if !slices.Equal(observation.ExcludedSessionIDs, legacy.excludedSessionIDs) {
 		mismatches = append(mismatches, fmt.Sprintf(
-			"excluded session ids: provider=%v legacy=%v",
+			"excluded_session_ids: provider=%v legacy=%v",
 			observation.ExcludedSessionIDs, legacy.excludedSessionIDs,
 		))
 	}
@@ -177,17 +181,89 @@ func compareProviderObservationToProcessResult(
 	legacySourceErrors := comparableLegacySourceErrors(legacy.sessionErrs)
 	if !reflect.DeepEqual(providerSourceErrors, legacySourceErrors) {
 		mismatches = append(mismatches, fmt.Sprintf(
-			"source errors differ: provider=%v legacy=%v",
+			"source_errors differ: provider=%v legacy=%v",
 			providerSourceErrors, legacySourceErrors,
+		))
+	}
+	providerPlanned := comparablePlannedEffects(observation.Planned)
+	legacyPlanned := comparablePlannedEffects(
+		legacyPlannedEffectsFromProcessResult(file, legacy),
+	)
+	if !slices.Equal(providerPlanned.SourceKeys, legacyPlanned.SourceKeys) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"planned.source_keys: provider=%v legacy=%v",
+			providerPlanned.SourceKeys, legacyPlanned.SourceKeys,
+		))
+	}
+	if !reflect.DeepEqual(providerPlanned.DataVersions, legacyPlanned.DataVersions) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"planned.data_versions: provider=%v legacy=%v",
+			providerPlanned.DataVersions, legacyPlanned.DataVersions,
+		))
+	}
+	if !slices.Equal(providerPlanned.SkipCacheKeys, legacyPlanned.SkipCacheKeys) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"planned.skip_cache_keys: provider=%v legacy=%v",
+			providerPlanned.SkipCacheKeys, legacyPlanned.SkipCacheKeys,
+		))
+	}
+	if !reflect.DeepEqual(providerPlanned.Diagnostics, legacyPlanned.Diagnostics) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"planned.diagnostics: provider=%v legacy=%v",
+			providerPlanned.Diagnostics, legacyPlanned.Diagnostics,
+		))
+	}
+	if !slices.Equal(providerPlanned.SSEScopes, legacyPlanned.SSEScopes) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"planned.sse_scopes: provider=%v legacy=%v",
+			providerPlanned.SSEScopes, legacyPlanned.SSEScopes,
 		))
 	}
 	if observation.ForceReplace != legacy.forceReplace {
 		mismatches = append(mismatches, fmt.Sprintf(
-			"force replace: provider=%t legacy=%t",
+			"force_replace: provider=%t legacy=%t",
 			observation.ForceReplace, legacy.forceReplace,
 		))
 	}
 	return mismatches
+}
+
+func legacyPlannedEffectsFromProcessResult(
+	file parser.DiscoveredFile,
+	legacy processResult,
+) ProviderPlannedEffects {
+	planned := ProviderPlannedEffects{}
+	for _, result := range legacy.results {
+		if result.Session.File.Path != "" &&
+			!slices.Contains(planned.SourceKeys, result.Session.File.Path) {
+			planned.SourceKeys = append(planned.SourceKeys, result.Session.File.Path)
+		}
+		if result.Session.ID == "" {
+			continue
+		}
+		state := parser.DataVersionCurrent
+		if legacy.needsRetry {
+			state = parser.DataVersionNeedsRetry
+		}
+		planned.DataVersions = append(planned.DataVersions, ProviderPlannedDataVersion{
+			SessionID: result.Session.ID,
+			State:     state,
+		})
+	}
+	if legacy.cacheSkip && legacy.mtime != 0 && !legacy.noCacheSkip &&
+		legacy.incremental == nil && legacy.err == nil && len(legacy.results) == 0 &&
+		file.Path != "" {
+		planned.SkipCacheKeys = append(planned.SkipCacheKeys, file.Path)
+	}
+	for _, sessionErr := range legacy.sessionErrs {
+		planned.Diagnostics = append(planned.Diagnostics, ProviderPlannedDiagnostic{
+			SourceKey:   sessionErr.virtualPath,
+			DisplayPath: sessionErr.virtualPath,
+			SessionID:   sessionErr.sessionID,
+			Err:         sessionErr.err,
+		})
+	}
+	return planned
 }
 
 type comparableSourceError struct {
@@ -229,6 +305,49 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+type comparablePlanned struct {
+	SourceKeys    []string
+	DataVersions  []ProviderPlannedDataVersion
+	SkipCacheKeys []string
+	Diagnostics   []comparablePlannedDiagnostic
+	SSEScopes     []string
+}
+
+type comparablePlannedDiagnostic struct {
+	SourceKey   string
+	DisplayPath string
+	SessionID   string
+	Err         string
+	Retryable   bool
+}
+
+func comparablePlannedEffects(planned ProviderPlannedEffects) comparablePlanned {
+	comparable := comparablePlanned{
+		SourceKeys:    slices.Clone(planned.SourceKeys),
+		DataVersions:  slices.Clone(planned.DataVersions),
+		SkipCacheKeys: slices.Clone(planned.SkipCacheKeys),
+		SSEScopes:     slices.Clone(planned.SSEScopes),
+	}
+	comparable.Diagnostics = make(
+		[]comparablePlannedDiagnostic,
+		0,
+		len(planned.Diagnostics),
+	)
+	for _, diagnostic := range planned.Diagnostics {
+		comparable.Diagnostics = append(
+			comparable.Diagnostics,
+			comparablePlannedDiagnostic{
+				SourceKey:   diagnostic.SourceKey,
+				DisplayPath: diagnostic.DisplayPath,
+				SessionID:   diagnostic.SessionID,
+				Err:         errString(diagnostic.Err),
+				Retryable:   diagnostic.Retryable,
+			},
+		)
+	}
+	return comparable
 }
 
 func validateProviderOutcome(

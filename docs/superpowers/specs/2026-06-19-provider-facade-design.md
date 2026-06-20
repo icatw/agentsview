@@ -1059,8 +1059,9 @@ sequence:
 1. Add the root-level dual-run migration harness before migrating provider
    branches. It must contain the shared provider execution helper, comparison
    normalizer, source-level parity surface, planned-effect comparison model,
-   explicit per-`AgentType` migration manifest, and tests that fail when a
-   concrete parse-capable provider exists without a migration-mode entry.
+   caller-level `processFile` shadow comparison for full sync, explicit
+   per-`AgentType` migration manifest, and tests that fail when a concrete
+   parse-capable provider exists without a migration-mode entry.
 1. Add JSONL source-set helpers and tests for simple file-backed JSONL
    providers.
 1. Use `git-spice` to restack the provider branches on the root harness branch
@@ -1099,13 +1100,14 @@ sequence:
    must cover malformed or obsolete virtual paths, debug-only diagnostics, DB
    row deletion, DB file deletion, and stale hints that belong to a different
    physical DB under the same watch root.
-1. Move source-processing callers into the caller-level dual-run harness: full
-   sync, changed-path sync, and `SyncSingleSession`. During migration these
-   callers compare provider output against legacy for parsed output, skip-cache,
-   data-version, source metadata, diagnostics, excluded IDs, and retry state;
-   only the legacy result writes. Changed-path comparison must populate
-   `StoredSourcePaths` from scoped persisted session metadata and include DB row
-   deletion and DB file deletion integration tests.
+1. Move the remaining source-processing callers into the caller-level dual-run
+   harness: changed-path sync and `SyncSingleSession`. The root harness already
+   shadows `processFile` for full sync. During migration these callers compare
+   provider output against legacy for parsed output, skip-cache, data-version,
+   source metadata, diagnostics, excluded IDs, and retry state; only the legacy
+   result writes. Changed-path comparison must populate `StoredSourcePaths` from
+   scoped persisted session metadata and include DB row deletion and DB file
+   deletion integration tests.
 1. Move lookup/watch callers into the caller-level dual-run harness: session
    watch flows, export/source lookup, source mtime, and token-usage raw source
    probing. During migration these callers compare lookup freshness, virtual

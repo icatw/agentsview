@@ -116,6 +116,7 @@ func TestCompareProviderObservationDetectsSessionMetadataMismatch(t *testing.T) 
 		processResult{
 			results: []parser.ParseResult{legacyResult},
 		},
+		parser.DiscoveredFile{},
 	)
 
 	require.NotEmpty(t, mismatches)
@@ -138,10 +139,44 @@ func TestCompareProviderObservationDetectsSourceErrorContentMismatch(t *testing.
 				err:         errors.New("legacy parse failed"),
 			}},
 		},
+		parser.DiscoveredFile{},
 	)
 
 	require.NotEmpty(t, mismatches)
-	assert.Contains(t, mismatches[0], "source errors")
+	assert.Contains(t, mismatches[0], "source_errors")
+}
+
+func TestCompareProviderObservationDetectsPlannedDataVersionMismatch(t *testing.T) {
+	result := parser.ParseResult{
+		Session: parser.ParsedSession{
+			ID:    "codex:one",
+			Agent: parser.AgentCodex,
+			File: parser.FileInfo{
+				Path: "source.jsonl",
+			},
+		},
+	}
+
+	mismatches := compareProviderObservationToProcessResult(
+		ProviderObservation{
+			Results: []parser.ParseResult{result},
+			Planned: ProviderPlannedEffects{
+				SourceKeys: []string{"source.jsonl"},
+				DataVersions: []ProviderPlannedDataVersion{{
+					SessionID:   "codex:one",
+					State:       parser.DataVersionNeedsRetry,
+					RetryReason: "fallback parser",
+				}},
+			},
+		},
+		processResult{
+			results: []parser.ParseResult{result},
+		},
+		parser.DiscoveredFile{Path: "source.jsonl"},
+	)
+
+	require.NotEmpty(t, mismatches)
+	assert.Contains(t, mismatches[0], "planned.data_versions")
 }
 
 func TestObserveProviderSourceRejectsProviderMismatch(t *testing.T) {

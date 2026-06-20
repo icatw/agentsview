@@ -111,6 +111,70 @@ func TestProcessFileShadowObservesProviderWithoutReplacingLegacy(t *testing.T) {
 	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
 }
 
+func TestProcessFileShadowRecordsCachedSkipAsNotComparable(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-skip.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"already cached",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+		)),
+		0o644,
+	))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		source: parser.SourceRef{
+			Provider: parser.AgentClaude,
+			Key:      sourcePath,
+		},
+	}
+	var comparisons []ProviderShadowComparison
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
+		},
+		ProviderShadowRecorder: func(comparison ProviderShadowComparison) {
+			comparisons = append(comparisons, comparison)
+		},
+	})
+	engine.InjectSkipCache(map[string]int64{
+		sourcePath: info.ModTime().UnixNano(),
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.True(t, result.skip)
+	require.Len(t, comparisons, 1)
+	assert.Equal(t, "legacy skip", comparisons[0].NotComparableReason)
+	assert.Empty(t, comparisons[0].Mismatches)
+	assert.Empty(t, provider.calls)
+}
+
 type shadowCallerProvider struct {
 	shadowTestProvider
 	source parser.SourceRef

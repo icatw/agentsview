@@ -81,8 +81,8 @@ type EngineConfig struct {
 	// authoritative. Nil uses the parser package registry/manifest.
 	ProviderFactories      []parser.ProviderFactory
 	ProviderMigrationModes map[parser.AgentType]parser.ProviderMigrationMode
-	// ProviderShadowRecorder receives shadow observations. Nil logs only
-	// provider errors or mismatches.
+	// ProviderShadowRecorder receives serialized shadow observations.
+	// Nil logs only provider errors or mismatches.
 	ProviderShadowRecorder func(ProviderShadowComparison)
 }
 
@@ -113,6 +113,7 @@ type Engine struct {
 	emitter                Emitter
 	providerFactories      map[parser.AgentType]parser.ProviderFactory
 	providerMigrationModes map[parser.AgentType]parser.ProviderMigrationMode
+	providerShadowMu       gosync.Mutex
 	providerShadowRecorder func(ProviderShadowComparison)
 
 	// forceParse disables every stored-state skip (skip cache,
@@ -4013,11 +4014,13 @@ func (e *Engine) processFile(
 		cachedMtime, cached := e.skipCache[file.Path]
 		e.skipMu.RUnlock()
 		if cached && cachedMtime == mtime {
-			return processResult{
+			res := processResult{
 				skip:      true,
 				mtime:     mtime,
 				cacheSkip: true,
 			}
+			e.observeProviderShadow(ctx, file, res)
+			return res
 		}
 	}
 
@@ -4107,10 +4110,14 @@ func (e *Engine) observeProviderShadow(
 	file parser.DiscoveredFile,
 	legacy processResult,
 ) {
-	if legacy.err != nil || legacy.incremental != nil {
+	mode := e.providerMigrationModes[file.Agent]
+	if mode != parser.ProviderMigrationShadowCompare {
 		return
 	}
-	if e.providerMigrationModes[file.Agent] != parser.ProviderMigrationShadowCompare {
+	comparison := ProviderShadowComparison{File: file, Mode: mode}
+	if reason := providerShadowNotComparableReason(legacy); reason != "" {
+		comparison.NotComparableReason = reason
+		e.recordProviderShadowComparison(comparison)
 		return
 	}
 	factory, ok := e.providerFactories[file.Agent]
@@ -4126,8 +4133,9 @@ func (e *Engine) observeProviderShadow(
 		FingerprintKey:     file.Path,
 		RequireFreshSource: !e.forceParse,
 	})
-	comparison := ProviderShadowComparison{File: file, Err: err}
+	comparison.Err = err
 	if err == nil && found {
+		comparison.Source = source
 		comparison.Observation, comparison.Err = ObserveProviderSource(
 			ctx,
 			provider,
@@ -4141,6 +4149,7 @@ func (e *Engine) observeProviderShadow(
 			comparison.Mismatches = compareProviderObservationToProcessResult(
 				comparison.Observation,
 				legacy,
+				file,
 			)
 		}
 	}
@@ -4154,18 +4163,47 @@ func (e *Engine) observeProviderShadow(
 	e.recordProviderShadowComparison(comparison)
 }
 
+func providerShadowNotComparableReason(legacy processResult) string {
+	switch {
+	case legacy.err != nil:
+		return "legacy error"
+	case legacy.incremental != nil:
+		return "legacy incremental"
+	case legacy.skip:
+		return "legacy skip"
+	default:
+		return ""
+	}
+}
+
 func (e *Engine) recordProviderShadowComparison(
 	comparison ProviderShadowComparison,
 ) {
 	if e.providerShadowRecorder != nil {
+		e.providerShadowMu.Lock()
+		defer e.providerShadowMu.Unlock()
 		e.providerShadowRecorder(comparison)
 		return
 	}
+	if comparison.NotComparableReason != "" {
+		return
+	}
+	sourceKey := comparison.Source.Key
+	if sourceKey == "" {
+		sourceKey = comparison.Source.FingerprintKey
+	}
+	fingerprintKey := comparison.Observation.Fingerprint.Key
+	if fingerprintKey == "" {
+		fingerprintKey = comparison.Source.FingerprintKey
+	}
 	if comparison.Err != nil {
 		log.Printf(
-			"%s provider shadow %s: %v",
+			"%s provider shadow %s mode=%s source=%q fingerprint=%q: %v",
 			comparison.File.Agent,
 			comparison.File.Path,
+			comparison.Mode,
+			sourceKey,
+			fingerprintKey,
 			comparison.Err,
 		)
 		return
@@ -4174,9 +4212,12 @@ func (e *Engine) recordProviderShadowComparison(
 		return
 	}
 	log.Printf(
-		"%s provider shadow %s mismatches: %s",
+		"%s provider shadow %s mode=%s source=%q fingerprint=%q mismatches: %s",
 		comparison.File.Agent,
 		comparison.File.Path,
+		comparison.Mode,
+		sourceKey,
+		fingerprintKey,
 		strings.Join(comparison.Mismatches, "; "),
 	)
 }
