@@ -54,7 +54,7 @@ type DiscoveredFile struct {
 	Path            string
 	Project         string     // pre-extracted project name
 	Agent           AgentType  // which agent this file belongs to
-	ForceParse      bool       // caller requires a full source reparse
+	ForceParse      bool       // bypass stored-state skips for sidecar-driven refreshes
 	ProviderSource  *SourceRef // provider-owned source identity, when known
 	ProviderProcess bool       // true when this caller may parse via ProviderSource
 }

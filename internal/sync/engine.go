@@ -5664,7 +5664,7 @@ func (e *Engine) processCopilot(
 	// the stored mtime stays consistent with what we compare against
 	// on subsequent syncs (preventing oscillation).
 	effectiveMtime := copilotEffectiveMtime(file.Path, info)
-	if e.shouldSkipCopilot(file.Path, info, effectiveMtime) {
+	if !file.ForceParse && e.shouldSkipCopilot(file.Path, info, effectiveMtime) {
 		return processResult{skip: true}
 	}
 
@@ -5745,7 +5745,7 @@ func (e *Engine) processGemini(
 	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
 	// Fast path: skip by file_path + mtime before parsing.
-	if e.shouldSkipByPath(file.Path, info) {
+	if !file.ForceParse && e.shouldSkipByPath(file.Path, info) {
 		return processResult{skip: true}
 	}
 

@@ -2043,6 +2043,58 @@ func TestSyncPathsGeminiJSONL(t *testing.T) {
 	assertSessionMessageCount(t, env.db, "gemini:"+sessionID, 2)
 }
 
+func TestSyncPathsGeminiProjectMetadataEventRefreshesProject(t *testing.T) {
+	env := setupTestEnv(t)
+
+	sessionID := "gem-project-refresh"
+	projectsPath := filepath.Join(env.geminiDir, "projects.json")
+	require.NoError(t, os.WriteFile(
+		projectsPath,
+		[]byte(`{"projects":{"/Users/alice/code/one":"alias"}}`),
+		0o644,
+	), "write projects")
+	path := env.writeGeminiSession(
+		t,
+		filepath.Join(
+			"tmp", "alias", "chats",
+			"session-001.json",
+		),
+		testjsonl.GeminiSessionJSON(
+			sessionID, "alias", tsEarly, tsEarlyS5,
+			[]map[string]any{
+				testjsonl.GeminiUserMsg(
+					"m1", tsEarly, "Hello Gemini",
+				),
+				testjsonl.GeminiAssistantMsg(
+					"m2", tsEarlyS5, "Hi there!", nil,
+				),
+			},
+		),
+	)
+
+	env.engine.SyncPaths([]string{path})
+	assertSessionState(
+		t, env.db, "gemini:"+sessionID,
+		func(sess *db.Session) {
+			assert.Equal(t, "one", sess.Project)
+		},
+	)
+
+	require.NoError(t, os.WriteFile(
+		projectsPath,
+		[]byte(`{"projects":{"/Users/alice/code/two":"alias"}}`),
+		0o644,
+	), "rewrite projects")
+	env.engine.SyncPaths([]string{projectsPath})
+
+	assertSessionState(
+		t, env.db, "gemini:"+sessionID,
+		func(sess *db.Session) {
+			assert.Equal(t, "two", sess.Project)
+		},
+	)
+}
+
 func TestSyncPathsCodexAcceptsFlatArchived(t *testing.T) {
 	env := setupTestEnv(t)
 
