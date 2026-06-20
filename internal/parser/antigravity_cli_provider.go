@@ -578,7 +578,7 @@ func (s antigravityCLISourceSet) storedSourceRef(
 		return SourceRef{}, false
 	}
 	projectID := strings.TrimPrefix(id, antigravityImplicitTag)
-	if !allowMissing {
+	if requireFresh {
 		source, ok := s.sourceRef(root, path, s.projectForID(root, projectID), false)
 		if !ok {
 			return SourceRef{}, false

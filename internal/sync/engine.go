@@ -5678,6 +5678,27 @@ func providerSkipLookupPath(
 	return file.Path
 }
 
+func sourceErrorsToSessionParseErrors(
+	sourceErrs []parser.SourceError,
+) []sessionParseError {
+	if len(sourceErrs) == 0 {
+		return nil
+	}
+	errs := make([]sessionParseError, 0, len(sourceErrs))
+	for _, sourceErr := range sourceErrs {
+		virtualPath := sourceErr.DisplayPath
+		if virtualPath == "" {
+			virtualPath = sourceErr.SourceKey
+		}
+		errs = append(errs, sessionParseError{
+			sessionID:   sourceErr.SessionID,
+			virtualPath: virtualPath,
+			err:         sourceErr.Err,
+		})
+	}
+	return errs
+}
+
 func (e *Engine) shouldCacheSkip(
 	file parser.DiscoveredFile,
 ) bool {
