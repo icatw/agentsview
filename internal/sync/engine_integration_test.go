@@ -923,6 +923,63 @@ func TestSyncSingleSessionIncrementalAppliesWorktreeProjectMapping(
 	)
 }
 
+func TestSyncSingleSessionChangedClaudeAppliesWorktreeMappingOverStoredProject(
+	t *testing.T,
+) {
+	env := setupTestEnv(t)
+
+	root := t.TempDir()
+	worktreePrefix := filepath.Join(root, "my-app.worktrees")
+	sessionCwd := filepath.Join(worktreePrefix, "feature-login")
+	initial := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "aaaaaaaaaa", sessionCwd).
+		String()
+	updated := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "bbbbbbbbbb", sessionCwd).
+		String()
+	require.Len(t, updated, len(initial), "test requires same-size rewrite")
+
+	path := env.writeClaudeSessionForProject(
+		t, sessionCwd,
+		"mapped-worktree-single-stored-project.jsonl", initial,
+	)
+
+	runSyncAndAssert(t, env.engine, sync.SyncStats{
+		TotalSessions: 1,
+		Synced:        1,
+		Skipped:       0,
+	})
+	env.updateSessionProject(
+		t,
+		"mapped-worktree-single-stored-project",
+		"custom_proj",
+	)
+
+	_, err := env.db.CreateWorktreeProjectMapping(
+		context.Background(),
+		db.WorktreeProjectMapping{
+			Machine:    "local",
+			PathPrefix: worktreePrefix,
+			Project:    "canonical-app",
+			Enabled:    true,
+		},
+	)
+	require.NoError(t, err, "CreateWorktreeProjectMapping")
+	require.NoError(t, os.WriteFile(path, []byte(updated), 0o644), "WriteFile")
+
+	err = env.engine.SyncSingleSession(
+		"mapped-worktree-single-stored-project",
+	)
+	require.NoError(t, err, "SyncSingleSession")
+
+	assertSessionProject(
+		t,
+		env.db,
+		"mapped-worktree-single-stored-project",
+		"canonical_app",
+	)
+}
+
 func TestSyncAllIncrementalAppliesWorktreeProjectMapping(
 	t *testing.T,
 ) {

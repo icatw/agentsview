@@ -1053,6 +1053,44 @@ func TestProcessFileProviderChangedPathForgeVirtualSource(t *testing.T) {
 	assert.Equal(t, "forge:forge-provider-process", res.results[0].Session.ID)
 }
 
+func TestClassifyProviderChangedPathUsesStoredSourceHints(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".forge.db")
+	forgeDB := openProcessProviderForgeDB(t, dbPath)
+	seedProcessProviderForgeConversation(t, forgeDB)
+	virtualPath := dbPath + "#forge-provider-process"
+
+	database := dbtest.OpenTestDB(t)
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:       "forge:forge-provider-process",
+		Project:  "forge",
+		Machine:  "devbox",
+		Agent:    string(parser.AgentForge),
+		FilePath: &virtualPath,
+	}))
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentForge: {root},
+		},
+		Machine: "devbox",
+	})
+
+	_, err := forgeDB.Exec(
+		`DELETE FROM conversations WHERE conversation_id = ?`,
+		"forge-provider-process",
+	)
+	require.NoError(t, err)
+
+	files := engine.classifyProviderChangedPath(dbPath)
+
+	require.Len(t, files, 1)
+	assert.Equal(t, virtualPath, files[0].Path)
+	assert.Equal(t, parser.AgentForge, files[0].Agent)
+	assert.True(t, files[0].ProviderProcess)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, virtualPath, files[0].ProviderSource.DisplayPath)
+}
+
 func TestProcessFileProviderAuthoritativePiebaldVirtualSource(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "app.db")

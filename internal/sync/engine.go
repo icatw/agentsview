@@ -4818,6 +4818,12 @@ func (e *Engine) recordProviderShadowComparison(
 	)
 }
 
+// processProviderFile owns parsing only in ProviderAuthoritative mode. Shadow
+// mode observes elsewhere while legacy remains authoritative. In authoritative
+// mode a resolved provider source is required except for explicit force parses
+// and DB-backed physical-file events that still need legacy fallback while the
+// stack migrates caller by caller. Ambiguous changed-path lookups deliberately
+// fall back to legacy by returning found=false from providerSourceForDiscoveredFile.
 func (e *Engine) processProviderFile(
 	ctx context.Context,
 	file parser.DiscoveredFile,
@@ -9998,12 +10004,19 @@ func (e *Engine) SyncSingleSessionContext(
 		return nil
 	}
 	if singleSessionStoredProject != "" {
+		resolveWorktreeProject := e.loadWorktreeProjectResolver()
 		for _, pr := range res.results {
 			if pr.Session.ID != sessionID {
 				continue
 			}
-			if singleSessionSourceProject != singleSessionStoredProject ||
-				singleSessionSourceUnchanged {
+			_, hasWorktreeMapping := resolveWorktreeProject(
+				pr.Session.Machine,
+				pr.Session.Cwd,
+				pr.Session.Project,
+			)
+			if singleSessionSourceUnchanged ||
+				(!hasWorktreeMapping &&
+					pr.Session.Project != singleSessionStoredProject) {
 				preserveSingleSessionProject = true
 				singleSessionProjectOverride = singleSessionStoredProject
 			}
