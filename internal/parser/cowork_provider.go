@@ -353,6 +353,10 @@ func coworkTranscriptForMetadataPath(root, path string) (string, bool) {
 		return "", false
 	}
 	sessionDir := strings.TrimSuffix(path, ".json")
+	resolvedSessionDir, err := filepath.EvalSymlinks(sessionDir)
+	if err != nil {
+		return "", false
+	}
 	projectsDir := filepath.Join(sessionDir, ".claude", "projects")
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
@@ -377,15 +381,31 @@ func coworkTranscriptForMetadataPath(root, path string) (string, bool) {
 				continue
 			}
 			stem := strings.TrimSuffix(name, ".jsonl")
-			if IsValidSessionID(stem) && !strings.HasPrefix(stem, "agent-") {
-				if found != "" {
-					return "", false
-				}
-				found = filepath.Join(projectDir, name)
+			if !IsValidSessionID(stem) || strings.HasPrefix(stem, "agent-") {
+				continue
 			}
+			candidate := filepath.Join(projectDir, name)
+			if !validCoworkMainTranscriptCandidate(resolvedSessionDir, candidate) {
+				continue
+			}
+			if found != "" {
+				return "", false
+			}
+			found = candidate
 		}
 	}
 	return found, found != ""
+}
+
+func validCoworkMainTranscriptCandidate(resolvedSessionDir, candidate string) bool {
+	if !IsRegularFile(candidate) {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return false
+	}
+	return isContainedIn(resolved, resolvedSessionDir)
 }
 
 func coworkProviderCapabilities() Capabilities {

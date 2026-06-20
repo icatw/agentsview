@@ -273,6 +273,82 @@ func TestCoworkProviderMetadataRemovalRejectsAmbiguousMainTranscripts(t *testing
 	assert.Empty(t, changed)
 }
 
+func TestCoworkProviderMetadataRemovalIgnoresSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	cli := "c0000000-0000-4000-8000-000000000106"
+	metaPath, _ := writeCoworkSession(t, root, coworkFixture{
+		org:             "org",
+		workspace:       "ws",
+		sessionUUID:     "50000000-0000-4000-8000-000000000106",
+		cliSessionID:    cli,
+		encodedProject:  "-sessions-demo",
+		transcriptLines: coworkTranscriptLines(cli),
+	})
+	sessionDir := strings.TrimSuffix(metaPath, ".json")
+	projectsDir := filepath.Join(sessionDir, ".claude", "projects")
+	outside := filepath.Join(root, "outside")
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+	writeSourceFile(
+		t,
+		filepath.Join(outside, "c0000000-0000-4000-8000-000000000107.jsonl"),
+		strings.Join(coworkTranscriptLines("c0000000-0000-4000-8000-000000000107"), "\n")+"\n",
+	)
+	if err := os.Symlink(outside, filepath.Join(projectsDir, "-sessions-escape")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	provider, ok := NewProvider(AgentCowork, ProviderConfig{
+		Roots: []string{root},
+	})
+	require.True(t, ok)
+
+	require.NoError(t, os.Remove(metaPath))
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: metaPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, cli+".jsonl", filepath.Base(changed[0].DisplayPath))
+}
+
+func TestCoworkProviderMetadataRemovalIgnoresBrokenSymlinkAmbiguity(t *testing.T) {
+	root := t.TempDir()
+	cli := "c0000000-0000-4000-8000-000000000108"
+	metaPath, _ := writeCoworkSession(t, root, coworkFixture{
+		org:             "org",
+		workspace:       "ws",
+		sessionUUID:     "50000000-0000-4000-8000-000000000108",
+		cliSessionID:    cli,
+		encodedProject:  "-sessions-demo",
+		transcriptLines: coworkTranscriptLines(cli),
+	})
+	sessionDir := strings.TrimSuffix(metaPath, ".json")
+	projectsDir := filepath.Join(sessionDir, ".claude", "projects")
+	brokenDir := filepath.Join(projectsDir, "-sessions-broken")
+	require.NoError(t, os.MkdirAll(brokenDir, 0o755))
+	if err := os.Symlink(
+		filepath.Join(root, "missing.jsonl"),
+		filepath.Join(brokenDir, "c0000000-0000-4000-8000-000000000109.jsonl"),
+	); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	provider, ok := NewProvider(AgentCowork, ProviderConfig{
+		Roots: []string{root},
+	})
+	require.True(t, ok)
+
+	require.NoError(t, os.Remove(metaPath))
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: metaPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, cli+".jsonl", filepath.Base(changed[0].DisplayPath))
+}
+
 func TestCoworkProviderFullSessionIDPrefixLookup(t *testing.T) {
 	root := t.TempDir()
 	cli := "c0000000-0000-4000-8000-000000000103"
