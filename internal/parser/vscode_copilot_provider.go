@@ -181,7 +181,7 @@ func (s vscodeCopilotSourceSet) SourcesForChangedPath(
 		if len(sources) > 0 {
 			return sources, nil
 		}
-		source, ok := s.sourceRefForChangedPath(root, req.Path)
+		source, ok := s.sourceRefForChangedPath(root, req)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -322,8 +322,13 @@ func (s vscodeCopilotSourceSet) sourceRef(root, path string) (SourceRef, bool) {
 }
 
 func (s vscodeCopilotSourceSet) sourceRefForChangedPath(
-	root, path string,
+	root string,
+	req ChangedPathRequest,
 ) (SourceRef, bool) {
+	path := req.Path
+	if req.EventKind != "remove" && vscodeCopilotJSONLPreferredOver(path) {
+		return SourceRef{}, false
+	}
 	if source, ok := s.sourceRef(root, path); ok {
 		return source, true
 	}
@@ -469,6 +474,14 @@ func vscodeCopilotPreferredExistingPath(path string) string {
 		}
 	}
 	return ""
+}
+
+func vscodeCopilotJSONLPreferredOver(path string) bool {
+	base, ok := strings.CutSuffix(path, ".json")
+	if !ok {
+		return false
+	}
+	return IsRegularFile(base + ".jsonl")
 }
 
 func vscodeCopilotSourceHash(path, workspacePath string) (string, error) {

@@ -4350,6 +4350,11 @@ func (e *Engine) processFile(
 		// of staying skipped on the unchanged transcript mtime.
 		mtime = vibeEffectiveInfo(file.Path, info).ModTime().UnixNano()
 	}
+	if file.Agent == parser.AgentVSCodeCopilot {
+		mtime = e.vscodeCopilotEffectiveInfo(file.Path, info).
+			ModTime().
+			UnixNano()
+	}
 	cacheSkip := e.shouldCacheSkip(file)
 
 	// Skip files cached from a previous sync (parse errors
@@ -5865,7 +5870,8 @@ func (e *Engine) processZencoder(
 func (e *Engine) processVSCodeCopilot(
 	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
-	if e.shouldSkipByPath(file.Path, info) {
+	effectiveInfo := e.vscodeCopilotEffectiveInfo(file.Path, info)
+	if !file.ForceParse && e.shouldSkipByPath(file.Path, effectiveInfo) {
 		return processResult{skip: true}
 	}
 
@@ -5878,8 +5884,10 @@ func (e *Engine) processVSCodeCopilot(
 	if sess == nil {
 		return processResult{}
 	}
+	sess.File.Size = effectiveInfo.Size()
+	sess.File.Mtime = effectiveInfo.ModTime().UnixNano()
 
-	hash, err := ComputeFileHash(file.Path)
+	hash, err := e.vscodeCopilotCompositeHash(file.Path)
 	if err == nil {
 		sess.File.Hash = hash
 	}
@@ -5893,6 +5901,70 @@ func (e *Engine) processVSCodeCopilot(
 			},
 		},
 	}
+}
+
+func (e *Engine) vscodeCopilotEffectiveInfo(
+	path string, info os.FileInfo,
+) os.FileInfo {
+	workspacePath := e.vscodeCopilotWorkspaceManifestPath(path)
+	if workspacePath == "" {
+		return info
+	}
+	workspaceInfo, err := os.Stat(workspacePath)
+	if err != nil || workspaceInfo.IsDir() {
+		return info
+	}
+	size := info.Size() + workspaceInfo.Size()
+	mtime := info.ModTime().UnixNano()
+	if workspaceMtime := workspaceInfo.ModTime().UnixNano(); workspaceMtime > mtime {
+		mtime = workspaceMtime
+	}
+	return fakeSnapshotInfo{fSize: size, fMtime: mtime}
+}
+
+func (e *Engine) vscodeCopilotCompositeHash(path string) (string, error) {
+	chatHash, err := ComputeFileHash(path)
+	if err != nil {
+		return "", err
+	}
+	workspacePath := e.vscodeCopilotWorkspaceManifestPath(path)
+	if workspacePath == "" {
+		return chatHash, nil
+	}
+	if info, err := os.Stat(workspacePath); err != nil || info.IsDir() {
+		return chatHash, nil
+	}
+	workspaceHash, err := ComputeFileHash(workspacePath)
+	if err != nil {
+		return "", err
+	}
+	return ComputeHash(strings.NewReader(
+		"chat\x00" + chatHash + "\x00workspace\x00" + workspaceHash,
+	))
+}
+
+func (e *Engine) vscodeCopilotWorkspaceManifestPath(path string) string {
+	path = filepath.Clean(path)
+	for _, root := range e.agentDirs[parser.AgentVSCodeCopilot] {
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		rel, ok := isUnder(root, path)
+		if !ok {
+			continue
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) != 4 ||
+			parts[0] != "workspaceStorage" ||
+			parts[2] != "chatSessions" ||
+			(!strings.HasSuffix(parts[3], ".json") &&
+				!strings.HasSuffix(parts[3], ".jsonl")) {
+			continue
+		}
+		return filepath.Join(root, "workspaceStorage", parts[1], "workspace.json")
+	}
+	return ""
 }
 
 func (e *Engine) processOpenClaw(
