@@ -4316,6 +4316,9 @@ func (e *Engine) processFile(
 			err: fmt.Errorf("stat %s: %w", file.Path, err),
 		}
 	}
+	if file.Agent == parser.AgentHermes {
+		info = hermesArchiveEffectiveInfo(file.Path, info)
+	}
 
 	// Capture mtime once from the initial stat so all
 	// downstream cache operations use a consistent value.
@@ -6385,24 +6388,15 @@ func (e *Engine) processCortex(
 func (e *Engine) processHermes(
 	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
-	if filepath.Base(file.Path) == "state.db" {
-		info = hermesArchiveEffectiveInfo(file.Path, info)
-	}
+	info = hermesArchiveEffectiveInfo(file.Path, info)
 	if e.shouldSkipByPath(file.Path, info) {
 		return processResult{skip: true}
 	}
 
 	if filepath.Base(file.Path) == "state.db" {
-		results, err := parser.ParseHermesArchive(
-			file.Path, file.Project, e.machine,
-		)
+		results, err := e.parseHermesArchive(file.Path, file.Project, info)
 		if err != nil {
 			return processResult{err: err}
-		}
-		for i := range results {
-			results[i].Session.File.Path = file.Path
-			results[i].Session.File.Size = info.Size()
-			results[i].Session.File.Mtime = info.ModTime().UnixNano()
 		}
 		return processResult{results: results, forceReplace: true}
 	}
@@ -6429,7 +6423,37 @@ func (e *Engine) processHermes(
 	}
 }
 
+func (e *Engine) parseHermesArchive(
+	stateDB, project string, info os.FileInfo,
+) ([]parser.ParseResult, error) {
+	info = hermesArchiveEffectiveInfo(stateDB, info)
+	results, err := parser.ParseHermesArchive(
+		stateDB, project, e.machine,
+	)
+	if err != nil {
+		return nil, err
+	}
+	stampHermesArchiveResults(stateDB, info, results)
+	return results, nil
+}
+
+func stampHermesArchiveResults(
+	stateDB string, info os.FileInfo, results []parser.ParseResult,
+) {
+	for i := range results {
+		results[i].Session.File.Path = stateDB
+		results[i].Session.File.Size = info.Size()
+		results[i].Session.File.Mtime = info.ModTime().UnixNano()
+	}
+}
+
 func hermesArchiveEffectiveInfo(path string, info os.FileInfo) os.FileInfo {
+	if info == nil {
+		return info
+	}
+	if _, ok := info.(fakeSnapshotInfo); ok {
+		return info
+	}
 	_, sessionsDir, ok := hermesArchiveSourcePaths(path)
 	if !ok {
 		return info
@@ -9269,9 +9293,11 @@ func (e *Engine) syncSingleHermesArchive(
 		return false, nil
 	}
 
-	results, err := parser.ParseHermesArchive(
-		stateDB, project, e.machine,
-	)
+	info, err := os.Stat(stateDB)
+	if err != nil {
+		return true, fmt.Errorf("stat %s: %w", stateDB, err)
+	}
+	results, err := e.parseHermesArchive(stateDB, project, info)
 	if err != nil {
 		return true, err
 	}

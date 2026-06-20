@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -35,6 +36,76 @@ func TestHermesArchiveEffectiveInfoIncludesDirectTranscripts(t *testing.T) {
 	assert.Equal(t, transcriptTime.UnixNano(), got.ModTime().UnixNano())
 }
 
+func TestHermesArchiveTranscriptFilesUsesDirectSessionFiles(t *testing.T) {
+	sessionsDir := t.TempDir()
+	writeFile := func(name string) {
+		t.Helper()
+		path := filepath.Join(sessionsDir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("{}\n"), 0o644))
+	}
+	writeFile("extra.jsonl")
+	writeFile("session_child.json")
+	writeFile("child.json")
+	writeFile("session_child.txt")
+	writeFile(filepath.Join("nested", "session_nested.json"))
+
+	got := hermesArchiveTranscriptFiles(sessionsDir)
+
+	assert.Equal(t, []string{
+		filepath.Join(sessionsDir, "extra.jsonl"),
+		filepath.Join(sessionsDir, "session_child.json"),
+	}, got)
+}
+
+func TestHermesArchiveEffectiveInfoChangesWhenTranscriptRemoved(t *testing.T) {
+	root := t.TempDir()
+	stateDB := writeHermesArchiveStateDB(t, root)
+	transcriptPath := filepath.Join(root, "sessions", "extra.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcriptPath), 0o755))
+	require.NoError(t, os.WriteFile(transcriptPath, []byte("{}\n{}\n"), 0o644))
+
+	stateInfo, err := os.Stat(stateDB)
+	require.NoError(t, err)
+	before := hermesArchiveEffectiveInfo(stateDB, stateInfo)
+
+	require.NoError(t, os.Remove(transcriptPath))
+	after := hermesArchiveEffectiveInfo(stateDB, stateInfo)
+
+	assert.NotEqual(t, before.Size(), after.Size())
+	assert.Equal(t, stateInfo.Size(), after.Size())
+}
+
+func TestProcessFileHermesArchiveSkipCacheUsesAggregateMtime(t *testing.T) {
+	root := t.TempDir()
+	stateDB := writeHermesArchiveStateDB(t, root)
+	transcriptPath := filepath.Join(root, "sessions", "extra.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcriptPath), 0o755))
+	require.NoError(t, os.WriteFile(transcriptPath, []byte("{}\n"), 0o644))
+	transcriptTime := time.Now().Add(2 * time.Second).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptTime, transcriptTime))
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentHermes: {filepath.Join(root, "sessions")},
+		},
+		Machine: "local",
+	})
+	engine.InjectSkipCache(map[string]int64{
+		stateDB: transcriptTime.UnixNano(),
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  stateDB,
+		Agent: parser.AgentHermes,
+	})
+
+	require.NoError(t, res.err)
+	assert.True(t, res.skip)
+	assert.True(t, res.cacheSkip)
+	assert.Equal(t, transcriptTime.UnixNano(), res.mtime)
+}
+
 func TestProcessHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 	root := t.TempDir()
 	stateDB := writeHermesArchiveStateDB(t, root)
@@ -52,7 +123,8 @@ func TestProcessHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 	stateInfo, err := os.Stat(stateDB)
 	require.NoError(t, err)
 	effectiveInfo := hermesArchiveEffectiveInfo(stateDB, stateInfo)
-	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
 			parser.AgentHermes: {filepath.Join(root, "sessions")},
 		},
@@ -71,6 +143,65 @@ func TestProcessHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 		assert.Equal(t, effectiveInfo.Size(), result.Session.File.Size)
 		assert.Equal(t, effectiveInfo.ModTime().UnixNano(), result.Session.File.Mtime)
 	}
+
+	pending := make([]pendingWrite, 0, len(res.results))
+	for _, result := range res.results {
+		pending = append(pending, pendingWrite{
+			sess:        result.Session,
+			msgs:        result.Messages,
+			usageEvents: result.UsageEvents,
+		})
+	}
+	written, _, failed := engine.writeBatch(pending, syncWriteDefault, true)
+	require.Equal(t, 0, failed)
+	require.NotZero(t, written)
+
+	storedSize, storedMtime, ok := database.GetFileInfoByPath(stateDB)
+	require.True(t, ok)
+	assert.Equal(t, effectiveInfo.Size(), storedSize)
+	assert.Equal(t, effectiveInfo.ModTime().UnixNano(), storedMtime)
+
+	second := engine.processHermes(parser.DiscoveredFile{
+		Path:  stateDB,
+		Agent: parser.AgentHermes,
+	}, stateInfo)
+	require.NoError(t, second.err)
+	assert.True(t, second.skip)
+}
+
+func TestSyncSingleHermesArchivePersistsAggregateFingerprint(t *testing.T) {
+	root := t.TempDir()
+	stateDB := writeHermesArchiveStateDB(t, root)
+	transcriptPath := filepath.Join(root, "sessions", "extra.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcriptPath), 0o755))
+	require.NoError(t, os.WriteFile(
+		transcriptPath,
+		[]byte(
+			`{"role":"session_meta","platform":"cli","timestamp":"2026-05-14T10:00:00.000000"}`+"\n"+
+				`{"role":"user","content":"new transcript","timestamp":"2026-05-14T10:01:00.000000"}`+"\n",
+		),
+		0o644,
+	))
+
+	stateInfo, err := os.Stat(stateDB)
+	require.NoError(t, err)
+	effectiveInfo := hermesArchiveEffectiveInfo(stateDB, stateInfo)
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentHermes: {filepath.Join(root, "sessions")},
+		},
+		Machine: "local",
+	})
+
+	ok, err := engine.syncSingleHermesArchive("hermes:child", transcriptPath, "")
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	storedSize, storedMtime, found := database.GetFileInfoByPath(stateDB)
+	require.True(t, found)
+	assert.Equal(t, effectiveInfo.Size(), storedSize)
+	assert.Equal(t, effectiveInfo.ModTime().UnixNano(), storedMtime)
 }
 
 func writeHermesArchiveStateDB(t *testing.T, root string) string {
