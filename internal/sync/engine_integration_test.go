@@ -2048,11 +2048,18 @@ func TestSyncPathsGeminiProjectMetadataEventRefreshesProject(t *testing.T) {
 
 	sessionID := "gem-project-refresh"
 	projectsPath := filepath.Join(env.geminiDir, "projects.json")
-	require.NoError(t, os.WriteFile(
-		projectsPath,
-		[]byte(`{"projects":{"/Users/alice/code/one":"alias"}}`),
-		0o644,
-	), "write projects")
+	writeProject := func(name string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(
+			projectsPath,
+			fmt.Appendf(nil,
+				`{"projects":{"/Users/alice/code/%s":"alias"}}`,
+				name,
+			),
+			0o644,
+		), "write projects")
+	}
+	writeProject("one")
 	path := env.writeGeminiSession(
 		t,
 		filepath.Join(
@@ -2080,17 +2087,49 @@ func TestSyncPathsGeminiProjectMetadataEventRefreshesProject(t *testing.T) {
 		},
 	)
 
-	require.NoError(t, os.WriteFile(
-		projectsPath,
-		[]byte(`{"projects":{"/Users/alice/code/two":"alias"}}`),
-		0o644,
-	), "rewrite projects")
+	info, err := os.Stat(path)
+	require.NoError(t, err, "stat gemini session")
+	env.engine.InjectSkipCache(map[string]int64{
+		path: info.ModTime().UnixNano(),
+	})
+
+	writeProject("two")
 	env.engine.SyncPaths([]string{projectsPath})
 
 	assertSessionState(
 		t, env.db, "gemini:"+sessionID,
 		func(sess *db.Session) {
 			assert.Equal(t, "two", sess.Project)
+		},
+	)
+
+	writeProject("three")
+	env.engine.SyncPaths([]string{path, projectsPath})
+
+	assertSessionState(
+		t, env.db, "gemini:"+sessionID,
+		func(sess *db.Session) {
+			assert.Equal(t, "three", sess.Project)
+		},
+	)
+
+	writeProject("four")
+	env.engine.SyncPaths([]string{projectsPath, path})
+
+	assertSessionState(
+		t, env.db, "gemini:"+sessionID,
+		func(sess *db.Session) {
+			assert.Equal(t, "four", sess.Project)
+		},
+	)
+
+	require.NoError(t, os.Remove(projectsPath), "remove projects")
+	env.engine.SyncPaths([]string{projectsPath})
+
+	assertSessionState(
+		t, env.db, "gemini:"+sessionID,
+		func(sess *db.Session) {
+			assert.Equal(t, "alias", sess.Project)
 		},
 	)
 }
