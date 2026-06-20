@@ -3,6 +3,8 @@ package sync
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 
 	"go.kenn.io/agentsview/internal/parser"
@@ -26,6 +28,16 @@ type ProviderObservation struct {
 	SkipReason         parser.SkipReason
 	ForceReplace       bool
 	Planned            ProviderPlannedEffects
+}
+
+// ProviderShadowComparison is one caller-level shadow result. Legacy sync
+// remains authoritative; this value records the side-effect-free provider
+// observation and any differences from the legacy processResult.
+type ProviderShadowComparison struct {
+	File        parser.DiscoveredFile
+	Observation ProviderObservation
+	Mismatches  []string
+	Err         error
 }
 
 // ProviderPlannedEffects describes writes the provider path would have made.
@@ -120,6 +132,78 @@ func ObserveProviderSource(
 	}
 	observation.Planned = planProviderEffects(req.Source, fingerprint, outcome)
 	return observation, nil
+}
+
+func compareProviderObservationToProcessResult(
+	observation ProviderObservation,
+	legacy processResult,
+) []string {
+	var mismatches []string
+	if len(observation.Results) != len(legacy.results) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"result count: provider=%d legacy=%d",
+			len(observation.Results), len(legacy.results),
+		))
+	}
+	for i := 0; i < len(observation.Results) && i < len(legacy.results); i++ {
+		providerResult := observation.Results[i]
+		legacyResult := legacy.results[i]
+		if providerResult.Session.ID != legacyResult.Session.ID {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"result[%d] session id: provider=%q legacy=%q",
+				i, providerResult.Session.ID, legacyResult.Session.ID,
+			))
+		}
+		if providerResult.Session.Agent != legacyResult.Session.Agent {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"result[%d] agent: provider=%q legacy=%q",
+				i, providerResult.Session.Agent, legacyResult.Session.Agent,
+			))
+		}
+		if providerResult.Session.Project != legacyResult.Session.Project {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"result[%d] project: provider=%q legacy=%q",
+				i, providerResult.Session.Project, legacyResult.Session.Project,
+			))
+		}
+		if providerResult.Session.Machine != legacyResult.Session.Machine {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"result[%d] machine: provider=%q legacy=%q",
+				i, providerResult.Session.Machine, legacyResult.Session.Machine,
+			))
+		}
+		if !reflect.DeepEqual(providerResult.Messages, legacyResult.Messages) {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"result[%d] messages differ",
+				i,
+			))
+		}
+		if !reflect.DeepEqual(providerResult.UsageEvents, legacyResult.UsageEvents) {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"result[%d] usage events differ",
+				i,
+			))
+		}
+	}
+	if !slices.Equal(observation.ExcludedSessionIDs, legacy.excludedSessionIDs) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"excluded session ids: provider=%v legacy=%v",
+			observation.ExcludedSessionIDs, legacy.excludedSessionIDs,
+		))
+	}
+	if len(observation.SourceErrors) != len(legacy.sessionErrs) {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"source error count: provider=%d legacy=%d",
+			len(observation.SourceErrors), len(legacy.sessionErrs),
+		))
+	}
+	if observation.ForceReplace != legacy.forceReplace {
+		mismatches = append(mismatches, fmt.Sprintf(
+			"force replace: provider=%t legacy=%t",
+			observation.ForceReplace, legacy.forceReplace,
+		))
+	}
+	return mismatches
 }
 
 func validateProviderOutcome(

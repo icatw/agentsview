@@ -75,6 +75,15 @@ type EngineConfig struct {
 	// that wrote data. Safe to leave nil (e.g., in PG serve mode
 	// where the engine is not run).
 	Emitter Emitter
+	// ProviderFactories and ProviderMigrationModes let stacked provider
+	// migration branches opt concrete providers into side-effect-free
+	// caller-level shadow observation before provider writes become
+	// authoritative. Nil uses the parser package registry/manifest.
+	ProviderFactories      []parser.ProviderFactory
+	ProviderMigrationModes map[parser.AgentType]parser.ProviderMigrationMode
+	// ProviderShadowRecorder receives shadow observations. Nil logs only
+	// provider errors or mismatches.
+	ProviderShadowRecorder func(ProviderShadowComparison)
 }
 
 // Engine orchestrates session file discovery and sync.
@@ -98,10 +107,13 @@ type Engine struct {
 	// idPrefix and pathRewriter support remote sync:
 	// prefix all session IDs to avoid collisions, rewrite
 	// temp paths to "host:/remote/path" form.
-	ephemeral    bool
-	idPrefix     string
-	pathRewriter func(string) string
-	emitter      Emitter
+	ephemeral              bool
+	idPrefix               string
+	pathRewriter           func(string) string
+	emitter                Emitter
+	providerFactories      map[parser.AgentType]parser.ProviderFactory
+	providerMigrationModes map[parser.AgentType]parser.ProviderMigrationMode
+	providerShadowRecorder func(ProviderShadowComparison)
 
 	// forceParse disables every stored-state skip (skip cache,
 	// size/mtime/data_version checks, incremental JSONL deltas) so
@@ -156,6 +168,14 @@ func NewEngine(
 	for k, v := range cfg.AgentDirs {
 		dirs[k] = append([]string(nil), v...)
 	}
+	providerFactories := parser.ProviderFactories()
+	if cfg.ProviderFactories != nil {
+		providerFactories = cfg.ProviderFactories
+	}
+	providerModes := parser.ProviderMigrationModes()
+	if cfg.ProviderMigrationModes != nil {
+		maps.Copy(providerModes, cfg.ProviderMigrationModes)
+	}
 
 	return &Engine{
 		db:                      database,
@@ -167,7 +187,21 @@ func NewEngine(
 		idPrefix:                cfg.IDPrefix,
 		pathRewriter:            cfg.PathRewriter,
 		emitter:                 cfg.Emitter,
+		providerFactories:       providerFactoryMap(providerFactories),
+		providerMigrationModes:  providerModes,
+		providerShadowRecorder:  cfg.ProviderShadowRecorder,
 	}
+}
+
+func providerFactoryMap(
+	factories []parser.ProviderFactory,
+) map[parser.AgentType]parser.ProviderFactory {
+	out := make(map[parser.AgentType]parser.ProviderFactory, len(factories))
+	for _, factory := range factories {
+		def := factory.Definition()
+		out[def.Type] = factory
+	}
+	return out
 }
 
 // migrateLegacyCodexExecSkips removes skip cache entries
@@ -4064,7 +4098,87 @@ func (e *Engine) processFile(
 	}
 	res.cacheSkip = cacheSkip
 	res.mtime = mtime
+	e.observeProviderShadow(ctx, file, res)
 	return res
+}
+
+func (e *Engine) observeProviderShadow(
+	ctx context.Context,
+	file parser.DiscoveredFile,
+	legacy processResult,
+) {
+	if legacy.err != nil || legacy.incremental != nil {
+		return
+	}
+	if e.providerMigrationModes[file.Agent] != parser.ProviderMigrationShadowCompare {
+		return
+	}
+	factory, ok := e.providerFactories[file.Agent]
+	if !ok {
+		return
+	}
+	provider := factory.NewProvider(parser.ProviderConfig{
+		Roots:   e.agentDirs[file.Agent],
+		Machine: e.machine,
+	})
+	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
+		StoredFilePath:     file.Path,
+		FingerprintKey:     file.Path,
+		RequireFreshSource: !e.forceParse,
+	})
+	comparison := ProviderShadowComparison{File: file, Err: err}
+	if err == nil && found {
+		comparison.Observation, comparison.Err = ObserveProviderSource(
+			ctx,
+			provider,
+			ProviderObserveRequest{
+				Source:     source,
+				Machine:    e.machine,
+				ForceParse: e.forceParse,
+			},
+		)
+		if comparison.Err == nil {
+			comparison.Mismatches = compareProviderObservationToProcessResult(
+				comparison.Observation,
+				legacy,
+			)
+		}
+	}
+	if err == nil && !found {
+		comparison.Err = fmt.Errorf(
+			"%s provider shadow source not found for %s",
+			file.Agent,
+			file.Path,
+		)
+	}
+	e.recordProviderShadowComparison(comparison)
+}
+
+func (e *Engine) recordProviderShadowComparison(
+	comparison ProviderShadowComparison,
+) {
+	if e.providerShadowRecorder != nil {
+		e.providerShadowRecorder(comparison)
+		return
+	}
+	if comparison.Err != nil {
+		log.Printf(
+			"%s provider shadow %s: %v",
+			comparison.File.Agent,
+			comparison.File.Path,
+			comparison.Err,
+		)
+		return
+	}
+	if len(comparison.Mismatches) == 0 {
+		return
+	}
+	log.Printf(
+		"%s provider shadow %s mismatches: %s",
+		comparison.File.Agent,
+		comparison.File.Path,
+		strings.Join(comparison.Mismatches, "; "),
+	)
 }
 
 func (e *Engine) shouldCacheSkip(
