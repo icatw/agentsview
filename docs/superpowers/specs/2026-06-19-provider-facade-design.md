@@ -17,9 +17,17 @@ fingerprints, and `ParseResult` values.
 ## Goals
 
 - Migrate every existing provider to the facade, not only future providers.
+- Keep both runtime shapes available at the root of the stack so legacy parsing
+  stays authoritative while provider parsing is shadow-compared provider by
+  provider.
+- Make every provider PR an actual migration step: adding a provider
+  implementation must also opt that provider into the shared migration manifest
+  and provider-vs-legacy parity tests.
 - Keep `ParsedSession`, `ParsedMessage`, `ParsedToolCall`, `ParsedToolResult`,
   `ParsedUsageEvent`, and `ParseResult` as the normalized output contract.
-- Remove the provider-by-provider `sync.Engine.processFile` dispatch switch.
+- Remove the provider-by-provider `sync.Engine.processFile` dispatch switch only
+  at the tip of the stack, after every parse-capable provider has passed the
+  shadow comparison path.
 - Make source discovery, source lookup, watch planning, fingerprinting, parsing,
   and optional incremental parsing provider-owned.
 - Provide reusable provider helpers for common source layouts, especially JSONL
@@ -56,6 +64,13 @@ The provider facade must respect these constraints:
   marshal methods from one enum definition.
 - All existing providers migrate to the new layer before the old sync dispatch
   is considered removed.
+- During the stacked migration, legacy dispatch remains the writer. Provider
+  dispatch is run through the same root-level harness for opted-in providers and
+  compared against legacy output, but it must not mutate persisted session state
+  until the stack tip switches authority.
+- A provider branch is incomplete if it only adds provider code. It must also
+  move the provider's migration status out of legacy-only mode and include the
+  dual-run test coverage that proves the new shape is exercised.
 
 ## Core Types
 
@@ -835,7 +850,35 @@ owned and resolved through provider methods rather than hard-coded in sync.
 
 ## Sync Engine Flow
 
-The generic engine flow becomes:
+The root of the stack supports both execution shapes:
+
+- the legacy `DiscoveredFile` and `processFile` shape, which remains
+  authoritative during migration;
+- the provider `SourceRef` shape, which can process the same logical source
+  without writing session state while the stack is in shadow-compare mode.
+
+The root-level migration harness owns the comparison. It exposes an explicit
+provider runtime manifest keyed by `parser.AgentType`. Family helpers may build
+entries for related providers, but tests must expand the family to every
+concrete `AgentType`; a family-level entry is not enough to mark an individual
+parse-capable provider migrated.
+
+- legacy-only: only the existing sync path runs;
+- shadow-compare: legacy runs and writes, provider runs through the new generic
+  path, and tests compare normalized outcomes;
+- provider-authoritative: provider dispatch writes and the old path is absent.
+- import-only: the provider exists for non-filesystem import/export metadata and
+  is intentionally excluded from parse shadow comparison.
+
+Only the stack-tip cleanup may use provider-authoritative mode for existing
+providers. Lower provider PRs migrate by moving each affected concrete
+`AgentType` entry from legacy-only to shadow-compare in the manifest and adding
+the required parity coverage. A concrete parse-capable provider that is not
+import-only and is not listed in the migration manifest is a test failure; this
+makes a PR that merely reimplements a parser without wiring the migration easy
+to spot.
+
+The target provider-only engine flow becomes:
 
 1. Load provider factories from the provider registry.
 1. Create config-bound providers with
@@ -877,6 +920,54 @@ providers expose virtual paths or logical sessions inside a shared source.
 `FindSourceRequest.RawSessionID` is lookup input only; returned parse outcomes,
 source errors, and exclusions still use persisted full session IDs.
 
+### Transitional Shadow Comparison
+
+The root harness has two comparison surfaces:
+
+- source-level parity, available as soon as the root harness lands, compares one
+  legacy-discovered source or fixture set against the provider runner. Provider
+  implementation PRs must use this surface before they can move their manifest
+  entry to shadow-compare.
+- caller-level dual-run, added by the later sync, lookup/watch, and diagnostics
+  tasks, wraps production callers such as full sync, changed-path sync,
+  `SyncSingleSession`, source lookup, source mtime, and parse-diff.
+
+This ordering makes shadow-compare real before caller migrations exist: provider
+PRs prove source-level parity first, then caller tasks prove the same provider
+runner behaves correctly when invoked through production sync surfaces.
+
+During migration, both comparison surfaces use the provider-only execution
+helpers but keep side effects isolated:
+
+1. Run the legacy caller normally and keep its `processResult` as the value that
+   drives DB writes, skip-cache persistence, data-version updates, source
+   metadata, SSE emissions, and diagnostics.
+1. Run the provider caller for the same agent through the generic provider
+   helper. Depending on the caller, this may come from provider discovery,
+   `SourcesForChangedPath`, or `FindSource`; the comparison layer must not teach
+   the engine provider-specific path formats.
+1. Normalize both outputs into the same comparison shape: full session IDs,
+   parsed message/tool/usage content, excluded IDs, skip reasons, retry state,
+   data-version state, source metadata, and per-session errors.
+1. Represent provider-side effects as in-memory planned effects, not live DB
+   mutations. Planned effects include source metadata writes, data-version
+   writes, skip-cache updates, diagnostics, and SSE topics. Integration tests
+   may additionally run against disposable stores, but shadow mode never
+   receives the live writer.
+1. Report mismatches as test failures in the migration harness. Runtime
+   diagnostics are opt-in developer diagnostics only; they must not create
+   user-visible parse diagnostics or SSE-visible state. The provider side must
+   not mutate persisted session state while in shadow-compare mode.
+
+Provider branches must exercise this transition with shared tests rather than
+only provider-local unit tests. The branch is considered migrated only when the
+manifest entry and parity tests are present.
+
+If a provider that moved to shadow-compare proves flaky, its manifest entry can
+return to legacy-only with a reason and an open kata task or review note. The
+tip cleanup cannot proceed while any parse-capable provider is legacy-only or
+has known shadow mismatches.
+
 ## Registry
 
 `parser.Registry` remains the stable metadata surface during migration, but the
@@ -899,7 +990,8 @@ consumer uses providers.
 
 ## Migration Plan
 
-The implementation should migrate all providers, grouped by source pattern:
+The implementation should migrate all providers through a stacked dual-run
+sequence:
 
 1. Add provider core types, `ProviderBase` defaults, contract invariants, and
    compile-tested embedding examples.
@@ -907,47 +999,89 @@ The implementation should migrate all providers, grouped by source pattern:
    verification.
 1. Add provider factory registry tests while preserving current
    `parser.Registry`.
+1. Add the root-level dual-run migration harness before migrating provider
+   branches. It must contain the shared provider execution helper, comparison
+   normalizer, source-level parity surface, planned-effect comparison model,
+   explicit per-`AgentType` migration manifest, and tests that fail when a
+   concrete parse-capable provider exists without a migration-mode entry.
 1. Add JSONL source-set helpers and tests for simple file-backed JSONL
    providers.
+1. Use `git-spice` to restack the provider branches on the root harness branch
+   after that lower branch changes. The stack must be verified with
+   `gs log short`, conflicts resolved provider by provider, and updates
+   submitted with git-spice so every PR includes both provider implementation
+   and migration wiring.
 1. Migrate simple JSONL providers with acceptance tests for discovery,
    fingerprint, parse output, skip-cache metadata, and data-version behavior.
-   Run provider-vs-legacy parity assertions for this group before it becomes
-   provider-backed by default.
+   Each provider PR must move its affected concrete `AgentType` entries from
+   legacy-only to shadow-compare and run the shared source-level
+   provider-vs-legacy parity harness. Legacy sync remains authoritative.
 1. Add and migrate sibling/composite source providers with acceptance tests for
    watch planning, composite fingerprints, sidecar/title refreshes, and changed
-   path classification. Run provider-vs-legacy parity assertions for this group
-   before it becomes provider-backed by default.
+   path classification. Each PR must opt its provider into shadow-compare and
+   pass the shared source-level parity harness while legacy sync remains
+   authoritative.
 1. Add and migrate virtual-path and SQLite fan-out providers with acceptance
-   tests for stored advisory paths, logical session lookup, per-session errors,
-   and source mtime behavior. Run provider-vs-legacy parity assertions for this
-   group before it becomes provider-backed by default.
+   tests for stored advisory paths, tombstone recovery via `StoredSourcePaths`,
+   logical session lookup, per-session errors, and source mtime behavior. Each
+   PR must opt its provider into shadow-compare and pass the shared parity
+   harness while legacy sync remains authoritative.
 1. Add and migrate non-file import/database providers with acceptance tests for
-   `FindSource`, fingerprinting, and unsupported source mechanics. Run
-   provider-vs-legacy parity assertions for this group before it becomes
-   provider-backed by default.
-1. Move source-processing callers onto providers behind parity assertions: full
-   sync, changed-path sync, and `SyncSingleSession`. Each caller becomes default
-   only after its parsed output, skip-cache, data-version, source metadata, and
-   diagnostics parity passes for the provider groups it touches.
-1. Move lookup/watch callers onto providers behind parity assertions: session
+   `FindSource`, fingerprinting, and unsupported source mechanics. Import-only
+   providers are explicitly marked import-only rather than shadow-compared.
+1. Add the session-store API for persisted source-path hint lookup before
+   changed-path shadow comparison depends on providers. It must query by
+   provider and watched root, use the `(agent, file_path)` index shape, return
+   stable de-duplicated paths, and include tests for provider/root filtering,
+   path normalization, sibling-prefix false positives such as `/root/db` versus
+   `/root/db2`, dedupe, batching/no-truncation behavior, and large unrelated
+   session tables.
+1. Add provider compatibility tests for stored hint interpretation before
+   changed-path shadow comparison depends on providers. SQLite fan-out providers
+   must cover malformed or obsolete virtual paths, debug-only diagnostics, DB
+   row deletion, DB file deletion, and stale hints that belong to a different
+   physical DB under the same watch root.
+1. Move source-processing callers into the caller-level dual-run harness: full
+   sync, changed-path sync, and `SyncSingleSession`. During migration these
+   callers compare provider output against legacy for parsed output, skip-cache,
+   data-version, source metadata, diagnostics, excluded IDs, and retry state;
+   only the legacy result writes. Changed-path comparison must populate
+   `StoredSourcePaths` from scoped persisted session metadata and include DB row
+   deletion and DB file deletion integration tests.
+1. Move lookup/watch callers into the caller-level dual-run harness: session
    watch flows, export/source lookup, source mtime, and token-usage raw source
-   probing. Each caller becomes default only after lookup freshness, virtual
-   path, source mtime, and raw probing parity passes.
-1. Move diagnostic and comparison callers onto providers behind parity
-   assertions: parse-diff and parse diagnostics. Each caller becomes default
-   only after report shape and source-error parity passes.
-1. Run a transitional parity phase where old `processFile` and new provider
-   dispatch can be compared in tests across all migrated groups. The parity
-   assertions must include parsed output, excluded IDs, skip-cache decisions,
-   data-version writes, retry-needed outcomes, persisted source metadata, and
-   diagnostics.
-1. Replace `processFile` switch with generic provider dispatch only after the
-   grouped parity tests pass.
-1. Remove or deprecate old `AgentDef` source callback fields after all callers
-   stop using them.
+   probing. During migration these callers compare lookup freshness, virtual
+   path, source mtime, and raw probing behavior against legacy.
+1. Move diagnostic and comparison callers into the caller-level dual-run
+   harness: parse-diff and parse diagnostics. During migration these callers
+   compare report shape and source-error behavior against legacy.
+1. At the tip of the stack only, switch all shadow-compared providers to
+   provider-authoritative dispatch, remove the provider-by-provider
+   `processFile` switch, and remove or deprecate old `AgentDef` source callback
+   fields after all callers stop using them.
 
 Migration should keep existing parser unit tests. Provider-level tests become
 the required integration surface for future providers.
+
+## Kata Tracking
+
+The migration is tracked under parent kata issue `terh`. The dual-run correction
+adds these blocking tasks:
+
+- `5jrz`: add the root-level dual-run provider migration harness.
+- `y8wg`: restack the provider PRs on the dual-run root with git-spice.
+- `0cfe`: migrate simple JSONL providers by shadow-comparing each provider.
+- `jwav`: migrate composite and sibling-file providers by shadow-comparing each
+  provider.
+- `aghm`: migrate virtual-path and database-backed providers by shadow-comparing
+  each provider.
+- `1xcx`: add provider/root-scoped stored source-path hint lookup.
+- `9dee`: add stored-hint provider compatibility tests.
+- `kj1f`: move source-processing callers into the dual-run harness.
+- `djyy`: move lookup, watch, export, and usage callers into the dual-run
+  harness.
+- `cff5`: move parse-diff and diagnostics into the dual-run harness.
+- `n489`: remove legacy parser dispatch at the stack tip only.
 
 ## Testing
 
@@ -998,11 +1132,25 @@ Required tests:
   real incremental errors.
 - Parse diagnostic tests proving stable source fields are reported and opaque
   payloads are not serialized or logged.
-- Migration parity tests comparing provider output to current parser/process
-  output after each provider group and before each caller surface becomes
-  provider-backed by default, including skip-cache, data-version writes,
-  persisted source metadata, diagnostics, excluded IDs, and retry-needed
-  behavior.
+- Source-level migration parity tests comparing provider output to current
+  parser/process output before each provider group opts into shadow-compare,
+  including skip-cache, data-version writes, persisted source metadata,
+  diagnostics, excluded IDs, and retry-needed behavior.
+- Caller-level migration parity tests proving full sync, changed-path sync,
+  `SyncSingleSession`, lookup/watch flows, export/source lookup, source mtime,
+  token usage raw-source probing, parse-diff, and diagnostics invoke the same
+  provider runner without changing legacy-authoritative writes during the
+  migration stack.
+- Migration manifest tests that fail when a concrete parse-capable `AgentType`
+  is registered without an explicit mode. Provider implementation PRs must
+  include the manifest change to shadow-compare; import-only providers must be
+  marked explicitly so they are not mistaken for missed migrations. Family
+  helpers must expand to concrete agent entries in tests.
+- Dual-run isolation tests proving provider shadow comparison cannot write
+  sessions, messages, source metadata, data-version rows, skip-cache entries,
+  diagnostics, or SSE-visible state while legacy remains authoritative. These
+  tests compare in-memory planned effects or disposable-store observations, not
+  live production mutations.
 - Sync integration tests for incremental Claude/Codex, multi-session sources,
   parse-diff, source mtime, source lookup, skip cache, usage events, sidecars,
   virtual paths, and title/metadata refreshes.
@@ -1011,7 +1159,8 @@ Required tests:
   source mtime, and parse diagnostics.
 - Generated tooling check for `enumer` output.
 - Adding-provider checklist test that fails until registry, capabilities,
-  fixtures, source behavior, and docs are present.
+  fixtures, source behavior, migration-mode wiring, parity coverage, and docs
+  are present.
 
 ## Error Handling
 
@@ -1051,7 +1200,11 @@ provider:
 ## Success Criteria
 
 - All current providers are registered through the provider facade.
-- `sync.Engine` no longer has a provider-by-provider parse dispatch switch.
+- Before the stack tip, all parse-capable current providers are explicitly
+  listed as shadow-compared in the migration manifest and legacy dispatch
+  remains authoritative.
+- At the stack tip, `sync.Engine` no longer has a provider-by-provider parse
+  dispatch switch.
 - Source shape is not inspected by the engine.
 - Capability reports serialize to readable JSON names.
 - Capability enum generation is pinned and reproducible.
@@ -1063,4 +1216,9 @@ provider:
 - Existing parser and sync tests pass after migration.
 - Parse-diff continues to use the same provider path as normal sync.
 - Adding a provider requires implementing the provider contract and fails tests
-  until capabilities, source behavior, fixtures, and docs are present.
+  until capabilities, source behavior, fixtures, migration-mode wiring, parity
+  coverage, and docs are present.
+- The provider-facade kata tasks listed in this spec are implemented and closed
+  with evidence as their corresponding stack slices are verified.
+- The final stack has no legacy provider/parser dispatch surface left for
+  migrated providers.
