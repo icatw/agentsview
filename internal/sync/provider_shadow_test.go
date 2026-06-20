@@ -246,6 +246,38 @@ func TestCompareProviderObservationIgnoresProviderOnlyRetryReason(t *testing.T) 
 	assert.Empty(t, mismatches)
 }
 
+func TestCompareProviderObservationIgnoresProviderOnlySSEScopes(t *testing.T) {
+	result := parser.ParseResult{
+		Session: parser.ParsedSession{
+			ID:    "codex:one",
+			Agent: parser.AgentCodex,
+			File: parser.FileInfo{
+				Path: "source.jsonl",
+			},
+		},
+	}
+
+	mismatches := compareProviderObservationToProcessResult(
+		ProviderObservation{
+			Results: []parser.ParseResult{result},
+			Planned: ProviderPlannedEffects{
+				SourceKeys: []string{"source.jsonl"},
+				DataVersions: []ProviderPlannedDataVersion{{
+					SessionID: "codex:one",
+					State:     parser.DataVersionCurrent,
+				}},
+				SSEScopes: []string{"sessions"},
+			},
+		},
+		processResult{
+			results: []parser.ParseResult{result},
+		},
+		parser.DiscoveredFile{Path: "source.jsonl"},
+	)
+
+	assert.Empty(t, mismatches)
+}
+
 func TestObserveProviderSourceRejectsProviderMismatch(t *testing.T) {
 	provider := &shadowTestProvider{
 		ProviderBase: parser.ProviderBase{

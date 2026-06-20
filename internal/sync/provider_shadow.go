@@ -213,12 +213,6 @@ func compareProviderObservationToProcessResult(
 			providerPlanned.Diagnostics, legacyPlanned.Diagnostics,
 		))
 	}
-	if !slices.Equal(providerPlanned.SSEScopes, legacyPlanned.SSEScopes) {
-		mismatches = append(mismatches, fmt.Sprintf(
-			"planned.sse_scopes: provider=%v legacy=%v",
-			providerPlanned.SSEScopes, legacyPlanned.SSEScopes,
-		))
-	}
 	if observation.ForceReplace != legacy.forceReplace {
 		mismatches = append(mismatches, fmt.Sprintf(
 			"force_replace: provider=%t legacy=%t",
@@ -342,7 +336,6 @@ type comparablePlanned struct {
 	DataVersions  []comparablePlannedDataVersion
 	SkipCacheKeys []string
 	Diagnostics   []comparablePlannedDiagnostic
-	SSEScopes     []string
 }
 
 type comparablePlannedDataVersion struct {
@@ -362,7 +355,6 @@ func comparablePlannedEffects(planned ProviderPlannedEffects) comparablePlanned 
 	comparable := comparablePlanned{
 		SourceKeys:    slices.Clone(planned.SourceKeys),
 		SkipCacheKeys: slices.Clone(planned.SkipCacheKeys),
-		SSEScopes:     slices.Clone(planned.SSEScopes),
 	}
 	comparable.DataVersions = make(
 		[]comparablePlannedDataVersion,
