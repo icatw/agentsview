@@ -77,6 +77,7 @@ func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, sourcePath, files[0].Path)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+	assert.True(t, files[0].ForceParse)
 }
 
 func writeProcessProviderClaudeSession(
@@ -347,7 +348,7 @@ func TestProcessFileProviderAuthoritativePiebaldDoesNotSkipStoredFreshSource(t *
 	assert.Equal(t, "piebald:42", second.results[0].Session.ID)
 }
 
-func TestProcessFileUsesProviderDBBackedFamily(t *testing.T) {
+func TestProcessFileUsesProviderMigratedAgents(t *testing.T) {
 	for _, agent := range []parser.AgentType{
 		parser.AgentForge,
 		parser.AgentPiebald,
@@ -356,6 +357,7 @@ func TestProcessFileUsesProviderDBBackedFamily(t *testing.T) {
 		assert.True(t, processFileUsesProvider(agent), agent)
 	}
 	assert.False(t, processFileUsesProvider(parser.AgentClaude))
+	assert.False(t, processFileUsesProvider(parser.AgentClaudeAI))
 }
 
 func openProcessProviderForgeDB(t *testing.T, path string) *sql.DB {

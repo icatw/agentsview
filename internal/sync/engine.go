@@ -646,11 +646,7 @@ func providerChangedPathForceParse(
 	eventKind string,
 	mode parser.ProviderMigrationMode,
 ) bool {
-	if processFileUsesProvider(agent) {
-		return eventKind == "remove" &&
-			providerDeletedPhysicalSQLiteSource(agent, sourcePath)
-	}
-	if mode != parser.ProviderMigrationProviderAuthoritative {
+	if !processFileUsesProvider(agent) {
 		return true
 	}
 	if filepath.Clean(sourcePath) != filepath.Clean(eventPath) &&
@@ -4609,14 +4605,19 @@ func (e *Engine) processProviderFile(
 			}, true
 		}
 	}
+	forceReplace := outcome.ForceReplace ||
+		(file.ForceParse &&
+			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path) &&
+			!parser.IsRegularFile(file.Path))
 	cleanCache := providerOutcomeAllowsCleanSkipCache(outcome)
 	if outcome.SkipReason != parser.SkipNone {
 		return processResult{
-			skip:        true,
-			mtime:       fingerprint.MTimeNS,
-			cacheSkip:   cacheSkip,
-			cacheKey:    cacheKey,
-			noCacheSkip: !cleanCache,
+			skip:         true,
+			mtime:        fingerprint.MTimeNS,
+			cacheSkip:    cacheSkip,
+			cacheKey:     cacheKey,
+			noCacheSkip:  !cleanCache,
+			forceReplace: forceReplace,
 		}, true
 	}
 
@@ -4627,7 +4628,7 @@ func (e *Engine) processProviderFile(
 		cacheSkip:             cacheSkip,
 		cacheKey:              cacheKey,
 		noCacheSkip:           !cleanCache,
-		forceReplace:          outcome.ForceReplace,
+		forceReplace:          forceReplace,
 		suppressPresenceSweep: !outcome.ResultSetComplete,
 	}
 	for _, result := range outcome.Results {

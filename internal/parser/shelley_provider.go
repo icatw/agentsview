@@ -296,6 +296,15 @@ func (s shelleySourceSet) Fingerprint(
 	}
 	info, err := os.Stat(src.DBPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return SourceFingerprint{
+				Key: firstNonEmptyJSONLString(
+					source.FingerprintKey,
+					source.Key,
+					src.Path,
+				),
+			}, nil
+		}
 		return SourceFingerprint{}, fmt.Errorf("stat %s: %w", src.DBPath, err)
 	}
 	fingerprint := SourceFingerprint{
