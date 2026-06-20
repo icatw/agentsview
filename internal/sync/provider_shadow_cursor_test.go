@@ -64,6 +64,7 @@ func TestObserveProviderSourceMatchesCursorLegacyParser(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Len(t, observation.Results, 1)
+		assert.Equal(t, legacySession.File.Hash, observation.Fingerprint.Hash)
 		legacySession.File.Hash = observation.Fingerprint.Hash
 
 		assert.Equal(t, *legacySession, observation.Results[0].Session)
