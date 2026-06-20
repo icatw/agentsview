@@ -69,6 +69,40 @@ func TestDeepSeekTUIProviderSourceMethods(t *testing.T) {
 	assert.Equal(t, sourcePath, changed[0].DisplayPath)
 }
 
+func TestDeepSeekTUIProviderFollowsSymlinkedSessionFiles(t *testing.T) {
+	root := t.TempDir()
+	targetPath := filepath.Join(t.TempDir(), "target.json")
+	linkPath := filepath.Join(root, "session_123.json")
+	writeSourceFile(t, targetPath, deepSeekTUIProviderFixture())
+	require.NoError(t, os.Symlink(targetPath, linkPath))
+
+	provider, ok := NewProvider(AgentDeepSeekTUI, ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+
+	discovered, err := provider.Discover(context.Background())
+	require.NoError(t, err)
+	require.Len(t, discovered, 1)
+	assert.Equal(t, linkPath, discovered[0].DisplayPath)
+
+	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID: "session_123",
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, linkPath, found.DisplayPath)
+
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: linkPath, EventKind: "write", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, linkPath, changed[0].DisplayPath)
+}
+
 func TestDeepSeekTUIProviderParse(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "session_123.json")
