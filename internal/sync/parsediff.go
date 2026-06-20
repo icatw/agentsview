@@ -369,8 +369,8 @@ func (e *Engine) parseDiffDatabaseSources(
 
 // sortAndLimitParseDiffFiles orders files newest-first by source
 // mtime (tie-break: path ascending) and applies the file cap. It
-// returns the kept files and the base paths of files cut by the
-// limit, used by the final sweep's "not sampled" reason.
+// returns the kept files and source paths cut by the limit, used by
+// the final sweep's "not sampled" reason.
 func sortAndLimitParseDiffFiles(
 	files []parser.DiscoveredFile, limit int,
 ) ([]parser.DiscoveredFile, map[string]bool, bool) {
@@ -395,7 +395,7 @@ func sortAndLimitParseDiffFiles(
 	if limit > 0 && len(files) > limit {
 		limited = true
 		for _, f := range files[limit:] {
-			cutPaths[stripVirtualSourceSuffix(f.Path)] = true
+			cutPaths[f.Path] = true
 		}
 		files = files[:limit]
 	}
@@ -626,9 +626,17 @@ func (e *Engine) parseDiffCollectFile(
 	// retry state is handled above and should not hide unrelated
 	// missing sessions from the same complete source.
 	if !job.suppressesPresenceSweepForRetry() && !job.suppressPresenceSweep {
-		*presencePaths = append(*presencePaths, base)
+		*presencePaths = append(*presencePaths, parseDiffPresencePath(job.path))
 	}
 	return nil
+}
+
+func parseDiffPresencePath(path string) string {
+	base := stripVirtualSourceSuffix(path)
+	if base != path {
+		return path
+	}
+	return base
 }
 
 // parseDiffPresenceSweep flags stored sessions whose source file
@@ -723,7 +731,10 @@ func parseDiffSweepStored(
 			reason = "source missing"
 		default:
 			base := stripVirtualSourceSuffix(*s.FilePath)
+			path := *s.FilePath
 			switch {
+			case cutPaths[path]:
+				reason = "not sampled (--limit)"
 			case cutPaths[base]:
 				reason = "not sampled (--limit)"
 			case !statExists(base):

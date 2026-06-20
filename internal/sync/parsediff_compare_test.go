@@ -1746,6 +1746,90 @@ func TestResolveParseDiffAgentsUsesProviderDiscoverySupport(t *testing.T) {
 	assert.Contains(t, err.Error(), "has no on-disk source to re-parse")
 }
 
+func TestParseDiffLimitKeepsVirtualPresenceSweepExact(t *testing.T) {
+	dbPath := "/tmp/kilo.db"
+	keptPath := dbPath + "#kept-session"
+	cutPath := dbPath + "#cut-session"
+	kept := &db.Session{
+		ID:          "kept-session",
+		Agent:       string(parser.AgentKilo),
+		FilePath:    &keptPath,
+		DataVersion: db.CurrentDataVersion(),
+	}
+	cut := &db.Session{
+		ID:          "cut-session",
+		Agent:       string(parser.AgentKilo),
+		FilePath:    &cutPath,
+		DataVersion: db.CurrentDataVersion(),
+	}
+	storedByID := map[string]*db.Session{
+		kept.ID: kept,
+		cut.ID:  cut,
+	}
+	storedByPath := map[string][]*db.Session{
+		dbPath:   {kept, cut},
+		keptPath: {kept},
+		cutPath:  {cut},
+	}
+	job := syncJob{
+		path: keptPath,
+		processResult: processResult{
+			results: []parser.ParseResult{{
+				Session: parser.ParsedSession{
+					ID:      kept.ID,
+					Agent:   parser.AgentKilo,
+					Machine: "devbox",
+					Project: "project",
+					File: parser.FileInfo{
+						Path: keptPath,
+					},
+				},
+			}},
+		},
+	}
+	engine := &Engine{db: dbtest.OpenTestDB(t)}
+	report := &ParseDiffReport{FieldCounts: map[string]int{}}
+	visited := map[string]bool{}
+	var presencePaths []string
+
+	err := engine.parseDiffCollectFile(
+		context.Background(),
+		report,
+		job,
+		map[string]parser.AgentType{keptPath: parser.AgentKilo},
+		storedByID,
+		storedByPath,
+		visited,
+		engine.loadWorktreeProjectResolver(),
+		&presencePaths,
+	)
+	require.NoError(t, err)
+	engine.parseDiffPresenceSweep(
+		report,
+		presencePaths,
+		storedByPath,
+		visited,
+	)
+	parseDiffSweepStored(
+		report,
+		[]db.Session{*kept, *cut},
+		map[parser.AgentType]bool{parser.AgentKilo: true},
+		true,
+		map[string]bool{cutPath: true},
+		visited,
+	)
+
+	assert.Equal(t, ParseDiffTotals{Identical: 1, Skipped: 1}, report.Totals)
+	byID := map[string]SessionDiff{}
+	for _, session := range report.Sessions {
+		byID[session.SessionID] = session
+	}
+	require.Contains(t, byID, cut.ID)
+	assert.Equal(t, DiffSkipped, byID[cut.ID].Class)
+	assert.Equal(t, "not sampled (--limit)", byID[cut.ID].Reason)
+	assert.NotEqual(t, DiffChanged, byID[cut.ID].Class)
+}
+
 func TestParseDiffReportHasFailures(t *testing.T) {
 	tests := []struct {
 		name   string
