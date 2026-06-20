@@ -4328,6 +4328,11 @@ func (e *Engine) processFile(
 		info, err = os.Stat(statPath)
 	}
 	if err != nil {
+		if os.IsNotExist(err) &&
+			file.ForceParse &&
+			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path) {
+			return processResult{forceReplace: true}
+		}
 		return processResult{
 			err: fmt.Errorf("stat %s: %w", file.Path, err),
 		}
