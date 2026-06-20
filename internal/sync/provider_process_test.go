@@ -399,6 +399,60 @@ func TestProcessFileProviderAuthoritativeSameSizeRewriteForceReplaces(t *testing
 	assert.Contains(t, res.results[0].Messages[0].Content, "replacement")
 }
 
+func TestProcessFileProviderAuthoritativeSourceErrorsOnlyForceParse(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "data.sqlite3")
+	kiroDB := openProcessProviderKiroDB(t, dbPath)
+	_, err := kiroDB.Exec(
+		`INSERT INTO conversations_v2
+			(key, conversation_id, value, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		"/home/user/code/kiro-app",
+		"malformed-session",
+		"{corrupt",
+		int64(1779012000000),
+		int64(1779012030000),
+	)
+	require.NoError(t, err)
+
+	provider, ok := parser.NewProvider(parser.AgentKiro, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	sources, err := provider.Discover(context.Background())
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentKiro: {root},
+		},
+		Machine: "devbox",
+	})
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            dbPath,
+		Agent:           parser.AgentKiro,
+		ProviderSource:  &sources[0],
+		ProviderProcess: true,
+	})
+	require.NoError(t, res.err)
+	assert.Empty(t, res.results)
+	assert.Empty(t, res.sessionErrs)
+
+	engine.forceParse = true
+	res = engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            dbPath,
+		Agent:           parser.AgentKiro,
+		ProviderSource:  &sources[0],
+		ProviderProcess: true,
+	})
+	require.NoError(t, res.err)
+	require.Len(t, res.sessionErrs, 1)
+	assert.Equal(t, "kiro:malformed-session", res.sessionErrs[0].sessionID)
+	assert.Contains(t, res.sessionErrs[0].err.Error(), "malformed payload")
+}
+
 func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-classify-source-ref"
@@ -499,6 +553,25 @@ func writeProcessProviderClaudeSession(
 		0o644,
 	))
 	return sourcePath
+}
+
+func openProcessProviderKiroDB(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { database.Close() })
+	_, err = database.Exec(`
+		CREATE TABLE conversations_v2 (
+			key TEXT NOT NULL,
+			conversation_id TEXT NOT NULL,
+			value TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (key, conversation_id)
+		);
+	`)
+	require.NoError(t, err)
+	return database
 }
 
 func TestProcessFileProviderAuthoritativeForgeVirtualSource(t *testing.T) {

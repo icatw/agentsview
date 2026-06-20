@@ -4818,7 +4818,7 @@ func (e *Engine) processProviderFile(
 			res.retrySessionIDs[result.Result.Session.ID] = true
 		}
 	}
-	if e.forceParse || file.ForceParse {
+	if e.forceParse {
 		for _, sourceErr := range outcome.SourceErrors {
 			res.sessionErrs = append(res.sessionErrs, sessionParseError{
 				sessionID:   sourceErr.SessionID,
