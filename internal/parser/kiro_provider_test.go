@@ -240,6 +240,15 @@ func TestKiroProviderSkipsShadowedLegacySource(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, KiroSQLiteVirtualPath(dbPath, "shadowed-session"), source.DisplayPath)
+
+	source, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID:      "host~kiro:shadowed-session",
+		StoredFilePath:     shadowedPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, KiroSQLiteVirtualPath(dbPath, "shadowed-session"), source.DisplayPath)
 }
 
 func TestKiroProviderShadowsLegacyAcrossAllRoots(t *testing.T) {

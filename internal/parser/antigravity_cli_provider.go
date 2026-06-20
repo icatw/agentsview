@@ -578,6 +578,9 @@ func (s antigravityCLISourceSet) storedSourceRef(
 		return SourceRef{}, false
 	}
 	projectID := strings.TrimPrefix(id, antigravityImplicitTag)
+	if !allowMissing {
+		return s.sourceRef(root, path, s.projectForID(root, projectID), false)
+	}
 	if currentPath := FindAntigravityCLISourceFile(root, id); currentPath != "" {
 		return s.sourceRef(root, currentPath, s.projectForID(root, projectID), false)
 	}

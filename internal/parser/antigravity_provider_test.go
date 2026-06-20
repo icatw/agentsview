@@ -533,8 +533,18 @@ func TestAntigravityCLIProviderFindSourceRequiresFreshStoredPath(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	stalePath := filepath.Join(t.TempDir(), "implicit", id+".pb")
+	conversationPBPath := filepath.Join(root, "conversations", id+".pb")
+	require.NoError(t, os.Remove(conversationPBPath))
 	source, found, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     conversationPBPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Empty(t, source)
+
+	stalePath := filepath.Join(t.TempDir(), "implicit", id+".pb")
+	source, found, err = provider.FindSource(context.Background(), FindSourceRequest{
 		RawSessionID:       id,
 		StoredFilePath:     stalePath,
 		RequireFreshSource: true,

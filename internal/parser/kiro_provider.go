@@ -358,8 +358,17 @@ func (s kiroSourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path, true); ok {
-				if req.RequireFreshSource && !kiroSourceExists(source) {
-					continue
+				if freshStoredSource {
+					if !kiroSourceExists(source) {
+						continue
+					}
+					if req.RawSessionID != "" {
+						if canonical, ok := s.shadowingSQLiteSource(
+							root, source, req.RawSessionID,
+						); ok {
+							return canonical, true, nil
+						}
+					}
 				}
 				return source, true, nil
 			}
@@ -410,6 +419,28 @@ func kiroSourceExists(source SourceRef) bool {
 	default:
 		return IsRegularFile(src.Path)
 	}
+}
+
+func (s kiroSourceSet) shadowingSQLiteSource(
+	root string,
+	source SourceRef,
+	rawSessionID string,
+) (SourceRef, bool) {
+	src, ok := source.Opaque.(kiroSource)
+	if !ok || src.Kind != kiroSourceLegacyJSONL {
+		return SourceRef{}, false
+	}
+	dbPath := FindKiroSQLiteDBPath(root)
+	if dbPath == "" || !KiroSQLiteSessionExists(dbPath, rawSessionID) {
+		return SourceRef{}, false
+	}
+	return s.newSourceRef(
+		root,
+		KiroSQLiteVirtualPath(dbPath, rawSessionID),
+		dbPath,
+		rawSessionID,
+		kiroSourceSQLiteSession,
+	), true
 }
 
 func (s kiroSourceSet) Fingerprint(
