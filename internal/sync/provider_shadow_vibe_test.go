@@ -49,6 +49,8 @@ func TestObserveProviderSourceMatchesVibeLegacyParser(t *testing.T) {
 
 	assert.Equal(t, *legacySession, observation.Results[0].Session)
 	assert.Equal(t, legacyMessages, observation.Results[0].Messages)
+	require.NotEmpty(t, legacyUsageEvents)
+	require.NotEmpty(t, observation.Results[0].UsageEvents)
 	assert.Equal(t, legacyUsageEvents, observation.Results[0].UsageEvents)
 	assert.Equal(t, []string{"vibe:" + sessionDir}, observation.ExcludedSessionIDs)
 	assert.Equal(t, []string{legacySession.ID}, observation.Planned.DataVersionSessionIDs())
@@ -61,5 +63,7 @@ func vibeShadowMessagesFixture(firstMessage string) string {
 }
 
 func vibeShadowMetaFixture(sessionID, title string) string {
-	return `{"session_id":"` + sessionID + `","title":"` + title + `"}`
+	return `{"session_id":"` + sessionID + `","title":"` + title + `",` +
+		`"config":{"active_model":"mistral-medium-3.5"},` +
+		`"stats":{"session_prompt_tokens":100,"session_completion_tokens":40}}`
 }
