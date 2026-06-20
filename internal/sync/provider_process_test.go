@@ -399,6 +399,106 @@ func TestProcessFileProviderAuthoritativeSameSizeRewriteForceReplaces(t *testing
 	assert.Contains(t, res.results[0].Messages[0].Content, "replacement")
 }
 
+func TestProcessFileProviderAuthoritativeReplacementForceReplaces(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-replaced-file"
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", sessionID+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"old",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+		)),
+		0o644,
+	))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+	oldInode, oldDevice := getFileIdentity(info)
+	if oldInode == 0 || oldDevice == 0 {
+		t.Skip("file identity unavailable")
+	}
+
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+	require.NoError(t, initial.err)
+	require.Len(t, initial.results, 1)
+	written, _, failed := engine.writeBatch(
+		[]pendingWrite{{
+			sess: initial.results[0].Session,
+			msgs: initial.results[0].Messages,
+		}},
+		syncWriteDefault,
+		false,
+	)
+	require.Equal(t, 0, failed)
+	require.Equal(t, 1, written)
+
+	replacementPath := filepath.Join(
+		filepath.Dir(sourcePath),
+		sessionID+"-replacement.jsonl",
+	)
+	require.NoError(t, os.WriteFile(
+		replacementPath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"replacement",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+			testjsonl.ClaudeAssistantJSON(
+				"new assistant",
+				"2026-06-01T10:01:00Z",
+			),
+		)),
+		0o644,
+	))
+	require.NoError(t, os.Rename(replacementPath, sourcePath))
+	replacementInfo, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+	newInode, newDevice := getFileIdentity(replacementInfo)
+	if oldInode == newInode && oldDevice == newDevice {
+		t.Skip("replacement kept same file identity")
+	}
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
+	})
+
+	require.NoError(t, res.err)
+	assert.Nil(t, res.incremental)
+	require.Len(t, res.results, 1)
+	assert.True(t, res.forceReplace)
+	assert.Len(t, res.results[0].Messages, 2)
+	assert.Equal(t, "replacement", res.results[0].Messages[0].Content)
+}
+
 func TestProcessFileProviderAuthoritativeSourceErrorsOnlyForceParse(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "data.sqlite3")

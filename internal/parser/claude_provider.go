@@ -295,10 +295,13 @@ func (s claudeSourceSet) Fingerprint(
 	if err != nil {
 		return SourceFingerprint{}, err
 	}
+	inode, device := sourceFileIdentity(info)
 	return SourceFingerprint{
 		Key:     firstNonEmptyJSONLString(source.FingerprintKey, source.Key, path),
 		Size:    info.Size(),
 		MTimeNS: info.ModTime().UnixNano(),
+		Inode:   inode,
+		Device:  device,
 		Hash:    hash,
 	}, nil
 }

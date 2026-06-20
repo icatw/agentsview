@@ -218,6 +218,7 @@ func (s JSONLSourceSet) Fingerprint(
 	if info.IsDir() {
 		return SourceFingerprint{}, fmt.Errorf("stat %s: source is a directory", path)
 	}
+	inode, device := sourceFileIdentity(info)
 	fingerprint := SourceFingerprint{
 		Key: firstNonEmptyJSONLString(
 			source.FingerprintKey,
@@ -226,6 +227,8 @@ func (s JSONLSourceSet) Fingerprint(
 		),
 		Size:    info.Size(),
 		MTimeNS: info.ModTime().UnixNano(),
+		Inode:   inode,
+		Device:  device,
 	}
 	if s.options.Hash {
 		hash, err := hashJSONLSourceFile(path)

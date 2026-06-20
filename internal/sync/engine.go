@@ -4866,6 +4866,16 @@ func (e *Engine) tryProviderIncremental(
 	if e.db.GetSessionDataVersion(inc.ID) < db.CurrentDataVersion() {
 		return processResult{}, false
 	}
+	if e.providerIncrementalIdentityChanged(inc, fingerprint) {
+		log.Printf(
+			"provider incremental %s %s: file identity changed "+
+				"(inode %d→%d, device %d→%d), full parse",
+			file.Agent, file.Path,
+			inc.FileInode, fingerprint.Inode,
+			inc.FileDevice, fingerprint.Device,
+		)
+		return processResult{forceReplace: true}, false
+	}
 	if e.providerIncrementalFreshnessChanged(ctx, inc, fingerprint) {
 		return processResult{forceReplace: true}, false
 	}
@@ -4968,6 +4978,18 @@ func (e *Engine) tryProviderIncremental(
 			hasPeakContextTokens: hasPeakCtx,
 		},
 	}, true
+}
+
+func (e *Engine) providerIncrementalIdentityChanged(
+	inc *db.IncrementalInfo,
+	fingerprint parser.SourceFingerprint,
+) bool {
+	return inc.FileInode != 0 &&
+		inc.FileDevice != 0 &&
+		fingerprint.Inode != 0 &&
+		fingerprint.Device != 0 &&
+		(uint64(inc.FileInode) != fingerprint.Inode ||
+			uint64(inc.FileDevice) != fingerprint.Device)
 }
 
 func (e *Engine) providerIncrementalFreshnessChanged(
