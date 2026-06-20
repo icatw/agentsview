@@ -69,8 +69,8 @@ func TestCoworkProviderSourceMethods(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, plan.Roots, 1)
 	assert.Equal(t, root, plan.Roots[0].Path)
-	assert.False(t, plan.Roots[0].Recursive)
-	assert.Equal(t, []string{"local_*.json"}, plan.Roots[0].IncludeGlobs)
+	assert.True(t, plan.Roots[0].Recursive)
+	assert.Equal(t, []string{"local_*.json", "*.jsonl"}, plan.Roots[0].IncludeGlobs)
 
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
@@ -140,6 +140,33 @@ func TestCoworkProviderSourceMethods(t *testing.T) {
 			assert.Equal(t, tc.want, changed[0].DisplayPath)
 		})
 	}
+
+	require.NoError(t, os.Remove(metaPath))
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: metaPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, transcript, changed[0].DisplayPath)
+
+	require.NoError(t, os.Remove(transcript))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: transcript, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, transcript, changed[0].DisplayPath)
+
+	require.NoError(t, os.Remove(subagentPath))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: subagentPath, EventKind: "rename", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, subagentPath, changed[0].DisplayPath)
 
 	ignored, err := provider.SourcesForChangedPath(
 		context.Background(),

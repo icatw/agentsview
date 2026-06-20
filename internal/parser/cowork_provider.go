@@ -146,8 +146,8 @@ func (s coworkSourceSet) WatchPlan(context.Context) (WatchPlan, error) {
 	for _, root := range s.roots {
 		roots = append(roots, WatchRoot{
 			Path:         root,
-			Recursive:    false,
-			IncludeGlobs: []string{"local_*.json"},
+			Recursive:    true,
+			IncludeGlobs: []string{"local_*.json", "*.jsonl"},
 			DebounceKey:  string(AgentCowork) + ":metadata:" + root,
 		})
 	}
@@ -161,19 +161,20 @@ func (s coworkSourceSet) SourcesForChangedPath(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	allowMissing := jsonlMissingPathFallbackAllowed(req)
 	if req.WatchRoot != "" {
 		root := filepath.Clean(req.WatchRoot)
 		if !s.hasRoot(root) {
 			return nil, nil
 		}
-		source, ok := s.sourceForChangedPath(root, req.Path)
+		source, ok := s.sourceForChangedPath(root, req.Path, allowMissing)
 		if !ok {
 			return nil, nil
 		}
 		return []SourceRef{source}, nil
 	}
 	for _, root := range s.roots {
-		source, ok := s.sourceForChangedPath(root, req.Path)
+		source, ok := s.sourceForChangedPath(root, req.Path, allowMissing)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -267,12 +268,19 @@ func (s coworkSourceSet) pathFromSource(source SourceRef) (string, bool) {
 	return "", false
 }
 
-func (s coworkSourceSet) sourceForChangedPath(root, path string) (SourceRef, bool) {
+func (s coworkSourceSet) sourceForChangedPath(
+	root,
+	path string,
+	allowMissing bool,
+) (SourceRef, bool) {
 	transcript, ok := ClassifyCoworkPath(root, path)
-	if !ok {
-		return SourceRef{}, false
+	if !ok && allowMissing {
+		transcript, ok = coworkTranscriptForMetadataPath(root, path)
 	}
-	return s.sourceRef(root, transcript)
+	if ok {
+		return s.sourceRef(root, transcript)
+	}
+	return SourceRef{}, false
 }
 
 func (s coworkSourceSet) sourceForPath(root, path string) (SourceRef, bool) {
@@ -335,6 +343,45 @@ func isCoworkTranscriptPath(root, path string) bool {
 		return false
 	}
 	return strings.HasPrefix(base, "agent-")
+}
+
+func coworkTranscriptForMetadataPath(root, path string) (string, bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	rel, ok := relUnder(root, path)
+	if !ok || !isCoworkMetaFileName(filepath.Base(rel)) {
+		return "", false
+	}
+	sessionDir := strings.TrimSuffix(path, ".json")
+	projectsDir := filepath.Join(sessionDir, ".claude", "projects")
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if !isDirOrSymlink(entry, projectsDir) {
+			continue
+		}
+		projectDir := filepath.Join(projectsDir, entry.Name())
+		files, err := os.ReadDir(projectDir)
+		if err != nil {
+			continue
+		}
+		for _, file := range files {
+			if file.IsDir() {
+				continue
+			}
+			name := file.Name()
+			if !strings.HasSuffix(name, ".jsonl") {
+				continue
+			}
+			stem := strings.TrimSuffix(name, ".jsonl")
+			if IsValidSessionID(stem) && !strings.HasPrefix(stem, "agent-") {
+				return filepath.Join(projectDir, name), true
+			}
+		}
+	}
+	return "", false
 }
 
 func coworkProviderCapabilities() Capabilities {
