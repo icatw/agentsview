@@ -5542,6 +5542,15 @@ func (e *Engine) shouldSkipCachedProviderFile(
 		if !ok || storedSize != fingerprint.Size {
 			return false
 		}
+		if fingerprint.Hash != "" {
+			storedHash, ok := e.db.GetFileHashByPath(lookupPath)
+			if !ok || storedHash != fingerprint.Hash {
+				return false
+			}
+		}
+		if e.db.GetDataVersionByPath(lookupPath) < db.CurrentDataVersion() {
+			return false
+		}
 	}
 	return cachedMtime == fingerprint.MTimeNS
 }

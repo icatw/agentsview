@@ -189,6 +189,62 @@ func TestProcessHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 	assert.True(t, second.skip)
 }
 
+func TestProcessProviderHermesArchivePersistsAggregateFingerprintPath(t *testing.T) {
+	root := t.TempDir()
+	stateDB := writeHermesArchiveStateDB(t, root)
+	transcriptPath := filepath.Join(root, "sessions", "child.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcriptPath), 0o755))
+	require.NoError(t, os.WriteFile(
+		transcriptPath,
+		[]byte(
+			`{"role":"session_meta","platform":"cli","timestamp":"2026-05-14T10:00:00.000000"}`+"\n"+
+				`{"role":"user","content":"new transcript","timestamp":"2026-05-14T10:01:00.000000"}`+"\n",
+		),
+		0o644,
+	))
+
+	stateInfo, err := os.Stat(stateDB)
+	require.NoError(t, err)
+	effectiveInfo := hermesArchiveEffectiveInfo(stateDB, stateInfo)
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentHermes: {filepath.Join(root, "sessions")},
+		},
+		Machine: "local",
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  stateDB,
+		Agent: parser.AgentHermes,
+	})
+	require.NoError(t, result.err)
+	require.NotEmpty(t, result.results)
+	for _, parsed := range result.results {
+		assert.Equal(t, stateDB, parsed.Session.File.Path)
+		assert.Equal(t, effectiveInfo.Size(), parsed.Session.File.Size)
+		assert.Equal(t, effectiveInfo.ModTime().UnixNano(), parsed.Session.File.Mtime)
+		assert.NotEmpty(t, parsed.Session.File.Hash)
+	}
+
+	pending := make([]pendingWrite, 0, len(result.results))
+	for _, parsed := range result.results {
+		pending = append(pending, pendingWrite{
+			sess:        parsed.Session,
+			msgs:        parsed.Messages,
+			usageEvents: parsed.UsageEvents,
+		})
+	}
+	written, _, failed := engine.writeBatch(pending, syncWriteDefault, true)
+	require.Equal(t, 0, failed)
+	require.NotZero(t, written)
+
+	storedSize, storedMtime, ok := database.GetFileInfoByPath(stateDB)
+	require.True(t, ok)
+	assert.Equal(t, effectiveInfo.Size(), storedSize)
+	assert.Equal(t, effectiveInfo.ModTime().UnixNano(), storedMtime)
+}
+
 func TestSyncSingleHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 	root := t.TempDir()
 	stateDB := writeHermesArchiveStateDB(t, root)

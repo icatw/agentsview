@@ -138,6 +138,9 @@ func applyHermesArchiveFingerprint(
 	fingerprint SourceFingerprint,
 ) {
 	for i := range results {
+		if fingerprint.Key != "" {
+			results[i].Session.File.Path = fingerprint.Key
+		}
 		if fingerprint.Size != 0 {
 			results[i].Session.File.Size = fingerprint.Size
 		}
