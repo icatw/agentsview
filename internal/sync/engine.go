@@ -874,6 +874,9 @@ func (e *Engine) classifyContainerPath(
 	if df, ok := e.classifyShelleySQLitePath(path); ok {
 		return df, true
 	}
+	if df, ok := e.classifyHermesPath(path, pathExists); ok {
+		return df, true
+	}
 	if df, ok := e.classifyVibePath(path); ok {
 		return df, true
 	}
@@ -1709,6 +1712,86 @@ func (e *Engine) classifyVisualStudioCopilotPath(
 		}, true
 	}
 	return parser.DiscoveredFile{}, false
+}
+
+func (e *Engine) classifyHermesPath(
+	path string,
+	pathExists bool,
+) (parser.DiscoveredFile, bool) {
+	path = filepath.Clean(path)
+	for _, root := range e.agentDirs[parser.AgentHermes] {
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		stateDB, sessionsDir, archive := hermesSyncArchivePaths(root, path)
+		if archive {
+			if filepath.Clean(path) == filepath.Clean(stateDB) {
+				if !pathExists {
+					continue
+				}
+				return parser.DiscoveredFile{
+					Path:  stateDB,
+					Agent: parser.AgentHermes,
+				}, true
+			}
+			if hermesSyncTranscriptPath(sessionsDir, path) {
+				return parser.DiscoveredFile{
+					Path:  stateDB,
+					Agent: parser.AgentHermes,
+				}, true
+			}
+			continue
+		}
+		if !pathExists || !hermesSyncTranscriptPath(root, path) {
+			continue
+		}
+		return parser.DiscoveredFile{
+			Path:  path,
+			Agent: parser.AgentHermes,
+		}, true
+	}
+	return parser.DiscoveredFile{}, false
+}
+
+func hermesSyncArchivePaths(
+	root string,
+	path string,
+) (stateDB, sessionsDir string, ok bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	switch filepath.Base(root) {
+	case "state.db":
+		return root, filepath.Join(filepath.Dir(root), "sessions"), true
+	case "sessions":
+		return filepath.Join(filepath.Dir(root), "state.db"), root, true
+	}
+	stateDB = filepath.Join(root, "state.db")
+	sessionsDir = filepath.Join(root, "sessions")
+	if filepath.Clean(path) == filepath.Clean(stateDB) ||
+		parser.IsRegularFile(stateDB) || hermesSyncDirExists(sessionsDir) {
+		return stateDB, sessionsDir, true
+	}
+	return "", "", false
+}
+
+func hermesSyncDirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info == nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+func hermesSyncTranscriptPath(dir string, path string) bool {
+	dir = filepath.Clean(dir)
+	path = filepath.Clean(path)
+	if filepath.Dir(path) != dir {
+		return false
+	}
+	name := filepath.Base(path)
+	return strings.HasSuffix(name, ".jsonl") ||
+		(strings.HasPrefix(name, "session_") && strings.HasSuffix(name, ".json"))
 }
 
 // classifyVibePath handles Vibe's session directory layout:
