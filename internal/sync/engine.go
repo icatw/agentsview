@@ -2561,31 +2561,9 @@ func (e *Engine) ResyncAll(
 	// restores those rows immediately after the sync pass.
 	// A few permanent parse failures are tolerated since those
 	// files were broken in the old DB too.
-	emptyDiscovery := stats.filesDiscovered == 0 &&
-		stats.filesOK == 0 &&
-		oldFileSessions > 0
-	preservedOnly := stats.Synced == 0 &&
-		stats.TotalSessions > 0 &&
-		stats.Failed == 0 &&
-		(oldFileSessions == 0 || trashedCopied > 0)
-	excludedOnly := stats.Synced == 0 &&
-		stats.TotalSessions > 0 &&
-		stats.Failed == 0 &&
-		stats.parserExcludedFiles > 0 &&
-		stats.filesOK == stats.parserExcludedFiles
-	noSessionOnly := stats.Synced == 0 &&
-		stats.TotalSessions > 0 &&
-		stats.Failed == 0 &&
-		stats.noSessionFiles > 0 &&
-		stats.filesOK == stats.noSessionFiles
-	abortSwap := stats.Aborted ||
-		emptyDiscovery ||
-		(stats.Synced == 0 &&
-			stats.TotalSessions > 0 &&
-			!preservedOnly &&
-			!excludedOnly &&
-			!noSessionOnly) ||
-		(stats.Failed > 0 && stats.Failed > stats.filesOK)
+	abortSwap := resyncShouldAbortSwap(
+		stats, oldFileSessions, trashedCopied,
+	)
 	if abortSwap {
 		log.Printf(
 			"resync: aborting swap, %d synced / %d failed / %d total",
@@ -2815,6 +2793,33 @@ func (e *Engine) ResyncAll(
 	// Emission happens via the deferred closure above, after
 	// syncMu is released.
 	return
+}
+
+func resyncShouldAbortSwap(
+	stats SyncStats,
+	oldFileSessions int,
+	trashedCopied int,
+) bool {
+	emptyDiscovery := stats.filesDiscovered == 0 &&
+		stats.filesOK == 0 &&
+		oldFileSessions > 0
+	preservedOnly := stats.Synced == 0 &&
+		stats.TotalSessions > 0 &&
+		stats.Failed == 0 &&
+		(oldFileSessions == 0 || trashedCopied > 0)
+	intentionalNoWriteFiles := stats.parserExcludedFiles + stats.noSessionFiles
+	intentionalNoWriteOnly := stats.Synced == 0 &&
+		stats.TotalSessions > 0 &&
+		stats.Failed == 0 &&
+		intentionalNoWriteFiles > 0 &&
+		stats.filesOK == intentionalNoWriteFiles
+	return stats.Aborted ||
+		emptyDiscovery ||
+		(stats.Synced == 0 &&
+			stats.TotalSessions > 0 &&
+			!preservedOnly &&
+			!intentionalNoWriteOnly) ||
+		(stats.Failed > 0 && stats.Failed > stats.filesOK)
 }
 
 // removeTempDB removes a temp database and its WAL/SHM files.

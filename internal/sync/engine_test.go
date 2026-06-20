@@ -2287,6 +2287,17 @@ func TestCollectAndBatchCountsNoSessionProviderFilesOK(t *testing.T) {
 	assert.Equal(t, 1, stats.noSessionFiles)
 }
 
+func TestResyncAbortAllowsMixedIntentionalNoWriteProgress(t *testing.T) {
+	stats := SyncStats{
+		TotalSessions:       2,
+		filesOK:             2,
+		parserExcludedFiles: 1,
+		noSessionFiles:      1,
+	}
+
+	assert.False(t, resyncShouldAbortSwap(stats, 2, 0))
+}
+
 func TestEngine_ClassifyPathsOpenCodeRemovedPartDir(
 	t *testing.T,
 ) {
