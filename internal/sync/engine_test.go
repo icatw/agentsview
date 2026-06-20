@@ -1134,7 +1134,12 @@ func TestSyncSingleSession_QwenPawPreservesWorkspaceFromDB(t *testing.T) {
 // the sidecar set or the session never reparses.
 func TestProcessAntigravityWALOnlyUpdateNotSkipped(t *testing.T) {
 	database := openTestDB(t)
-	e := &Engine{db: database}
+	e := &Engine{
+		db: database,
+		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentAntigravity: parser.ProviderMigrationShadowCompare,
+		},
+	}
 	ctx := context.Background()
 
 	root := t.TempDir()
@@ -1191,7 +1196,12 @@ func TestProcessAntigravityWALOnlyUpdateNotSkipped(t *testing.T) {
 
 func TestProcessVibeMetaOnlyUpdateNotSkipped(t *testing.T) {
 	database := openTestDB(t)
-	e := &Engine{db: database}
+	e := &Engine{
+		db: database,
+		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentVibe: parser.ProviderMigrationShadowCompare,
+		},
+	}
 	ctx := context.Background()
 
 	root := t.TempDir()
@@ -1256,7 +1266,12 @@ func TestProcessVibeMetaOnlyUpdateNotSkipped(t *testing.T) {
 
 func TestProcessAntigravityBrainOnlyUpdateNotSkipped(t *testing.T) {
 	database := openTestDB(t)
-	e := &Engine{db: database}
+	e := &Engine{
+		db: database,
+		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentAntigravity: parser.ProviderMigrationShadowCompare,
+		},
+	}
 	ctx := context.Background()
 
 	root := t.TempDir()

@@ -4514,7 +4514,22 @@ func (e *Engine) processFile(
 	if res, ok := e.processProviderFile(ctx, file); ok {
 		return res
 	}
+	if e.providerMigrationModes[file.Agent] != parser.ProviderMigrationShadowCompare {
+		return processResult{
+			err: fmt.Errorf(
+				"%s provider-authoritative processing did not handle %s",
+				file.Agent,
+				file.Path,
+			),
+		}
+	}
+	return e.processLegacyShadowFile(ctx, file)
+}
 
+func (e *Engine) processLegacyShadowFile(
+	ctx context.Context,
+	file parser.DiscoveredFile,
+) processResult {
 	var info os.FileInfo
 	var err error
 	switch file.Agent {
