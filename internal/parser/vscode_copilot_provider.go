@@ -397,7 +397,9 @@ func (s vscodeCopilotSourceSet) sourcesForWorkspaceManifest(
 	if project == "" {
 		project = "unknown"
 	}
-	files := discoverVSCodeSessionFiles(chatDir, entries, project)
+	files := discoverVSCodeSessionFiles(
+		chatDir, entries, project, AgentVSCodeCopilot,
+	)
 	sources := make([]SourceRef, 0, len(files))
 	seen := make(map[string]struct{}, len(files))
 	for _, file := range files {

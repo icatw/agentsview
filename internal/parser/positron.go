@@ -94,21 +94,11 @@ func DiscoverPositronSessions(userDir string) []DiscoveredFile {
 			project = "unknown"
 		}
 
-		for _, f := range sessionFiles {
-			if f.IsDir() {
-				continue
-			}
-			name := f.Name()
-			if !strings.HasSuffix(name, ".json") &&
-				!strings.HasSuffix(name, ".jsonl") {
-				continue
-			}
-			files = append(files, DiscoveredFile{
-				Path:    filepath.Join(chatDir, name),
-				Project: project,
-				Agent:   AgentPositron,
-			})
-		}
+		files = append(files,
+			discoverVSCodeSessionFiles(
+				chatDir, sessionFiles, project, AgentPositron,
+			)...,
+		)
 	}
 
 	return files

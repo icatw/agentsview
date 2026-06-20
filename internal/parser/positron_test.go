@@ -106,11 +106,13 @@ func TestDiscoverPositronSessions(t *testing.T) {
 		0644,
 	))
 
-	// Create session files
+	// Create session files. The .json file with a .jsonl sibling must be
+	// deduped so full discovery matches changed-path sync precedence.
 	sessionJSON := `{"version": 3, "requests": []}`
 	for _, name := range []string{
 		"session-1.json",
 		"session-2.jsonl",
+		"session-2.json",
 	} {
 		require.NoError(t, os.WriteFile(
 			filepath.Join(chatDir, name),
@@ -129,10 +131,13 @@ func TestDiscoverPositronSessions(t *testing.T) {
 	files := DiscoverPositronSessions(tmpDir)
 	require.Len(t, files, 2)
 
+	paths := make([]string, 0, len(files))
 	for _, f := range files {
+		paths = append(paths, filepath.Base(f.Path))
 		assert.Equal(t, AgentPositron, f.Agent)
 		assert.Equal(t, "myproject", f.Project)
 	}
+	assert.ElementsMatch(t, []string{"session-1.json", "session-2.jsonl"}, paths)
 }
 
 func TestFindPositronSourceFile(t *testing.T) {

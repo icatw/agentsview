@@ -3411,6 +3411,13 @@ func discoveredFileMtime(
 		}
 		return vibeEffectiveInfo(file.Path, info).ModTime().UnixNano(), nil
 	}
+	if file.Agent == parser.AgentPositron {
+		info, err := os.Stat(file.Path)
+		if err != nil {
+			return 0, err
+		}
+		return positronEffectiveInfo(file.Path, info).ModTime().UnixNano(), nil
+	}
 
 	info, err := os.Stat(file.Path)
 	if err != nil {
@@ -6781,6 +6788,20 @@ func (e *Engine) positronEffectiveInfo(
 	if workspacePath == "" {
 		return info
 	}
+	return positronEffectiveInfoWithWorkspace(info, workspacePath)
+}
+
+func positronEffectiveInfo(path string, info os.FileInfo) os.FileInfo {
+	workspacePath := positronWorkspaceManifestPathFromSession(path)
+	if workspacePath == "" {
+		return info
+	}
+	return positronEffectiveInfoWithWorkspace(info, workspacePath)
+}
+
+func positronEffectiveInfoWithWorkspace(
+	info os.FileInfo, workspacePath string,
+) os.FileInfo {
 	workspaceInfo, err := os.Stat(workspacePath)
 	if err != nil || workspaceInfo.IsDir() {
 		return info
@@ -6791,6 +6812,25 @@ func (e *Engine) positronEffectiveInfo(
 		mtime = workspaceMtime
 	}
 	return fakeSnapshotInfo{fSize: size, fMtime: mtime}
+}
+
+func positronWorkspaceManifestPathFromSession(path string) string {
+	path = filepath.Clean(path)
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	if len(parts) < 4 {
+		return ""
+	}
+	n := len(parts)
+	if parts[n-4] != "workspaceStorage" ||
+		parts[n-2] != "chatSessions" ||
+		(!strings.HasSuffix(parts[n-1], ".json") &&
+			!strings.HasSuffix(parts[n-1], ".jsonl")) {
+		return ""
+	}
+	return filepath.Join(
+		filepath.Dir(filepath.Dir(path)),
+		"workspace.json",
+	)
 }
 
 func (e *Engine) positronCompositeHash(path string) (string, error) {

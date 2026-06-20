@@ -1626,6 +1626,7 @@ func DiscoverVSCodeCopilotSessions(
 			files = append(files,
 				discoverVSCodeSessionFiles(
 					chatDir, sessionFiles, project,
+					AgentVSCodeCopilot,
 				)...,
 			)
 		}
@@ -1644,6 +1645,7 @@ func DiscoverVSCodeCopilotSessions(
 		files = append(files,
 			discoverVSCodeSessionFiles(
 				globalDir, globalFiles, "empty-window",
+				AgentVSCodeCopilot,
 			)...,
 		)
 	}
@@ -1658,7 +1660,7 @@ func DiscoverVSCodeCopilotSessions(
 // session files from a directory, preferring .jsonl when
 // both exist for the same UUID.
 func discoverVSCodeSessionFiles(
-	dir string, entries []os.DirEntry, project string,
+	dir string, entries []os.DirEntry, project string, agent AgentType,
 ) []DiscoveredFile {
 	// Collect UUIDs that have .jsonl files
 	hasJSONL := make(map[string]bool)
@@ -1684,7 +1686,7 @@ func discoverVSCodeSessionFiles(
 			files = append(files, DiscoveredFile{
 				Path:    filepath.Join(dir, name),
 				Project: project,
-				Agent:   AgentVSCodeCopilot,
+				Agent:   agent,
 			})
 		} else if uuid, ok := strings.CutSuffix(name, ".json"); ok {
 			// Skip .json if a .jsonl exists for the same UUID
@@ -1694,7 +1696,7 @@ func discoverVSCodeSessionFiles(
 			files = append(files, DiscoveredFile{
 				Path:    filepath.Join(dir, name),
 				Project: project,
-				Agent:   AgentVSCodeCopilot,
+				Agent:   agent,
 			})
 		}
 	}
