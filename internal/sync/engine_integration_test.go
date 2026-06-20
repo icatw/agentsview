@@ -6973,6 +6973,47 @@ func TestIncrementalSync_ClaudeSameSizeFileReplaceUsesFullParse(t *testing.T) {
 	assert.Equal(t, "bravo", msgs[1].Content)
 }
 
+func TestIncrementalSync_ClaudeSameSizeInPlaceRewriteClearsStaleRows(t *testing.T) {
+	env := setupTestEnv(t)
+
+	original := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON("first", tsZero),
+		testjsonl.ClaudeAssistantJSON("stale assistant", tsZeroS5),
+	)
+	path := env.writeClaudeSession(
+		t, "proj", "same-size-in-place.jsonl", original,
+	)
+	env.engine.SyncAll(context.Background(), nil)
+	assertSessionMessageCount(t, env.db, "same-size-in-place", 2)
+
+	replacement := ""
+	for padding := range 4096 {
+		candidate := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"replacement"+strings.Repeat("x", padding),
+				tsZero,
+			),
+		)
+		if len(candidate) == len(original) {
+			replacement = candidate
+			break
+		}
+	}
+	require.NotEmpty(t, replacement, "failed to build same-size replacement fixture")
+	require.Len(t, replacement, len(original), "replacement fixture must keep same byte size")
+
+	require.NoError(t, os.WriteFile(path, []byte(replacement), 0o644), "write in-place replacement")
+	now := time.Now().Add(time.Second)
+	require.NoError(t, os.Chtimes(path, now, now), "bump replacement mtime")
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionMessageCount(t, env.db, "same-size-in-place", 1)
+	msgs := fetchMessages(t, env.db, "same-size-in-place")
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "replacement")
+}
+
 // TestIncrementalSync_ClaudeMidStreamSplitFallsBackToFullParse covers
 // the cross-sync split case: the first sync stores a partial assistant
 // snapshot (one of several streaming snapshots) and the next sync

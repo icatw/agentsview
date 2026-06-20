@@ -5140,7 +5140,11 @@ func (e *Engine) tryIncrementalJSONL(
 		return processResult{forceReplace: true}, false
 	}
 	if currentSize == inc.FileSize {
-		return processResult{}, false
+		log.Printf(
+			"incremental %s %s: file size unchanged at %d but changed since last sync, full parse",
+			agent, file.Path, currentSize,
+		)
+		return processResult{forceReplace: true}, false
 	}
 
 	maxOrd := e.db.MaxOrdinal(inc.ID)
