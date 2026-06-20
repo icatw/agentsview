@@ -954,9 +954,12 @@ helpers but keep side effects isolated:
    helper. Depending on the caller, this may come from provider discovery,
    `SourcesForChangedPath`, or `FindSource`; the comparison layer must not teach
    the engine provider-specific path formats.
-1. Normalize both outputs into the same comparison shape: full session IDs,
-   parsed message/tool/usage content, excluded IDs, skip reasons, retry state,
-   data-version state, source metadata, and per-session errors.
+1. Normalize both outputs into the same comparison shape for the surface being
+   exercised. The root `processFile` comparison covers full session IDs, parsed
+   message/tool/usage content, excluded IDs, retry state, data-version state,
+   source metadata, and per-session errors. Source-level provider tests and
+   later caller tasks own `SkipReason` parity until the legacy side exposes a
+   comparable skip-reason projection.
 1. Represent provider-side effects as in-memory planned effects, not live DB
    mutations. Planned effects include source metadata writes, data-version
    writes, skip-cache updates, and diagnostics. Integration tests may
@@ -1022,7 +1025,10 @@ keep the blocking kata/review item open.
 
 Provider branches must exercise this transition with shared tests rather than
 only provider-local unit tests. The branch is considered migrated only when the
-manifest entry and parity tests are present.
+manifest entry and parity tests are present. Deferred parity items such as
+provider-only retry-reason text, SSE scopes, and caller-specific skip-reason
+mapping are promotion gates for provider-authoritative mode; they cannot remain
+open at the stack tip where legacy dispatch is removed.
 
 If a provider that moved to shadow-compare proves flaky, its manifest entry can
 return to legacy-only with a reason and an open kata task or review note. The

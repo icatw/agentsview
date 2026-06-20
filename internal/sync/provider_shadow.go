@@ -45,7 +45,8 @@ type ProviderShadowComparison struct {
 
 // ProviderPlannedEffects describes writes the provider path would have made.
 // Shadow mode compares these in memory; it does not receive live DB, skip-cache,
-// diagnostic, or SSE writers.
+// or diagnostic writers. SSE scopes are carried for later caller work but are
+// not part of the root processResult comparison.
 type ProviderPlannedEffects struct {
 	SourceKeys    []string
 	DataVersions  []ProviderPlannedDataVersion

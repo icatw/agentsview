@@ -239,11 +239,11 @@ coverage one behavior group at a time.
 **Step 1: Wire remaining source-processing callers into shadow comparison**
 
 Move changed-path sync and `SyncSingleSession` semantics into the caller-level
-dual-run wrapper without adding a duplicate `processFile` hook. The wrapper must
-read the migration manifest, run legacy authoritatively, run provider
-observation for `shadow-compare` agents, compare parsed output and planned
-effects, and leave live DB/diagnostic/SSE state driven only by the legacy
-result.
+dual-run wrapper without adding a duplicate `processFile` hook. These callers
+reuse the shared `processFile` observation for parse comparison, then add
+caller-specific source selection, stored-source hints, and acceptance assertions
+around that observation. They must leave live DB/diagnostic/SSE state driven
+only by the legacy result.
 
 **Step 2: Add lookup/watch/diagnostic caller coverage**
 
