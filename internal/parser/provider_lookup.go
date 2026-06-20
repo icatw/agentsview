@@ -35,3 +35,8 @@ func providerRawSessionIDFromFull(def AgentDef, id string) string {
 	}
 	return strings.TrimPrefix(rawID, def.IDPrefix)
 }
+
+func providerRequiresFreshStoredSource(req FindSourceRequest) bool {
+	return req.RequireFreshSource &&
+		(req.StoredFilePath != "" || req.FingerprintKey != "")
+}

@@ -165,6 +165,8 @@ func TestKiroProviderFindSourceRequiresFreshStoredVirtualSession(t *testing.T) {
 		1779012000000, 1779012030000,
 	)
 	virtualPath := KiroSQLiteVirtualPath(dbPath, "sqlite-session")
+	legacyPath := filepath.Join(root, "sqlite-session.jsonl")
+	writeSourceFile(t, legacyPath, kiroProviderJSONLFixture("Legacy fallback"))
 	provider, ok := NewProvider(AgentKiro, ProviderConfig{Roots: []string{root}})
 	require.True(t, ok)
 
@@ -183,11 +185,27 @@ func TestKiroProviderFindSourceRequiresFreshStoredVirtualSession(t *testing.T) {
 	assert.Empty(t, source)
 
 	source, found, err = provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID:       "sqlite-session",
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Empty(t, source)
+
+	source, found, err = provider.FindSource(context.Background(), FindSourceRequest{
 		StoredFilePath: virtualPath,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, virtualPath, source.DisplayPath)
+
+	source, found, err = provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID: "sqlite-session",
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, legacyPath, source.DisplayPath)
 }
 
 func TestKiroProviderSkipsShadowedLegacySource(t *testing.T) {

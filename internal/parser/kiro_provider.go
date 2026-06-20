@@ -337,7 +337,8 @@ func (s kiroSourceSet) FindSource(
 	if err := ctx.Err(); err != nil {
 		return SourceRef{}, false, err
 	}
-	if req.RawSessionID != "" {
+	freshStoredSource := providerRequiresFreshStoredSource(req)
+	if !freshStoredSource && req.RawSessionID != "" {
 		for _, root := range s.roots {
 			dbPath := FindKiroSQLiteDBPath(root)
 			if dbPath != "" && KiroSQLiteSessionExists(dbPath, req.RawSessionID) {
@@ -363,6 +364,9 @@ func (s kiroSourceSet) FindSource(
 				return source, true, nil
 			}
 		}
+	}
+	if freshStoredSource {
+		return SourceRef{}, false, nil
 	}
 	if req.RawSessionID == "" {
 		return SourceRef{}, false, nil
