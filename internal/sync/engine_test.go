@@ -1134,15 +1134,15 @@ func TestSyncSingleSession_QwenPawPreservesWorkspaceFromDB(t *testing.T) {
 // the sidecar set or the session never reparses.
 func TestProcessAntigravityWALOnlyUpdateNotSkipped(t *testing.T) {
 	database := openTestDB(t)
-	e := &Engine{
-		db: database,
-		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentAntigravity: parser.ProviderMigrationShadowCompare,
+	root := t.TempDir()
+	e := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentAntigravity: {root},
 		},
-	}
+		Machine: "devbox",
+	})
 	ctx := context.Background()
 
-	root := t.TempDir()
 	convDir := filepath.Join(root, "conversations")
 	require.NoError(t, os.MkdirAll(convDir, 0o755))
 	dbPath := filepath.Join(
@@ -1196,15 +1196,15 @@ func TestProcessAntigravityWALOnlyUpdateNotSkipped(t *testing.T) {
 
 func TestProcessVibeMetaOnlyUpdateNotSkipped(t *testing.T) {
 	database := openTestDB(t)
-	e := &Engine{
-		db: database,
-		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentVibe: parser.ProviderMigrationShadowCompare,
+	root := t.TempDir()
+	e := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentVibe: {root},
 		},
-	}
+		Machine: "devbox",
+	})
 	ctx := context.Background()
 
-	root := t.TempDir()
 	sessionDir := filepath.Join(root, "session_20260616_083518_0107f266")
 	require.NoError(t, os.MkdirAll(sessionDir, 0o755))
 
@@ -1266,15 +1266,15 @@ func TestProcessVibeMetaOnlyUpdateNotSkipped(t *testing.T) {
 
 func TestProcessAntigravityBrainOnlyUpdateNotSkipped(t *testing.T) {
 	database := openTestDB(t)
-	e := &Engine{
-		db: database,
-		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentAntigravity: parser.ProviderMigrationShadowCompare,
+	root := t.TempDir()
+	e := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentAntigravity: {root},
 		},
-	}
+		Machine: "devbox",
+	})
 	ctx := context.Background()
 
-	root := t.TempDir()
 	convDir := filepath.Join(root, "conversations")
 	require.NoError(t, os.MkdirAll(convDir, 0o755))
 	id := "abcdabcd-1111-2222-3333-444455557777"

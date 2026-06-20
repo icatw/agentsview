@@ -17,104 +17,7 @@ import (
 	"go.kenn.io/agentsview/internal/testjsonl"
 )
 
-func TestProcessFileShadowObservesProviderWithoutReplacingLegacy(t *testing.T) {
-	root := t.TempDir()
-	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-caller.jsonl")
-	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
-	require.NoError(t, os.WriteFile(
-		sourcePath,
-		[]byte(testjsonl.JoinJSONL(
-			testjsonl.ClaudeUserJSON(
-				"compare through the caller",
-				"2026-06-01T10:00:00Z",
-				"/Users/dev/code/demo",
-			),
-			testjsonl.ClaudeAssistantJSON(
-				"provider stayed shadow-only",
-				"2026-06-01T10:01:00Z",
-			),
-		)),
-		0o644,
-	))
-
-	legacyResults, legacyExcluded, err := parser.ParseClaudeSessionWithExclusions(
-		sourcePath, "demo", "devbox",
-	)
-	require.NoError(t, err)
-	require.Len(t, legacyResults, 1)
-	require.Empty(t, legacyExcluded)
-	info, err := os.Stat(sourcePath)
-	require.NoError(t, err)
-	providerResult := legacyResults[0]
-	providerResult.Session.File.Inode, providerResult.Session.File.Device = getFileIdentity(info)
-	hash, err := ComputeFileHash(sourcePath)
-	require.NoError(t, err)
-	providerResult.Session.File.Hash = hash
-
-	source := parser.SourceRef{
-		Provider:       parser.AgentClaude,
-		Key:            sourcePath,
-		DisplayPath:    sourcePath,
-		FingerprintKey: sourcePath,
-		ProjectHint:    "demo",
-	}
-	provider := &shadowCallerProvider{
-		shadowTestProvider: shadowTestProvider{
-			ProviderBase: parser.ProviderBase{
-				Def: parser.AgentDef{
-					Type:        parser.AgentClaude,
-					DisplayName: "Claude Code",
-				},
-			},
-			fingerprint: parser.SourceFingerprint{
-				Key:     sourcePath,
-				Size:    info.Size(),
-				MTimeNS: info.ModTime().UnixNano(),
-			},
-			outcome: parser.ParseOutcome{
-				Results: []parser.ParseResultOutcome{{
-					Result:      providerResult,
-					DataVersion: parser.DataVersionCurrent,
-				}},
-				ResultSetComplete: true,
-			},
-		},
-		source: source,
-	}
-	var comparisons []ProviderShadowComparison
-	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
-		AgentDirs: map[parser.AgentType][]string{
-			parser.AgentClaude: {root},
-		},
-		Machine: "devbox",
-		ProviderFactories: []parser.ProviderFactory{
-			shadowCallerFactory{provider: provider},
-		},
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
-		ProviderShadowRecorder: func(comparison ProviderShadowComparison) {
-			comparisons = append(comparisons, comparison)
-		},
-	})
-
-	result := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  sourcePath,
-		Agent: parser.AgentClaude,
-	})
-
-	require.NoError(t, result.err)
-	require.Len(t, result.results, 1)
-	assert.Equal(t, "shadow-caller", result.results[0].Session.ID)
-	assert.Equal(t, parser.AgentClaude, result.results[0].Session.Agent)
-	require.Len(t, comparisons, 1)
-	assert.NoError(t, comparisons[0].Err)
-	assert.Empty(t, comparisons[0].Mismatches)
-	assert.Equal(t, sourcePath, comparisons[0].File.Path)
-	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
-}
-
-func TestClassifyProviderChangedPathPassesStoredHintsToShadowProvider(
+func TestClassifyProviderChangedPathPassesStoredHintsToProvider(
 	t *testing.T,
 ) {
 	root := t.TempDir()
@@ -156,9 +59,6 @@ func TestClassifyProviderChangedPathPassesStoredHintsToShadowProvider(
 		ProviderFactories: []parser.ProviderFactory{
 			shadowCallerFactory{provider: provider},
 		},
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
 	})
 
 	files := engine.classifyPaths([]string{eventPath})
@@ -170,13 +70,13 @@ func TestClassifyProviderChangedPathPassesStoredHintsToShadowProvider(
 	require.Len(t, files, 1)
 	assert.Equal(t, storedPath, files[0].Path)
 	assert.Equal(t, "demo", files[0].Project)
-	assert.True(t, files[0].ForceParse)
-	assert.False(t, files[0].ProviderProcess)
+	assert.False(t, files[0].ForceParse)
+	assert.True(t, files[0].ProviderProcess)
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, storedPath, files[0].ProviderSource.DisplayPath)
 }
 
-func TestClassifyProviderChangedPathRunsAlongsideLegacyClassifier(
+func TestClassifyProviderChangedPathUsesProviderClassifier(
 	t *testing.T,
 ) {
 	root := t.TempDir()
@@ -221,9 +121,6 @@ func TestClassifyProviderChangedPathRunsAlongsideLegacyClassifier(
 		ProviderFactories: []parser.ProviderFactory{
 			shadowCallerFactory{provider: provider},
 		},
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
 	})
 
 	files := engine.classifyPaths([]string{sourcePath})
@@ -232,13 +129,13 @@ func TestClassifyProviderChangedPathRunsAlongsideLegacyClassifier(
 	assert.Equal(t, sourcePath, provider.changedRequests[0].Path)
 	require.Len(t, files, 1)
 	assert.Equal(t, sourcePath, files[0].Path)
-	assert.True(t, files[0].ForceParse)
-	assert.False(t, files[0].ProviderProcess)
+	assert.False(t, files[0].ForceParse)
+	assert.True(t, files[0].ProviderProcess)
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
 }
 
-func TestProcessFileShadowUsesChangedPathProviderSource(t *testing.T) {
+func TestProcessFileProviderAuthoritativeUsesChangedPathProviderSource(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-provider-source.jsonl")
 	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
@@ -303,7 +200,6 @@ func TestProcessFileShadowUsesChangedPathProviderSource(t *testing.T) {
 		},
 		findFound: &findFound,
 	}
-	var comparisons []ProviderShadowComparison
 	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
 			parser.AgentClaude: {root},
@@ -313,25 +209,20 @@ func TestProcessFileShadowUsesChangedPathProviderSource(t *testing.T) {
 			shadowCallerFactory{provider: provider},
 		},
 		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
-		ProviderShadowRecorder: func(comparison ProviderShadowComparison) {
-			comparisons = append(comparisons, comparison)
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
 		},
 	})
 
 	result := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:           sourcePath,
-		Agent:          parser.AgentClaude,
-		ForceParse:     true,
-		ProviderSource: &changedSource,
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ForceParse:      true,
+		ProviderSource:  &changedSource,
+		ProviderProcess: true,
 	})
 
 	require.NoError(t, result.err)
-	require.Len(t, comparisons, 1)
-	assert.NoError(t, comparisons[0].Err)
-	assert.Empty(t, comparisons[0].Mismatches)
-	assert.Equal(t, changedSource, comparisons[0].Source)
+	require.Len(t, result.results, 1)
 	assert.Equal(t, changedSource, provider.parseRequest.Source)
 	assert.True(t, provider.parseRequest.ForceParse)
 	assert.Empty(t, provider.findRequest)
@@ -396,70 +287,6 @@ func TestClassifyProviderChangedPathMarksAuthoritativeProviderProcess(
 	assert.False(t, files[0].ForceParse)
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
-}
-
-func TestProcessFileShadowRecordsCachedSkipAsNotComparable(t *testing.T) {
-	root := t.TempDir()
-	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-skip.jsonl")
-	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
-	require.NoError(t, os.WriteFile(
-		sourcePath,
-		[]byte(testjsonl.JoinJSONL(
-			testjsonl.ClaudeUserJSON(
-				"already cached",
-				"2026-06-01T10:00:00Z",
-				"/Users/dev/code/demo",
-			),
-		)),
-		0o644,
-	))
-	info, err := os.Stat(sourcePath)
-	require.NoError(t, err)
-
-	provider := &shadowCallerProvider{
-		shadowTestProvider: shadowTestProvider{
-			ProviderBase: parser.ProviderBase{
-				Def: parser.AgentDef{
-					Type:        parser.AgentClaude,
-					DisplayName: "Claude Code",
-				},
-			},
-		},
-		source: parser.SourceRef{
-			Provider: parser.AgentClaude,
-			Key:      sourcePath,
-		},
-	}
-	var comparisons []ProviderShadowComparison
-	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
-		AgentDirs: map[parser.AgentType][]string{
-			parser.AgentClaude: {root},
-		},
-		Machine: "devbox",
-		ProviderFactories: []parser.ProviderFactory{
-			shadowCallerFactory{provider: provider},
-		},
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
-		ProviderShadowRecorder: func(comparison ProviderShadowComparison) {
-			comparisons = append(comparisons, comparison)
-		},
-	})
-	engine.InjectSkipCache(map[string]int64{
-		sourcePath: info.ModTime().UnixNano(),
-	})
-
-	result := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  sourcePath,
-		Agent: parser.AgentClaude,
-	})
-
-	require.True(t, result.skip)
-	require.Len(t, comparisons, 1)
-	assert.Equal(t, "legacy skip", comparisons[0].NotComparableReason)
-	assert.Empty(t, comparisons[0].Mismatches)
-	assert.Empty(t, provider.calls)
 }
 
 func TestProcessFileProviderAuthoritativeUsesInjectedProvider(t *testing.T) {
@@ -921,66 +748,6 @@ func TestProcessFileProviderAuthoritativeNotFoundErrors(t *testing.T) {
 
 	require.Error(t, result.err)
 	assert.Contains(t, result.err.Error(), "provider source not found")
-	assert.Empty(t, provider.calls)
-}
-
-func TestSyncSingleSessionShadowModeUsesStoredPathFallback(t *testing.T) {
-	root := t.TempDir()
-	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-single.jsonl")
-	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
-	require.NoError(t, os.WriteFile(
-		sourcePath,
-		[]byte(testjsonl.JoinJSONL(
-			testjsonl.ClaudeUserJSON(
-				"shadow single",
-				"2026-06-01T10:00:00Z",
-				"/Users/dev/code/demo",
-			),
-			testjsonl.ClaudeAssistantJSON(
-				"legacy remains authoritative",
-				"2026-06-01T10:01:00Z",
-			),
-		)),
-		0o644,
-	))
-	findFound := false
-	provider := &shadowCallerProvider{
-		shadowTestProvider: shadowTestProvider{
-			ProviderBase: parser.ProviderBase{
-				Def: parser.AgentDef{
-					Type:        parser.AgentClaude,
-					DisplayName: "Claude Code",
-				},
-			},
-		},
-		findFound: &findFound,
-	}
-	database := dbtest.OpenTestDB(t)
-	filePath := sourcePath
-	require.NoError(t, database.UpsertSession(db.Session{
-		ID:       "shadow-single",
-		Project:  "demo",
-		Machine:  "devbox",
-		Agent:    string(parser.AgentClaude),
-		FilePath: &filePath,
-	}))
-	engine := NewEngine(database, EngineConfig{
-		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
-		Machine:   "devbox",
-		ProviderFactories: []parser.ProviderFactory{
-			shadowCallerFactory{provider: provider},
-		},
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
-	})
-
-	require.NoError(t, engine.SyncSingleSession("shadow-single"))
-
-	sess, err := database.GetSession(context.Background(), "shadow-single")
-	require.NoError(t, err)
-	require.NotNil(t, sess)
-	assert.Equal(t, "demo", sess.Project)
 	assert.Empty(t, provider.calls)
 }
 

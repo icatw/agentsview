@@ -17,12 +17,12 @@ provider migrations before they reach an authoritative stack tip. It is valid as
 a manifest mode, but the tip-level manifest test requires every non-import
 provider to be authoritative.
 
-`provider-authoritative` currently makes the provider registry and migration
-manifest authoritative for provider construction. Full sync-engine dispatch
-authority is still tracked separately by kata issue `n489`: after caller-level
-migration blockers are complete, the stack tip must remove the remaining
-provider-by-provider legacy parser dispatch and old `AgentDef` source callback
-surface.
+`provider-authoritative` currently makes the provider registry, migration
+manifest, and sync-engine `processFile` dispatch authoritative for parse-capable
+providers. Kata issue `n489` remains open for the final cleanup of dead legacy
+parser wrappers and the old `AgentDef` source callback surface, but the stack
+tip no longer falls back to the provider-by-provider legacy `processFile`
+switch.
 
 ## Purpose
 
@@ -1278,7 +1278,8 @@ adds these blocking tasks:
 - `djyy`: move lookup, watch, export, and usage callers into the dual-run
   harness.
 - `cff5`: move parse-diff and diagnostics into the dual-run harness.
-- `n489`: remove legacy parser dispatch at the stack tip only.
+- `n489`: remove stack-tip legacy dispatch and finish dead legacy callback
+  cleanup.
 
 ## Testing
 

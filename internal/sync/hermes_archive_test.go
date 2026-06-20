@@ -151,10 +151,10 @@ func TestProcessHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 		Machine: "local",
 	})
 
-	res := engine.processHermes(parser.DiscoveredFile{
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
 		Path:  stateDB,
 		Agent: parser.AgentHermes,
-	}, stateInfo)
+	})
 
 	require.NoError(t, res.err)
 	require.NotEmpty(t, res.results)
@@ -181,10 +181,10 @@ func TestProcessHermesArchivePersistsAggregateFingerprint(t *testing.T) {
 	assert.Equal(t, effectiveInfo.Size(), storedSize)
 	assert.Equal(t, effectiveInfo.ModTime().UnixNano(), storedMtime)
 
-	second := engine.processHermes(parser.DiscoveredFile{
+	second := engine.processFile(context.Background(), parser.DiscoveredFile{
 		Path:  stateDB,
 		Agent: parser.AgentHermes,
-	}, stateInfo)
+	})
 	require.NoError(t, second.err)
 	assert.True(t, second.skip)
 }

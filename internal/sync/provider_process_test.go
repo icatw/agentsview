@@ -949,9 +949,6 @@ func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 			parser.AgentClaude: {root},
 		},
 		Machine: "devbox",
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
-		},
 	})
 
 	files := engine.classifyProviderChangedPath(sourcePath)
@@ -960,8 +957,8 @@ func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, sourcePath, files[0].Path)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
-	assert.True(t, files[0].ForceParse)
-	assert.False(t, files[0].ProviderProcess)
+	assert.False(t, files[0].ForceParse)
+	assert.True(t, files[0].ProviderProcess)
 }
 
 func TestClassifyPathsAttachesProviderSourceForProviderProcess(t *testing.T) {
@@ -1179,9 +1176,6 @@ func TestClassifyProviderChangedPathUsesConfiguredFactories(t *testing.T) {
 				agent:      parser.AgentClaude,
 				sourcePath: sourcePath,
 			},
-		},
-		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
-			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
 		},
 	})
 
