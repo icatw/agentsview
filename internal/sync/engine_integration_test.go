@@ -6914,6 +6914,65 @@ func TestIncrementalSync_ClaudeFileReplaced(t *testing.T) {
 	assert.Equal(t, newInfo.Size(), *full.FileSize, "file_size = %v, want %d (full-parse size)", *full.FileSize, newInfo.Size())
 }
 
+func TestIncrementalSync_ClaudeTruncatedFileReplacesStoredMessages(t *testing.T) {
+	env := setupTestEnv(t)
+
+	original := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON("first", tsZero),
+		testjsonl.ClaudeAssistantJSON("stale assistant", tsZeroS5),
+	)
+	path := env.writeClaudeSession(
+		t, "proj", "truncated-replace.jsonl", original,
+	)
+	env.engine.SyncAll(context.Background(), nil)
+	assertSessionMessageCount(t, env.db, "truncated-replace", 2)
+
+	replacement := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON("replacement", tsZero),
+	)
+	require.Less(t, len(replacement), len(original), "replacement must truncate file")
+	require.NoError(t, os.WriteFile(path, []byte(replacement), 0o644), "write truncated replacement")
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionMessageCount(t, env.db, "truncated-replace", 1)
+	msgs := fetchMessages(t, env.db, "truncated-replace")
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "replacement", msgs[0].Content)
+}
+
+func TestIncrementalSync_ClaudeSameSizeFileReplaceUsesFullParse(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("identity tracking is a no-op on Windows")
+	}
+	env := setupTestEnv(t)
+
+	original := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON("first", tsZero),
+		testjsonl.ClaudeAssistantJSON("alpha", tsZeroS5),
+	)
+	path := env.writeClaudeSession(
+		t, "proj", "same-size-replace.jsonl", original,
+	)
+	env.engine.SyncAll(context.Background(), nil)
+
+	replacement := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON("third", tsZero),
+		testjsonl.ClaudeAssistantJSON("bravo", tsZeroS5),
+	)
+	require.Len(t, replacement, len(original), "replacement fixture must keep same byte size")
+	tmp := path + ".tmp"
+	require.NoError(t, os.WriteFile(tmp, []byte(replacement), 0o644), "write replacement")
+	require.NoError(t, os.Rename(tmp, path), "rename replacement")
+
+	env.engine.SyncPaths([]string{path})
+
+	msgs := fetchMessages(t, env.db, "same-size-replace")
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "third", msgs[0].Content)
+	assert.Equal(t, "bravo", msgs[1].Content)
+}
+
 // TestIncrementalSync_ClaudeMidStreamSplitFallsBackToFullParse covers
 // the cross-sync split case: the first sync stores a partial assistant
 // snapshot (one of several streaming snapshots) and the next sync

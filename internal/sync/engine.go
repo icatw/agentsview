@@ -5111,9 +5111,6 @@ func (e *Engine) tryIncrementalJSONL(
 	}
 
 	currentSize := info.Size()
-	if currentSize <= inc.FileSize {
-		return processResult{}, false
-	}
 
 	// If the file was replaced (different inode/device), fall
 	// back to a full parse so we don't append on top of stale
@@ -5132,8 +5129,18 @@ func (e *Engine) tryIncrementalJSONL(
 				inc.FileInode, curInode,
 				inc.FileDevice, curDevice,
 			)
-			return processResult{}, false
+			return processResult{forceReplace: true}, false
 		}
+	}
+	if currentSize < inc.FileSize {
+		log.Printf(
+			"incremental %s %s: file truncated from %d to %d, full parse",
+			agent, file.Path, inc.FileSize, currentSize,
+		)
+		return processResult{forceReplace: true}, false
+	}
+	if currentSize == inc.FileSize {
+		return processResult{}, false
 	}
 
 	maxOrd := e.db.MaxOrdinal(inc.ID)

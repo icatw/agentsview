@@ -310,7 +310,7 @@ func TestClaudeProviderParseIncrementalTruncatedNeedsFullParse(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, IncrementalNeedsFullParse, status)
-	assert.False(t, outcome.ForceReplace)
+	assert.True(t, outcome.ForceReplace)
 }
 
 func claudeProviderFixture(firstMessage string) string {

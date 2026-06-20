@@ -124,7 +124,8 @@ func (p *claudeProvider) ParseIncremental(
 	}
 	if req.Fingerprint.Size > 0 {
 		if req.Fingerprint.Size < req.Offset {
-			return IncrementalOutcome{}, IncrementalNeedsFullParse, nil
+			return IncrementalOutcome{ForceReplace: true},
+				IncrementalNeedsFullParse, nil
 		}
 		if req.Fingerprint.Size == req.Offset {
 			return IncrementalOutcome{}, IncrementalNoNewData, nil
