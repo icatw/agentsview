@@ -864,6 +864,51 @@ func TestProcessFileProviderAuthoritativeSourceErrorsOnlyForceParse(t *testing.T
 	assert.Contains(t, res.sessionErrs[0].err.Error(), "malformed payload")
 }
 
+func TestProcessFileProviderAuthoritativeMissingSourceDoesNotFallBack(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, "provider-missing-source",
+	)
+	findFound := false
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		findFound: &findFound,
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ForceParse:      true,
+		ProviderProcess: true,
+	})
+
+	require.Error(t, res.err)
+	assert.Contains(t, res.err.Error(), "provider source not found")
+	assert.Empty(t, res.results)
+	assert.Equal(t, sourcePath, provider.findRequest.StoredFilePath)
+}
+
 func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-classify-source-ref"

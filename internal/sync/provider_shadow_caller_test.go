@@ -886,7 +886,7 @@ func TestProcessFileProviderAuthoritativeForceParseAllowsStaleSourceLookup(t *te
 	assert.True(t, provider.parseRequest.ForceParse)
 }
 
-func TestProcessFileProviderAuthoritativeNotFoundFallsBack(t *testing.T) {
+func TestProcessFileProviderAuthoritativeNotFoundErrors(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "missing-provider-owned.jsonl")
 	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
@@ -918,7 +918,8 @@ func TestProcessFileProviderAuthoritativeNotFoundFallsBack(t *testing.T) {
 		Agent: parser.AgentClaude,
 	})
 
-	require.NoError(t, result.err)
+	require.Error(t, result.err)
+	assert.Contains(t, result.err.Error(), "provider source not found")
 	assert.Empty(t, provider.calls)
 }
 

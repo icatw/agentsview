@@ -4844,10 +4844,8 @@ func (e *Engine) recordProviderShadowComparison(
 
 // processProviderFile owns parsing only in ProviderAuthoritative mode. Shadow
 // mode observes elsewhere while legacy remains authoritative. In authoritative
-// mode a resolved provider source is required except for explicit force parses
-// and DB-backed physical-file events that still need legacy fallback while the
-// stack migrates caller by caller. Ambiguous changed-path lookups deliberately
-// fall back to legacy by returning found=false from providerSourceForDiscoveredFile.
+// mode a resolved provider source is required; ambiguous changed-path lookups
+// report a provider lookup error instead of falling back to legacy parsing.
 func (e *Engine) processProviderFile(
 	ctx context.Context,
 	file parser.DiscoveredFile,
@@ -4876,9 +4874,6 @@ func (e *Engine) processProviderFile(
 		return processResult{err: err}, true
 	}
 	if !found {
-		if file.ForceParse || !file.ProviderProcess || providerNotFoundFallsBack(file) {
-			return processResult{}, false
-		}
 		return processResult{
 			err: fmt.Errorf(
 				"%s provider source not found for %s",
@@ -5720,14 +5715,6 @@ func providerSourceSupportsPersistedFreshness(agent parser.AgentType) bool {
 		return false
 	}
 	return agent != ""
-}
-
-func providerNotFoundFallsBack(file parser.DiscoveredFile) bool {
-	if isOpenCodeFormatStorageAgent(file.Agent) &&
-		filepath.Base(file.Path) == openCodeFormatDBName(file.Agent) {
-		return true
-	}
-	return false
 }
 
 func providerSkipLookupPath(
@@ -10110,7 +10097,11 @@ func (e *Engine) SyncSingleSessionContext(
 		return err
 	}
 
-	path := e.FindSourceFile(sessionID)
+	_, singleSource, singleSourceFound := e.findProviderSource(ctx, sessionID)
+	path := ""
+	if singleSourceFound {
+		path = providerDiscoveredPath(singleSource)
+	}
 	if path == "" &&
 		e.providerMigrationModes[def.Type] == parser.ProviderMigrationProviderAuthoritative {
 		path = e.db.GetSessionFilePath(sessionID)
@@ -10164,6 +10155,11 @@ func (e *Engine) SyncSingleSessionContext(
 		Path:       path,
 		Agent:      agent,
 		ForceParse: true,
+	}
+	if singleSourceFound && singleSource.Provider == agent {
+		sourceCopy := singleSource
+		file.ProviderSource = &sourceCopy
+		file.ProviderProcess = e.providerProcessEnabled(agent)
 	}
 	if e.shouldCacheSkip(file) {
 		e.clearSkip(path)
