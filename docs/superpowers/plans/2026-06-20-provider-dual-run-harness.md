@@ -18,6 +18,50 @@ database.
 **Tech Stack:** Go 1.26, `testing`, `github.com/stretchr/testify`, git-spice
 stacked branches.
 
+**Migration mode semantics:**
+
+- `legacy-only`: only the legacy parser/sync path runs and writes. This is the
+  default for legacy adapter providers and is allowed for concrete providers
+  only with an explicit rollback note and open follow-up task.
+- `shadow-compare`: the legacy path remains authoritative for DB writes,
+  skip-cache persistence, data-version rows, source metadata, diagnostics, SSE,
+  and return values. The provider path runs through the shared provider runner
+  and produces normalized in-memory planned effects. Tests compare those planned
+  effects against the legacy outcome; runtime mismatches are developer
+  diagnostics only and must not create user-visible parse diagnostics.
+- `provider-authoritative`: the provider path owns writes and return values and
+  the old provider-specific legacy branch is gone. This mode is reserved for the
+  stack tip after every parse-capable provider has passed shadow comparison.
+- `import-only`: the provider is intentionally excluded from filesystem parse
+  comparison because it represents non-filesystem import/export metadata rather
+  than a parser replacement.
+
+Promotion requires fixture evidence for parsed sessions, exclusions, skip-cache
+keys, data-version state, source metadata, diagnostics, retry state, and
+source-key/session-ID compatibility. Rollback means moving the manifest entry
+back to `legacy-only`, recording the reason in kata/review notes, and leaving
+the legacy path authoritative until the mismatch is fixed.
+
+Provider observations must reject cross-provider output before planning effects:
+`ParseResult.Session.Agent` must equal the provider `AgentType`; session IDs in
+results, exclusions, and diagnostics must use the provider's persisted ID prefix
+when one exists; diagnostic source keys must refer to the observed source or a
+provider-owned virtual source derived from it.
+
+`ProviderPlannedEffects` is an engine-shaped comparison model, not a second
+writer. Its source key is the fingerprint key when available, then
+`SourceRef.FingerprintKey`, then `SourceRef.Key`. Its skip-cache key follows the
+same engine order used for persisted skip decisions. Its data-version entries
+match the rows the legacy engine would stamp after successful writes, including
+retry state from `DataVersionNeedsRetry`. Its diagnostics mirror parse
+diagnostics without inserting them into the live store.
+
+Performance rule: shadow comparison may double-parse a source only while that
+provider is actively migrating. Large roots and shared database providers need
+fixture or benchmark coverage before promotion, and caller-level shadow wiring
+must keep provider failures from blocking legacy writes unless a test is
+explicitly asserting the mismatch.
+
 ______________________________________________________________________
 
 ### Task 1: Provider Migration Manifest
@@ -117,7 +161,9 @@ Add tests that use a fake provider to prove the helper:
 - calls `Fingerprint` before `Parse`;
 - converts `ParseOutcome` into an observation;
 - records planned data-version/source/diagnostic effects in memory;
-- never accepts a mismatched `SourceRef.Provider`.
+- never accepts a mismatched `SourceRef.Provider`;
+- rejects provider results, exclusions, and diagnostics whose agent or persisted
+  session-ID namespace belongs to another provider.
 
 The main test should assert:
 
@@ -162,8 +208,9 @@ type ProviderObservation struct {
 ```
 
 `ObserveProviderSource` checks the source/provider type match, calls
-`Fingerprint`, calls `Parse`, and builds in-memory planned effects. It must not
-accept a `db.DB`, `Engine`, writer callback, or mutable skip-cache reference.
+`Fingerprint`, calls `Parse`, validates provider output invariants, and builds
+in-memory planned effects. It must not accept a `db.DB`, `Engine`, writer
+callback, or mutable skip-cache reference.
 
 - [ ] **Step 4: Run the sync tests and verify GREEN**
 
@@ -175,11 +222,40 @@ go test -tags "fts5" ./internal/sync -run TestObserveProviderSource -count=1
 
 Expected: PASS.
 
-### Task 3: Validation And Commit
+### Task 3: Caller-Level Wiring Follow-Up
 
 **Files:**
 
-- Modify as needed from Tasks 1-2.
+- Add/modify in the later sync migration branch, not this root harness branch.
+
+- [ ] **Step 1: Wire production callers into shadow comparison**
+
+Move full sync, changed-path sync, and `SyncSingleSession` into a caller-level
+dual-run wrapper. The wrapper must read the migration manifest, run legacy
+authoritatively, run provider observation for `shadow-compare` agents, compare
+parsed output and planned effects, and leave live DB/diagnostic/SSE state driven
+only by the legacy result.
+
+- [ ] **Step 2: Add lookup/watch/diagnostic caller coverage**
+
+Move session watch flows, export/source lookup, source mtime, token-usage raw
+source probing, parse-diff, and parse diagnostics through the same provider
+runner. Tests must cover source lookup freshness, virtual paths, source mtime,
+raw probing behavior, report shape, and source-error behavior.
+
+- [ ] **Step 3: Define runtime mismatch reporting**
+
+Mismatches are test failures in shared parity tests. Runtime mismatch reporting
+is developer-only logging or debug diagnostics and must include provider, source
+key, fingerprint key, mode, field path, legacy value summary, provider value
+summary, and whether fingerprinting or parsing failed. It must not persist
+user-visible parse diagnostics while `shadow-compare` is active.
+
+### Task 4: Validation And Commit
+
+**Files:**
+
+- Modify as needed from Tasks 1-3.
 
 - [ ] **Step 1: Format and verify**
 
@@ -207,14 +283,15 @@ git add docs/superpowers/plans/2026-06-20-provider-dual-run-harness.md internal/
 git commit -m "feat(parser): add provider migration harness"
 ```
 
-- [ ] **Step 3: Restack and submit**
+- [ ] **Step 3: Restack locally when explicitly authorized**
 
-Run:
+If the user has explicitly authorized branch changes and restacking for this
+session, run:
 
 ```bash
 git-spice upstack restack
-git-spice stack submit --update-only --no-web --nav-comment=false
 ```
 
-Expected: dependent provider PRs are replayed on the harness branch and existing
-draft PRs are updated without creating new PRs.
+Expected: dependent provider branches are replayed on the harness branch and
+conflicts are resolved provider by provider. Do not push, submit, or update PRs
+unless the user has separately authorized that network operation.

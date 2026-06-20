@@ -863,10 +863,18 @@ entries for related providers, but tests must expand the family to every
 concrete `AgentType`; a family-level entry is not enough to mark an individual
 parse-capable provider migrated.
 
-- legacy-only: only the existing sync path runs;
-- shadow-compare: legacy runs and writes, provider runs through the new generic
-  path, and tests compare normalized outcomes;
-- provider-authoritative: provider dispatch writes and the old path is absent.
+- legacy-only: only the existing sync path runs and writes. This is the normal
+  mode for legacy adapter providers. A concrete provider may move back to this
+  mode only as a documented rollback with an open follow-up task.
+- shadow-compare: legacy runs and writes; provider runs through the new generic
+  path and produces normalized in-memory planned effects. Tests compare those
+  effects against the legacy outcome. Runtime mismatches are developer
+  diagnostics only; they must not persist user-visible parse diagnostics or
+  change SSE-visible state.
+- provider-authoritative: provider dispatch writes, returns the caller result,
+  and the old provider-specific legacy path is absent. This is reserved for the
+  stack-tip cleanup after every parse-capable provider has passed shadow
+  comparison.
 - import-only: the provider exists for non-filesystem import/export metadata and
   is intentionally excluded from parse shadow comparison.
 
@@ -959,6 +967,49 @@ helpers but keep side effects isolated:
    user-visible parse diagnostics or SSE-visible state. The provider side must
    not mutate persisted session state while in shadow-compare mode.
 
+`ProviderPlannedEffects` must match the legacy engine's observable write model,
+not an abstract parser-local model:
+
+- source metadata keys use the provider fingerprint key when present, then
+  `SourceRef.FingerprintKey`, then `SourceRef.Key`;
+- skip-cache keys follow the same key order the legacy engine uses before a
+  persisted skip decision;
+- data-version entries represent the concrete session rows the engine would
+  stamp after successful writes, including `DataVersionNeedsRetry` and its retry
+  reason;
+- diagnostics mirror the legacy parse diagnostic fields, including display path,
+  source key, session ID, error, and retryability, but are never written to the
+  live diagnostics table in shadow mode;
+- SSE scopes are comparison data only until the stack reaches
+  provider-authoritative mode.
+
+Provider output must be namespaced before it can produce planned effects.
+`ParseResult.Session.Agent` must equal the provider `AgentType`; result,
+exclusion, and diagnostic session IDs must use the provider's persisted
+`AgentDef.IDPrefix` when the provider has one; diagnostic source keys must refer
+to the observed source or to a provider-owned virtual source derived from that
+source. Cross-provider sessions are not legal in shadow mode because they make
+parity false positives indistinguishable from real legacy behavior.
+
+Fingerprint failures and parse failures are compared separately. A fingerprint
+failure means no provider parse was attempted and the mismatch report records a
+fingerprint failure. A parse failure after a successful fingerprint records the
+fingerprint key and parse error. Neither failure may block the legacy write path
+while the mode is `shadow-compare`.
+
+Mismatch reports must include provider, migration mode, source key, fingerprint
+key, comparison field path, a bounded legacy summary, a bounded provider
+summary, and whether the mismatch came from discovery, fingerprint, parse
+output, planned effects, or runtime failure. Runtime reporting is developer-only
+logging or debug output until a later task defines persistence.
+
+Shadow comparison can double-parse large sources while a provider migrates.
+Provider PRs that touch large roots, shared SQLite sources, or composite sources
+need fixture coverage or benchmarks that show fingerprinting and shadow parse
+overhead are acceptable before promotion. The rollback rule is to move the
+manifest entry back to `legacy-only`, leave the legacy path authoritative, and
+keep the blocking kata/review item open.
+
 Provider branches must exercise this transition with shared tests rather than
 only provider-local unit tests. The branch is considered migrated only when the
 manifest entry and parity tests are present.
@@ -1007,10 +1058,11 @@ sequence:
 1. Add JSONL source-set helpers and tests for simple file-backed JSONL
    providers.
 1. Use `git-spice` to restack the provider branches on the root harness branch
-   after that lower branch changes. The stack must be verified with
-   `gs log short`, conflicts resolved provider by provider, and updates
-   submitted with git-spice so every PR includes both provider implementation
-   and migration wiring.
+   after that lower branch changes when the user has explicitly authorized
+   branch changes for the session. The stack must be verified with
+   `gs log short` and conflicts resolved provider by provider. Pushing,
+   submitting, or updating PRs is a separate network operation and requires
+   separate explicit authorization.
 1. Migrate simple JSONL providers with acceptance tests for discovery,
    fingerprint, parse output, skip-cache metadata, and data-version behavior.
    Each provider PR must move its affected concrete `AgentType` entries from

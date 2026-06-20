@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.kenn.io/agentsview/internal/parser"
 )
@@ -105,6 +106,9 @@ func ObserveProviderSource(
 	if err != nil {
 		return ProviderObservation{}, err
 	}
+	if err := validateProviderOutcome(def, req.Source, fingerprint, outcome); err != nil {
+		return ProviderObservation{}, err
+	}
 
 	observation := ProviderObservation{
 		Fingerprint:        fingerprint,
@@ -116,6 +120,84 @@ func ObserveProviderSource(
 	}
 	observation.Planned = planProviderEffects(req.Source, fingerprint, outcome)
 	return observation, nil
+}
+
+func validateProviderOutcome(
+	def parser.AgentDef,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+	outcome parser.ParseOutcome,
+) error {
+	for _, result := range outcome.Results {
+		session := result.Result.Session
+		if session.Agent != def.Type {
+			return fmt.Errorf(
+				"%s: provider result session agent mismatch for %q: got %s",
+				def.Type,
+				session.ID,
+				session.Agent,
+			)
+		}
+		if err := validateProviderSessionID(def, session.ID, "result session id"); err != nil {
+			return err
+		}
+	}
+	for _, sessionID := range outcome.ExcludedSessionIDs {
+		if err := validateProviderSessionID(def, sessionID, "excluded session id"); err != nil {
+			return err
+		}
+	}
+	for _, sourceErr := range outcome.SourceErrors {
+		if err := validateProviderSessionID(def, sourceErr.SessionID, "diagnostic session id"); err != nil {
+			return err
+		}
+		if !providerSourceKeyMatches(source, fingerprint, sourceErr.SourceKey) {
+			return fmt.Errorf(
+				"%s: provider diagnostic source key %q is unrelated to source %q",
+				def.Type,
+				sourceErr.SourceKey,
+				source.Key,
+			)
+		}
+	}
+	return nil
+}
+
+func validateProviderSessionID(def parser.AgentDef, sessionID, field string) error {
+	if sessionID == "" || def.IDPrefix == "" {
+		return nil
+	}
+	if strings.HasPrefix(sessionID, def.IDPrefix) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s: provider %s %q must use prefix %q",
+		def.Type,
+		field,
+		sessionID,
+		def.IDPrefix,
+	)
+}
+
+func providerSourceKeyMatches(
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+	sourceKey string,
+) bool {
+	if sourceKey == "" {
+		return true
+	}
+	for _, candidate := range []string{fingerprint.Key, source.FingerprintKey, source.Key} {
+		if candidate == "" {
+			continue
+		}
+		if sourceKey == candidate || strings.HasPrefix(sourceKey, candidate+"#") ||
+			strings.HasPrefix(sourceKey, candidate+"::") ||
+			strings.HasPrefix(sourceKey, candidate+"|") {
+			return true
+		}
+	}
+	return false
 }
 
 func parseOutcomeResults(outcomes []parser.ParseResultOutcome) []parser.ParseResult {

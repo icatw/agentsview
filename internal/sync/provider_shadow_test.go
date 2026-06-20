@@ -119,6 +119,118 @@ func TestObserveProviderSourceRejectsProviderMismatch(t *testing.T) {
 	assert.Empty(t, provider.calls)
 }
 
+func TestObserveProviderSourceRejectsCrossProviderResult(t *testing.T) {
+	provider := &shadowTestProvider{
+		ProviderBase: parser.ProviderBase{
+			Def: parser.AgentDef{
+				Type:        parser.AgentCodex,
+				DisplayName: "Codex",
+				IDPrefix:    "codex:",
+			},
+		},
+		outcome: parser.ParseOutcome{
+			Results: []parser.ParseResultOutcome{
+				{
+					Result: parser.ParseResult{
+						Session: parser.ParsedSession{
+							ID:    "codex:one",
+							Agent: parser.AgentClaude,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	observation, err := ObserveProviderSource(context.Background(), provider, ProviderObserveRequest{
+		Source: parser.SourceRef{
+			Provider: parser.AgentCodex,
+			Key:      "source-key",
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session agent")
+	assert.Contains(t, err.Error(), string(parser.AgentClaude))
+	assert.Contains(t, err.Error(), string(parser.AgentCodex))
+	assert.Empty(t, observation)
+	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
+}
+
+func TestObserveProviderSourceRejectsForeignSessionID(t *testing.T) {
+	provider := &shadowTestProvider{
+		ProviderBase: parser.ProviderBase{
+			Def: parser.AgentDef{
+				Type:        parser.AgentCodex,
+				DisplayName: "Codex",
+				IDPrefix:    "codex:",
+			},
+		},
+		outcome: parser.ParseOutcome{
+			Results: []parser.ParseResultOutcome{
+				{
+					Result: parser.ParseResult{
+						Session: parser.ParsedSession{
+							ID:    "claude:one",
+							Agent: parser.AgentCodex,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	observation, err := ObserveProviderSource(context.Background(), provider, ProviderObserveRequest{
+		Source: parser.SourceRef{
+			Provider: parser.AgentCodex,
+			Key:      "source-key",
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session id")
+	assert.Contains(t, err.Error(), "claude:one")
+	assert.Contains(t, err.Error(), "codex:")
+	assert.Empty(t, observation)
+	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
+}
+
+func TestObserveProviderSourceRejectsUnrelatedDiagnosticSourceKey(t *testing.T) {
+	sourceErr := errors.New("bad source")
+	provider := &shadowTestProvider{
+		ProviderBase: parser.ProviderBase{
+			Def: parser.AgentDef{
+				Type:        parser.AgentCodex,
+				DisplayName: "Codex",
+				IDPrefix:    "codex:",
+			},
+		},
+		fingerprint: parser.SourceFingerprint{
+			Key: "fingerprint-key",
+		},
+		outcome: parser.ParseOutcome{
+			SourceErrors: []parser.SourceError{
+				{
+					SourceKey: "other-source",
+					SessionID: "codex:bad",
+					Err:       sourceErr,
+				},
+			},
+		},
+	}
+
+	observation, err := ObserveProviderSource(context.Background(), provider, ProviderObserveRequest{
+		Source: parser.SourceRef{
+			Provider:       parser.AgentCodex,
+			Key:            "source-key",
+			FingerprintKey: "source-fingerprint-key",
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "diagnostic source key")
+	assert.Contains(t, err.Error(), "other-source")
+	assert.Empty(t, observation)
+	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
+}
+
 func TestObserveProviderSourceStopsAfterFingerprintError(t *testing.T) {
 	fingerprintErr := errors.New("stat failed")
 	provider := &shadowTestProvider{
