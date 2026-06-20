@@ -74,7 +74,9 @@ func TestDeepSeekTUIProviderFollowsSymlinkedSessionFiles(t *testing.T) {
 	targetPath := filepath.Join(t.TempDir(), "target.json")
 	linkPath := filepath.Join(root, "session_123.json")
 	writeSourceFile(t, targetPath, deepSeekTUIProviderFixture())
-	require.NoError(t, os.Symlink(targetPath, linkPath))
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
 
 	provider, ok := NewProvider(AgentDeepSeekTUI, ProviderConfig{
 		Roots:   []string{root},
