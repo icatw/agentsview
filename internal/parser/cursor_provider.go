@@ -281,7 +281,11 @@ func (s cursorSourceSet) sourceForPathInRoot(
 	if !ok {
 		return SourceRef{}, false
 	}
-	selected := FindCursorSourceFile(root, rawID)
+	projectDir, ok := cursorProjectDirFromPath(root, path)
+	if !ok {
+		return SourceRef{}, false
+	}
+	selected := cursorFindSourceFileInProject(root, projectDir, rawID)
 	if selected == "" {
 		return SourceRef{}, false
 	}
@@ -298,12 +302,12 @@ func (s cursorSourceSet) sourceRef(root, path string) (SourceRef, bool) {
 	if !ok {
 		return SourceRef{}, false
 	}
-	selected := FindCursorSourceFile(root, rawID)
-	if selected == "" || !samePath(selected, path) {
-		return SourceRef{}, false
-	}
 	projectDir, ok := cursorProjectDirFromPath(root, path)
 	if !ok {
+		return SourceRef{}, false
+	}
+	selected := cursorFindSourceFileInProject(root, projectDir, rawID)
+	if selected == "" || !samePath(selected, path) {
 		return SourceRef{}, false
 	}
 	project := DecodeCursorProjectDir(projectDir)
@@ -330,6 +334,35 @@ func (s cursorSourceSet) hasRoot(root string) bool {
 		}
 	}
 	return false
+}
+
+func cursorFindSourceFileInProject(root, projectDir, rawID string) string {
+	if root == "" || projectDir == "" || !IsValidSessionID(rawID) {
+		return ""
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return ""
+	}
+	transcriptsDir := filepath.Join(root, projectDir, "agent-transcripts")
+	for _, ext := range []string{".jsonl", ".txt"} {
+		target := rawID + ext
+		candidates := []string{
+			filepath.Join(transcriptsDir, rawID, target),
+			filepath.Join(transcriptsDir, target),
+		}
+		for _, candidate := range candidates {
+			if !IsRegularFile(candidate) {
+				continue
+			}
+			resolved, err := filepath.EvalSymlinks(candidate)
+			if err != nil || !isContainedIn(resolved, resolvedRoot) {
+				continue
+			}
+			return candidate
+		}
+	}
+	return ""
 }
 
 func cursorRawSessionIDFromPath(root, path string) (string, bool) {
@@ -385,7 +418,6 @@ func cursorProviderCapabilities() Capabilities {
 			Thinking:     CapabilitySupported,
 			ToolCalls:    CapabilitySupported,
 			ToolResults:  CapabilitySupported,
-			Model:        CapabilitySupported,
 		},
 	}
 }

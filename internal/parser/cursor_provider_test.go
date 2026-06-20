@@ -137,6 +137,44 @@ func TestCursorProviderSourceMethods(t *testing.T) {
 	assert.Empty(t, wrongRoot)
 }
 
+func TestCursorProviderResolvesDuplicateStemsWithinProject(t *testing.T) {
+	root := t.TempDir()
+	firstProject := "Users-fiona-Documents-first"
+	secondProject := "Users-fiona-Documents-second"
+	firstDir := filepath.Join(root, firstProject, "agent-transcripts")
+	secondDir := filepath.Join(root, secondProject, "agent-transcripts")
+	firstJSONL := cursorProviderWriteJSONLTranscript(t, firstDir, "shared.jsonl", "first")
+	secondTxt := cursorProviderWriteTranscript(t, secondDir, "shared.txt", "second old")
+	secondJSONL := cursorProviderWriteJSONLTranscript(t, secondDir, "shared.jsonl", "second new")
+
+	provider, ok := NewProvider(AgentCursor, ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+
+	discovered, err := provider.Discover(context.Background())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{firstJSONL, secondJSONL}, sourceDisplayPaths(discovered))
+
+	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: secondTxt,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, secondJSONL, found.DisplayPath)
+	assert.Equal(t, DecodeCursorProjectDir(secondProject), found.ProjectHint)
+
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: secondTxt, EventKind: "write", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, secondJSONL, changed[0].DisplayPath)
+	assert.Equal(t, DecodeCursorProjectDir(secondProject), changed[0].ProjectHint)
+}
+
 func TestCursorProviderParse(t *testing.T) {
 	root := t.TempDir()
 	projectDir := "Users-fiona-Documents-demo"
