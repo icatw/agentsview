@@ -288,6 +288,15 @@ func TestKiroProviderShadowsLegacyAcrossAllRoots(t *testing.T) {
 	assert.True(t, outcome.ResultSetComplete)
 	assert.Equal(t, SkipNoSession, outcome.SkipReason)
 	assert.Empty(t, outcome.Results)
+
+	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID:      "host~kiro:shared-session",
+		StoredFilePath:     legacyPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, KiroSQLiteVirtualPath(dbPath, "shared-session"), source.DisplayPath)
 }
 
 func TestKiroProviderFingerprintsSQLiteAndLegacySources(t *testing.T) {

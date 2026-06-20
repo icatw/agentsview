@@ -364,7 +364,7 @@ func (s kiroSourceSet) FindSource(
 					}
 					if req.RawSessionID != "" {
 						if canonical, ok := s.shadowingSQLiteSource(
-							root, source, req.RawSessionID,
+							source, req.RawSessionID,
 						); ok {
 							return canonical, true, nil
 						}
@@ -422,7 +422,6 @@ func kiroSourceExists(source SourceRef) bool {
 }
 
 func (s kiroSourceSet) shadowingSQLiteSource(
-	root string,
 	source SourceRef,
 	rawSessionID string,
 ) (SourceRef, bool) {
@@ -430,17 +429,20 @@ func (s kiroSourceSet) shadowingSQLiteSource(
 	if !ok || src.Kind != kiroSourceLegacyJSONL {
 		return SourceRef{}, false
 	}
-	dbPath := FindKiroSQLiteDBPath(root)
-	if dbPath == "" || !KiroSQLiteSessionExists(dbPath, rawSessionID) {
-		return SourceRef{}, false
+	for _, root := range s.roots {
+		dbPath := FindKiroSQLiteDBPath(root)
+		if dbPath == "" || !KiroSQLiteSessionExists(dbPath, rawSessionID) {
+			continue
+		}
+		return s.newSourceRef(
+			root,
+			KiroSQLiteVirtualPath(dbPath, rawSessionID),
+			dbPath,
+			rawSessionID,
+			kiroSourceSQLiteSession,
+		), true
 	}
-	return s.newSourceRef(
-		root,
-		KiroSQLiteVirtualPath(dbPath, rawSessionID),
-		dbPath,
-		rawSessionID,
-		kiroSourceSQLiteSession,
-	), true
+	return SourceRef{}, false
 }
 
 func (s kiroSourceSet) Fingerprint(
