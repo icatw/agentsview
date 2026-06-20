@@ -357,6 +357,9 @@ func (s kiroSourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path, true); ok {
+				if req.RequireFreshSource && !kiroSourceExists(source) {
+					continue
+				}
 				return source, true, nil
 			}
 		}
@@ -384,6 +387,25 @@ func (s kiroSourceSet) FindSource(
 		}
 	}
 	return SourceRef{}, false, nil
+}
+
+func kiroSourceExists(source SourceRef) bool {
+	src, ok := source.Opaque.(kiroSource)
+	if !ok {
+		ptr, ok := source.Opaque.(*kiroSource)
+		if !ok || ptr == nil {
+			return false
+		}
+		src = *ptr
+	}
+	switch src.Kind {
+	case kiroSourceSQLiteSession:
+		return KiroSQLiteSessionExists(src.DBPath, src.SessionID)
+	case kiroSourceSQLiteDB:
+		return IsRegularFile(src.DBPath)
+	default:
+		return IsRegularFile(src.Path)
+	}
 }
 
 func (s kiroSourceSet) Fingerprint(

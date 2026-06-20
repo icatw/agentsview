@@ -304,6 +304,18 @@ func TestKiroProviderMissingSQLiteSourcesCanReachParse(t *testing.T) {
 
 	_, err = db.Exec(`DELETE FROM conversations_v2 WHERE conversation_id = ?`, "sqlite-session")
 	require.NoError(t, err)
+	_, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualSource.DisplayPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a deleted SQLite row")
+	staleVirtualSource, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: virtualSource.DisplayPath,
+	})
+	require.NoError(t, err)
+	require.True(t, ok, "non-fresh lookup keeps virtual tombstone identity")
+	assert.Equal(t, virtualSource.DisplayPath, staleVirtualSource.DisplayPath)
 	virtualFingerprint, err := provider.Fingerprint(context.Background(), virtualSource)
 	require.NoError(t, err)
 	assert.Equal(t, virtualSource.FingerprintKey, virtualFingerprint.Key)
@@ -318,6 +330,12 @@ func TestKiroProviderMissingSQLiteSourcesCanReachParse(t *testing.T) {
 
 	require.NoError(t, db.Close())
 	require.NoError(t, os.Remove(dbPath))
+	_, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     physicalSource.DisplayPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a deleted SQLite DB")
 	physicalFingerprint, err := provider.Fingerprint(context.Background(), physicalSource)
 	require.NoError(t, err)
 	assert.Equal(t, physicalSource.FingerprintKey, physicalFingerprint.Key)
@@ -329,6 +347,31 @@ func TestKiroProviderMissingSQLiteSourcesCanReachParse(t *testing.T) {
 	assert.True(t, physicalOutcome.ResultSetComplete)
 	assert.True(t, physicalOutcome.ForceReplace)
 	assert.Equal(t, SkipNoSession, physicalOutcome.SkipReason)
+}
+
+func TestKiroProviderRejectsInvalidStoredSQLitePaths(t *testing.T) {
+	root := t.TempDir()
+	dbPath, db := newKiroProviderSQLiteDBAt(t, root)
+	seedKiroSQLiteSession(
+		t, db, "/home/user/code/kiro-app", "sqlite-session",
+		readKiroFixture(t, "standard_payload.json"),
+		1779012000000, 1779012030000,
+	)
+	provider, ok := NewProvider(AgentKiro, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+
+	for _, path := range []string{
+		dbPath + "#",
+		filepath.Join(root, "data-copy.sqlite3") + "#sqlite-session",
+		filepath.Join(root, "nested", kiroSQLiteDBName) + "#sqlite-session",
+	} {
+		_, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+			StoredFilePath:     path,
+			RequireFreshSource: true,
+		})
+		require.NoError(t, err)
+		assert.False(t, ok, "stored path %q", path)
+	}
 }
 
 func TestKiroIDEProviderFactoryReplacesLegacyAdapter(t *testing.T) {
