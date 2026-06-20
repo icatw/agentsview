@@ -909,6 +909,35 @@ func TestProcessFileProviderAuthoritativeMissingSourceDoesNotFallBack(
 	assert.Equal(t, sourcePath, provider.findRequest.StoredFilePath)
 }
 
+func TestProcessFileProviderCapableDefaultModeDoesNotFallBackToLegacy(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, "provider-default-mode",
+	)
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+	engine.providerMigrationModes = map[parser.AgentType]parser.ProviderMigrationMode{}
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.Error(t, res.err)
+	assert.Contains(
+		t,
+		res.err.Error(),
+		"claude provider-authoritative processing did not handle",
+	)
+	assert.Empty(t, res.results)
+}
+
 func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-classify-source-ref"
