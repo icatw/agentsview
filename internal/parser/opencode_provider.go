@@ -471,6 +471,16 @@ func (s openCodeFormatSourceSet) sourcesForChangedPathInRoot(
 			return nil, true, nil
 		}
 		return []SourceRef{source}, true, nil
+	case !pathExists &&
+		len(parts) == 4 &&
+		parts[0] == "storage" &&
+		parts[1] == sessionSubdir &&
+		strings.HasSuffix(parts[3], ".json"):
+		source, ok := s.sourceRefFromStoragePath(root, path)
+		if !ok {
+			return nil, true, nil
+		}
+		return []SourceRef{source}, true, nil
 	case len(parts) == 4 &&
 		parts[0] == "storage" &&
 		parts[1] == "message" &&
@@ -555,7 +565,17 @@ func (s openCodeFormatSourceSet) sourceRef(
 		}
 		return s.newSourceRef(root, path, ""), true
 	}
-	if !s.isStorageSessionPath(root, path) {
+	if !s.isStorageSessionPath(root, path, true) {
+		return SourceRef{}, false
+	}
+	return s.sourceRefFromStoragePath(root, path)
+}
+
+func (s openCodeFormatSourceSet) sourceRefFromStoragePath(
+	root string,
+	path string,
+) (SourceRef, bool) {
+	if !s.isStorageSessionPath(root, path, false) {
 		return SourceRef{}, false
 	}
 	return s.newSourceRef(root, path, openCodeSessionProject(path)), true
@@ -579,7 +599,11 @@ func (s openCodeFormatSourceSet) newSourceRef(
 	}
 }
 
-func (s openCodeFormatSourceSet) isStorageSessionPath(root, path string) bool {
+func (s openCodeFormatSourceSet) isStorageSessionPath(
+	root string,
+	path string,
+	requireExisting bool,
+) bool {
 	rel, ok := relUnder(root, path)
 	if !ok {
 		return false
@@ -593,7 +617,7 @@ func (s openCodeFormatSourceSet) isStorageSessionPath(root, path string) bool {
 		parts[0] == "storage" &&
 		parts[1] == filepath.Base(src.SessionRoot) &&
 		strings.HasSuffix(parts[3], ".json") &&
-		IsRegularFile(path)
+		(!requireExisting || IsRegularFile(path))
 }
 
 func openCodeProviderStorageFingerprint(sessionPath string) (string, error) {

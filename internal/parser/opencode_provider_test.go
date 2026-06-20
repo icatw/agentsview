@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -117,6 +118,20 @@ func TestOpenCodeProviderStorageSourceMethods(t *testing.T) {
 	assert.Equal(t, "devbox", result.Result.Session.Machine)
 	assert.Equal(t, fingerprint.Hash, result.Result.Session.File.Hash)
 	assert.Len(t, result.Result.Messages, 1)
+
+	require.NoError(t, os.Remove(sessionPath), "remove storage session")
+	removed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{
+			Path:      sessionPath,
+			EventKind: "remove",
+			WatchRoot: filepath.Join(root, "storage"),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, removed, 1)
+	assert.Equal(t, sessionPath, removed[0].DisplayPath)
+	assert.Equal(t, "global", removed[0].ProjectHint)
 }
 
 func TestOpenCodeProviderSQLiteSourceMethods(t *testing.T) {
@@ -182,6 +197,15 @@ func TestOpenCodeProviderSQLiteSourceMethods(t *testing.T) {
 	assert.Equal(t, "sqlite_app", result.Result.Session.Project)
 	assert.Equal(t, "devbox", result.Result.Session.Machine)
 	assert.Equal(t, "Hello from sqlite", result.Result.Messages[0].Content)
+
+	require.NoError(t, db.Close())
+	require.NoError(t, os.Remove(dbPath), "remove sqlite db")
+	removed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: dbPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, removed, "removed sqlite DBs have no stateless virtual source list")
 }
 
 func TestOpenCodeProviderHybridDiscoveryFiltersSQLiteDuplicate(t *testing.T) {
@@ -253,6 +277,19 @@ func TestOpenCodeFamilyProviderRelabelsForks(t *testing.T) {
 			assert.Equal(t, tc.prefix+"ses_provider", result.Session.ID)
 			assert.Equal(t, tc.agent, result.Session.Agent)
 			assert.Equal(t, strings.ReplaceAll(tc.project, "-", "_"), result.Session.Project)
+
+			require.NoError(t, os.Remove(sessionPath), "remove storage session")
+			removed, err := provider.SourcesForChangedPath(
+				context.Background(),
+				ChangedPathRequest{
+					Path:      sessionPath,
+					EventKind: "rename",
+					WatchRoot: filepath.Join(root, "storage"),
+				},
+			)
+			require.NoError(t, err)
+			require.Len(t, removed, 1)
+			assert.Equal(t, sessionPath, removed[0].DisplayPath)
 		})
 	}
 }
