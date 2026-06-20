@@ -1642,6 +1642,7 @@ func (f configuredChangedPathProviderFactory) NewProvider(
 	return configuredChangedPathProvider{
 		ProviderBase: parser.ProviderBase{
 			Def:    f.Definition(),
+			Caps:   f.Capabilities(),
 			Config: cfg.Clone(),
 		},
 		sourcePath: f.sourcePath,
