@@ -71,10 +71,105 @@ func TestProcessFileProviderChangedPathForgeVirtualSource(t *testing.T) {
 	assert.Equal(t, "forge:forge-provider-process", res.results[0].Session.ID)
 }
 
-func TestProcessFileProviderShadowCompareSkipsStoredFreshSource(t *testing.T) {
+func TestProcessFileProviderAuthoritativePiebaldVirtualSource(t *testing.T) {
 	root := t.TempDir()
-	dbPath := writeProcessProviderForgeDB(t, root)
-	virtualPath := dbPath + "#conv-001"
+	dbPath := filepath.Join(root, "app.db")
+	piebaldDB := openProcessProviderPiebaldDB(t, dbPath)
+	seedProcessProviderPiebaldChat(t, piebaldDB)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentPiebald: {root},
+		},
+		Machine: "devbox",
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  dbPath + "#42",
+		Agent: parser.AgentPiebald,
+	})
+
+	require.NoError(t, res.err)
+	require.Len(t, res.results, 1)
+	assert.True(t, res.forceReplace)
+	assert.NotZero(t, res.mtime)
+	assert.Equal(t, "piebald:42", res.results[0].Session.ID)
+	assert.Equal(t, res.results[0].Session.File.Mtime, res.mtime)
+	assert.Equal(t, parser.AgentPiebald, res.results[0].Session.Agent)
+	assert.Equal(t, "devbox", res.results[0].Session.Machine)
+	assert.Len(t, res.results[0].Messages, 2)
+}
+
+func TestProcessFileProviderAuthoritativeWarpVirtualSource(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "warp.sqlite")
+	warpDB := openProcessProviderWarpDB(t, dbPath)
+	seedProcessProviderWarpConversation(t, warpDB)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentWarp: {root},
+		},
+		Machine: "devbox",
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  dbPath + "#conv-001",
+		Agent: parser.AgentWarp,
+	})
+
+	require.NoError(t, res.err)
+	require.Len(t, res.results, 1)
+	assert.True(t, res.forceReplace)
+	assert.NotZero(t, res.mtime)
+	assert.Equal(t, "warp:conv-001", res.results[0].Session.ID)
+	assert.Equal(t, res.results[0].Session.File.Mtime, res.mtime)
+	assert.Equal(t, parser.AgentWarp, res.results[0].Session.Agent)
+	assert.Equal(t, "devbox", res.results[0].Session.Machine)
+	assert.NotEmpty(t, res.results[0].Messages)
+}
+
+func TestProcessFileProviderAuthoritativeUsesSkipCache(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".forge.db")
+	forgeDB := openProcessProviderForgeDB(t, dbPath)
+	seedProcessProviderForgeConversation(t, forgeDB)
+	virtualPath := dbPath + "#forge-provider-process"
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentForge: {root},
+		},
+		Machine: "devbox",
+	})
+
+	first := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  virtualPath,
+		Agent: parser.AgentForge,
+	})
+	require.NoError(t, first.err)
+	require.Len(t, first.results, 1)
+	require.NotZero(t, first.mtime)
+	engine.skipCache[virtualPath] = first.mtime
+
+	second := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  virtualPath,
+		Agent: parser.AgentForge,
+	})
+
+	require.NoError(t, second.err)
+	assert.True(t, second.skip)
+	assert.True(t, second.cacheSkip)
+	assert.Equal(t, first.mtime, second.mtime)
+	assert.Empty(t, second.results)
+}
+
+func TestProcessFileProviderAuthoritativeSkipsStoredFreshSource(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".forge.db")
+	forgeDB := openProcessProviderForgeDB(t, dbPath)
+	seedProcessProviderForgeConversation(t, forgeDB)
+	virtualPath := dbPath + "#forge-provider-process"
 	database := dbtest.OpenTestDB(t)
 	engine := NewEngine(database, EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
@@ -115,34 +210,7 @@ func TestProcessFileProviderShadowCompareSkipsStoredFreshSource(t *testing.T) {
 	assert.Empty(t, second.results)
 }
 
-func TestProcessFileProviderShadowComparePiebaldVirtualSource(t *testing.T) {
-	root := t.TempDir()
-	dbPath := filepath.Join(root, "app.db")
-	piebaldDB := openProcessProviderPiebaldDB(t, dbPath)
-	seedProcessProviderPiebaldChat(t, piebaldDB)
-	engine := NewEngine(openTestDB(t), EngineConfig{
-		AgentDirs: map[parser.AgentType][]string{
-			parser.AgentPiebald: {root},
-		},
-		Machine: "devbox",
-	})
-
-	res := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  dbPath + "#42",
-		Agent: parser.AgentPiebald,
-	})
-
-	require.NoError(t, res.err)
-	require.Len(t, res.results, 1)
-	assert.True(t, res.forceReplace)
-	assert.NotZero(t, res.mtime)
-	assert.Equal(t, "piebald:42", res.results[0].Session.ID)
-	assert.Equal(t, parser.AgentPiebald, res.results[0].Session.Agent)
-	assert.Equal(t, "devbox", res.results[0].Session.Machine)
-	assert.Len(t, res.results[0].Messages, 2)
-}
-
-func TestProcessFileProviderShadowComparePiebaldDoesNotSkipStoredFreshSource(t *testing.T) {
+func TestProcessFileProviderAuthoritativePiebaldDoesNotSkipStoredFreshSource(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "app.db")
 	piebaldDB := openProcessProviderPiebaldDB(t, dbPath)
@@ -184,33 +252,6 @@ func TestProcessFileProviderShadowComparePiebaldDoesNotSkipStoredFreshSource(t *
 	assert.False(t, second.skip)
 	require.Len(t, second.results, 1)
 	assert.Equal(t, "piebald:42", second.results[0].Session.ID)
-}
-
-func TestProcessFileProviderShadowCompareWarpVirtualSource(t *testing.T) {
-	root := t.TempDir()
-	dbPath := filepath.Join(root, "warp.sqlite")
-	warpDB := openProcessProviderWarpDB(t, dbPath)
-	seedProcessProviderWarpConversation(t, warpDB)
-	engine := NewEngine(openTestDB(t), EngineConfig{
-		AgentDirs: map[parser.AgentType][]string{
-			parser.AgentWarp: {root},
-		},
-		Machine: "devbox",
-	})
-
-	res := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  dbPath + "#conv-001",
-		Agent: parser.AgentWarp,
-	})
-
-	require.NoError(t, res.err)
-	require.Len(t, res.results, 1)
-	assert.True(t, res.forceReplace)
-	assert.NotZero(t, res.mtime)
-	assert.Equal(t, "warp:conv-001", res.results[0].Session.ID)
-	assert.Equal(t, parser.AgentWarp, res.results[0].Session.Agent)
-	assert.Equal(t, "devbox", res.results[0].Session.Machine)
-	assert.NotEmpty(t, res.results[0].Messages)
 }
 
 func TestProcessFileUsesProviderDBBackedFamily(t *testing.T) {
