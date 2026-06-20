@@ -25,7 +25,7 @@ var providerMigrationModes = map[AgentType]ProviderMigrationMode{
 	AgentMiMoCode:       ProviderMigrationLegacyOnly,
 	AgentOpenCode:       ProviderMigrationLegacyOnly,
 	AgentKilo:           ProviderMigrationLegacyOnly,
-	AgentOpenHands:      ProviderMigrationLegacyOnly,
+	AgentOpenHands:      ProviderMigrationShadowCompare,
 	AgentCursor:         ProviderMigrationLegacyOnly,
 	AgentIflow:          ProviderMigrationShadowCompare,
 	AgentAmp:            ProviderMigrationShadowCompare,
