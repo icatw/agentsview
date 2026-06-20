@@ -1186,7 +1186,8 @@ func TestProcessFileProviderAuthoritativeUsesSkipCache(t *testing.T) {
 	seedProcessProviderForgeConversation(t, forgeDB)
 	virtualPath := dbPath + "#forge-provider-process"
 
-	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
 			parser.AgentForge: {root},
 		},
@@ -1200,6 +1201,19 @@ func TestProcessFileProviderAuthoritativeUsesSkipCache(t *testing.T) {
 	require.NoError(t, first.err)
 	require.Len(t, first.results, 1)
 	require.NotZero(t, first.mtime)
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:        first.results[0].Session.ID,
+		Agent:     string(parser.AgentForge),
+		Machine:   "devbox",
+		FilePath:  &virtualPath,
+		FileSize:  &first.results[0].Session.File.Size,
+		FileMtime: &first.results[0].Session.File.Mtime,
+		FileHash:  &first.results[0].Session.File.Hash,
+	}))
+	require.NoError(t, database.SetSessionDataVersion(
+		first.results[0].Session.ID,
+		db.CurrentDataVersion(),
+	))
 	engine.skipCache[virtualPath] = first.mtime
 
 	second := engine.processFile(context.Background(), parser.DiscoveredFile{

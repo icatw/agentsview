@@ -1299,6 +1299,105 @@ func TestProcessFileProviderAuthoritativePersistentSkipRequiresCurrentDataVersio
 	assert.Contains(t, provider.calls, "parse")
 }
 
+func TestProcessFileProviderAuthoritativePersistentSkipRevalidatesZeroSizeSource(
+	t *testing.T,
+) {
+	tests := []struct {
+		name              string
+		storedHash        string
+		storedDataVersion int
+	}{
+		{
+			name:              "stale hash",
+			storedHash:        "old-hash",
+			storedDataVersion: db.CurrentDataVersion(),
+		},
+		{
+			name:              "stale data version",
+			storedHash:        "hash-one",
+			storedDataVersion: db.CurrentDataVersion() - 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			sourcePath := filepath.Join(root, "zero-size-provider-source.jsonl")
+			require.NoError(t, os.WriteFile(sourcePath, nil, 0o644))
+			info, err := os.Stat(sourcePath)
+			require.NoError(t, err)
+			require.Zero(t, info.Size())
+
+			provider := &shadowCallerProvider{
+				shadowTestProvider: shadowTestProvider{
+					ProviderBase: parser.ProviderBase{
+						Def: parser.AgentDef{
+							Type:        parser.AgentClaude,
+							DisplayName: "Claude Code",
+						},
+					},
+					fingerprint: parser.SourceFingerprint{
+						Key:     sourcePath,
+						Size:    info.Size(),
+						MTimeNS: info.ModTime().UnixNano(),
+						Hash:    "hash-one",
+					},
+					outcome: parser.ParseOutcome{
+						ResultSetComplete: true,
+						SkipReason:        parser.SkipNoSession,
+					},
+				},
+				source: parser.SourceRef{
+					Provider:       parser.AgentClaude,
+					Key:            sourcePath,
+					DisplayPath:    sourcePath,
+					FingerprintKey: sourcePath + "#source-key",
+				},
+			}
+			database := dbtest.OpenTestDB(t)
+			engine := NewEngine(database, EngineConfig{
+				AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+				Machine:   "devbox",
+				ProviderFactories: []parser.ProviderFactory{
+					shadowCallerFactory{provider: provider},
+				},
+				ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+					parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+				},
+			})
+			storedSize := info.Size()
+			storedMtime := info.ModTime().UnixNano()
+			require.NoError(t, database.UpsertSession(db.Session{
+				ID:        "claude:zero-size-provider-source",
+				Agent:     string(parser.AgentClaude),
+				Machine:   "devbox",
+				FilePath:  &sourcePath,
+				FileSize:  &storedSize,
+				FileMtime: &storedMtime,
+				FileHash:  &tt.storedHash,
+			}))
+			if tt.storedDataVersion >= 0 {
+				require.NoError(t, database.SetSessionDataVersion(
+					"claude:zero-size-provider-source",
+					tt.storedDataVersion,
+				))
+			}
+			engine.InjectSkipCache(map[string]int64{
+				sourcePath + "#source-key": storedMtime,
+			})
+
+			result := engine.processFile(context.Background(), parser.DiscoveredFile{
+				Path:  sourcePath,
+				Agent: parser.AgentClaude,
+			})
+
+			require.NoError(t, result.err)
+			assert.True(t, result.noSession)
+			assert.Contains(t, provider.calls, "parse")
+		})
+	}
+}
+
 type shadowCallerProvider struct {
 	shadowTestProvider
 	source          parser.SourceRef

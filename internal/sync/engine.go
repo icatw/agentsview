@@ -5533,13 +5533,16 @@ func (e *Engine) shouldSkipCachedProviderFile(
 		cachedSize != 0 && cachedSize != fingerprint.Size {
 		return false
 	}
-	if !transient && fingerprint.Size != 0 {
+	if !transient {
 		lookupPath := providerSkipLookupPath(file, source, fingerprint)
 		if e.pathRewriter != nil {
 			lookupPath = e.pathRewriter(lookupPath)
 		}
 		storedSize, _, ok := e.db.GetFileInfoByPath(lookupPath)
-		if !ok || storedSize != fingerprint.Size {
+		if !ok {
+			return false
+		}
+		if fingerprint.Size != 0 && storedSize != fingerprint.Size {
 			return false
 		}
 		if fingerprint.Hash != "" {
@@ -5570,6 +5573,10 @@ func (e *Engine) shouldSkipProviderSource(
 	if e.forceParse || file.ForceParse {
 		return false
 	}
+	if agent == parser.AgentShelley &&
+		isPhysicalShelleyProviderSource(providerDiscoveredPath(source)) {
+		return e.shouldSkipShelleyProviderSource(source)
+	}
 	lookupPath := providerSkipLookupPath(file, source, fingerprint)
 	if e.pathRewriter != nil {
 		lookupPath = e.pathRewriter(lookupPath)
@@ -5588,6 +5595,50 @@ func (e *Engine) shouldSkipProviderSource(
 		}
 	}
 	return e.db.GetDataVersionByPath(lookupPath) >= db.CurrentDataVersion()
+}
+
+func isPhysicalShelleyProviderSource(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, _, ok := parser.ParseShelleyVirtualPath(path); ok {
+		return false
+	}
+	return filepath.Base(path) == shelleyDBFile
+}
+
+func (e *Engine) shouldSkipShelleyProviderSource(
+	source parser.SourceRef,
+) bool {
+	dbPath := providerDiscoveredPath(source)
+	conn, err := parser.OpenShelleyDB(dbPath)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	metas, err := parser.ListShelleyConversationMetas(conn, dbPath)
+	if err != nil || len(metas) == 0 {
+		return false
+	}
+	for _, meta := range metas {
+		lookupPath := meta.VirtualPath
+		if e.pathRewriter != nil {
+			lookupPath = e.pathRewriter(lookupPath)
+		}
+		_, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
+		if !ok || storedMtime != meta.FileMtime {
+			return false
+		}
+		storedHash, ok := e.db.GetFileHashByPath(lookupPath)
+		if !ok || storedHash != meta.Fingerprint {
+			return false
+		}
+		if e.db.GetDataVersionByPath(lookupPath) < db.CurrentDataVersion() {
+			return false
+		}
+	}
+	return true
 }
 
 func providerSourceSupportsPersistedFreshness(agent parser.AgentType) bool {

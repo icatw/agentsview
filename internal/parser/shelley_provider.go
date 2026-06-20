@@ -194,28 +194,8 @@ func (s shelleySourceSet) Discover(ctx context.Context) ([]SourceRef, error) {
 			return nil, err
 		}
 		for _, file := range DiscoverShelleySessions(root) {
-			db, err := OpenShelleyDB(file.Path)
-			if err != nil {
-				source, ok := s.sourceRef(root, file.Path)
-				if ok {
-					addJSONLSource(source, &sources, seen)
-				}
-				continue
-			}
-			metas, err := ListShelleyConversationMetas(db, file.Path)
-			_ = db.Close()
-			if err != nil {
-				source, ok := s.sourceRef(root, file.Path)
-				if ok {
-					addJSONLSource(source, &sources, seen)
-				}
-				continue
-			}
-			for _, meta := range metas {
-				source, ok := s.sourceRef(root, meta.VirtualPath)
-				if !ok {
-					continue
-				}
+			source, ok := s.sourceRef(root, file.Path)
+			if ok {
 				addJSONLSource(source, &sources, seen)
 			}
 		}
