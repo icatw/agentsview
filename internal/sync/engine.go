@@ -394,6 +394,13 @@ type syncJob struct {
 	path string
 }
 
+func (j syncJob) skipCacheKey() string {
+	if j.cacheKey != "" {
+		return j.cacheKey
+	}
+	return j.path
+}
+
 // SyncPaths syncs only the specified changed file paths
 // instead of discovering and hashing all session files.
 // Paths that don't match known session file patterns are
@@ -3764,12 +3771,15 @@ func (e *Engine) collectAndBatch(
 			}
 			stats.RecordFailed()
 			if r.cacheSkip && r.mtime != 0 && !r.noCacheSkip {
-				e.cacheSkip(r.path, r.mtime)
+				e.cacheSkip(r.skipCacheKey(), r.mtime)
 			}
 			log.Printf("sync error: %v", r.err)
 			continue
 		}
 		if r.skip {
+			if r.cacheSkip && r.mtime != 0 {
+				e.cacheSkip(r.skipCacheKey(), r.mtime)
+			}
 			stats.RecordSkip()
 			progress.SessionsDone++
 			if onProgress != nil {
@@ -3799,7 +3809,7 @@ func (e *Engine) collectAndBatch(
 				stats.parserExcludedFiles++
 			}
 			if r.cacheSkip {
-				e.cacheSkip(r.path, r.mtime)
+				e.cacheSkip(r.skipCacheKey(), r.mtime)
 			}
 			progress.SessionsDone++
 			if onProgress != nil {
@@ -3808,7 +3818,7 @@ func (e *Engine) collectAndBatch(
 			continue
 		}
 		if r.cacheSkip {
-			e.clearSkip(r.path)
+			e.clearSkip(r.skipCacheKey())
 		}
 		stats.filesOK++
 
@@ -3940,6 +3950,7 @@ type processResult struct {
 	// reuse the existing ordinals, so the default append-only
 	// writeMessages would silently drop the rewrite.
 	forceReplace bool
+	cacheKey     string
 	// retrySessionIDs carries provider per-result data-version state.
 	// Legacy parsers use needsRetry as a source-wide fallback.
 	retrySessionIDs map[string]bool
@@ -3948,6 +3959,13 @@ type processResult struct {
 func (r processResult) needsRetryForSession(sessionID string) bool {
 	if r.retrySessionIDs != nil {
 		return r.retrySessionIDs[sessionID]
+	}
+	return r.needsRetry
+}
+
+func (r processResult) hasRetryResults() bool {
+	if r.retrySessionIDs != nil {
+		return len(r.retrySessionIDs) > 0
 	}
 	return r.needsRetry
 }
@@ -4159,16 +4177,18 @@ func (e *Engine) processProviderFile(
 	if err != nil {
 		return processResult{err: err}, true
 	}
+	cacheKey := providerProcessCacheKey(file, source, fingerprint)
 	cacheSkip := e.shouldCacheSkip(file)
 	if cacheSkip && !e.forceParse && !file.ForceParse {
 		e.skipMu.RLock()
-		cachedMtime, cached := e.skipCache[file.Path]
+		cachedMtime, cached := e.skipCache[cacheKey]
 		e.skipMu.RUnlock()
 		if cached && cachedMtime == fingerprint.MTimeNS {
 			return processResult{
 				skip:      true,
 				mtime:     fingerprint.MTimeNS,
 				cacheSkip: true,
+				cacheKey:  cacheKey,
 			}, true
 		}
 	}
@@ -4184,6 +4204,7 @@ func (e *Engine) processProviderFile(
 			err:       err,
 			mtime:     fingerprint.MTimeNS,
 			cacheSkip: cacheSkip,
+			cacheKey:  cacheKey,
 		}, true
 	}
 	if err := validateProviderOutcome(
@@ -4196,6 +4217,7 @@ func (e *Engine) processProviderFile(
 			err:       err,
 			mtime:     fingerprint.MTimeNS,
 			cacheSkip: cacheSkip,
+			cacheKey:  cacheKey,
 		}, true
 	}
 	if outcome.SkipReason != parser.SkipNone {
@@ -4203,6 +4225,7 @@ func (e *Engine) processProviderFile(
 			skip:      true,
 			mtime:     fingerprint.MTimeNS,
 			cacheSkip: cacheSkip,
+			cacheKey:  cacheKey,
 		}, true
 	}
 
@@ -4211,6 +4234,7 @@ func (e *Engine) processProviderFile(
 		excludedSessionIDs: append([]string(nil), outcome.ExcludedSessionIDs...),
 		mtime:              fingerprint.MTimeNS,
 		cacheSkip:          cacheSkip,
+		cacheKey:           cacheKey,
 		forceReplace:       outcome.ForceReplace,
 	}
 	for _, result := range outcome.Results {
@@ -4255,6 +4279,17 @@ func (e *Engine) providerSourceForDiscoveredFile(
 		FingerprintKey:     file.Path,
 		RequireFreshSource: !e.forceParse && !file.ForceParse,
 	})
+}
+
+func providerProcessCacheKey(
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+) string {
+	if key := plannedSkipKey(source, fingerprint); key != "" {
+		return key
+	}
+	return file.Path
 }
 
 func (e *Engine) observeProviderShadow(

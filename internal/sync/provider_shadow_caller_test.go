@@ -216,7 +216,7 @@ func TestProcessFileProviderAuthoritativeUsesInjectedProvider(t *testing.T) {
 				},
 			},
 			fingerprint: parser.SourceFingerprint{
-				Key:     sourcePath,
+				Key:     sourcePath + "#fingerprint",
 				Size:    info.Size(),
 				MTimeNS: info.ModTime().UnixNano(),
 			},
@@ -352,7 +352,7 @@ func TestProcessFileProviderAuthoritativeForceParseAllowsStaleSourceLookup(t *te
 			Provider:       parser.AgentClaude,
 			Key:            sourcePath,
 			DisplayPath:    sourcePath,
-			FingerprintKey: sourcePath,
+			FingerprintKey: sourcePath + "#source-key",
 		},
 	}
 	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
@@ -443,7 +443,7 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 			Provider:       parser.AgentClaude,
 			Key:            sourcePath,
 			DisplayPath:    sourcePath,
-			FingerprintKey: sourcePath,
+			FingerprintKey: sourcePath + "#source-key",
 		},
 	}
 	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
@@ -465,8 +465,23 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 	require.NoError(t, result.err)
 	assert.True(t, result.skip)
 	assert.True(t, result.cacheSkip)
+	assert.Equal(t, sourcePath+"#source-key", result.cacheKey)
 	assert.Equal(t, info.ModTime().UnixNano(), result.mtime)
 	assert.Empty(t, result.results)
+
+	results := make(chan syncJob, 1)
+	results <- syncJob{
+		processResult: result,
+		path:          sourcePath,
+	}
+	close(results)
+	stats := engine.collectAndBatch(context.Background(), results, 1, 1, nil, syncWriteDefault)
+
+	assert.Equal(t, 1, stats.Skipped)
+	cache := engine.SnapshotSkipCache()
+	assert.Equal(t, info.ModTime().UnixNano(), cache[sourcePath+"#source-key"])
+	_, cachedByPath := cache[sourcePath]
+	assert.False(t, cachedByPath)
 }
 
 type shadowCallerProvider struct {

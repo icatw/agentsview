@@ -411,7 +411,7 @@ func (e *Engine) parseDiffCollectFile(
 			sess:        pr.Session,
 			msgs:        pr.Messages,
 			usageEvents: pr.UsageEvents,
-			needsRetry:  job.needsRetry,
+			needsRetry:  job.needsRetryForSession(pr.Session.ID),
 		}
 		prepared, msgs, ok := e.prepareSessionWrite(pw, resolver)
 		id := prepared.ID
@@ -555,7 +555,7 @@ func (e *Engine) parseDiffCollectFile(
 
 	// needsRetry output is transient and low fidelity; missing
 	// sessions there are expected, not parser drift.
-	if !job.needsRetry {
+	if !job.hasRetryResults() {
 		*presencePaths = append(*presencePaths, base)
 	}
 	return nil
