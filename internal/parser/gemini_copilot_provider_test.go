@@ -292,6 +292,14 @@ func TestCopilotProviderSourceMethods(t *testing.T) {
 	assert.Positive(t, fingerprint.MTimeNS)
 	assert.NotEmpty(t, fingerprint.Hash)
 
+	writeSourceFile(t, workspacePath, "name: Workspace other\n")
+	renamedFingerprint, err := provider.Fingerprint(context.Background(), found)
+	require.NoError(t, err)
+	assert.NotEqual(t, fingerprint.Hash, renamedFingerprint.Hash)
+	writeSourceFile(t, workspacePath, "name: Workspace title\n")
+	fingerprint, err = provider.Fingerprint(context.Background(), found)
+	require.NoError(t, err)
+
 	outcome, err := provider.Parse(context.Background(), ParseRequest{
 		Source:      found,
 		Fingerprint: fingerprint,

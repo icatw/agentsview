@@ -2,7 +2,10 @@ package parser
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"hash"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -240,16 +243,24 @@ func (s copilotSourceSet) Fingerprint(
 			}
 		}
 	}
-	hash, err := hashJSONLSourceFile(path)
-	if err != nil {
-		return SourceFingerprint{}, err
-	}
-	return SourceFingerprint{
+	fingerprint := SourceFingerprint{
 		Key:     firstNonEmptyJSONLString(source.FingerprintKey, source.Key, path),
 		Size:    size,
 		MTimeNS: mtime,
-		Hash:    hash,
-	}, nil
+	}
+	h := sha256.New()
+	if err := addCopilotFingerprintPart(h, "events", path, info); err != nil {
+		return SourceFingerprint{}, err
+	}
+	if workspace := copilotWorkspacePath(path); workspace != "" {
+		if wsInfo, err := os.Stat(workspace); err == nil && !wsInfo.IsDir() {
+			if err := addCopilotFingerprintPart(h, "workspace", workspace, wsInfo); err != nil {
+				return SourceFingerprint{}, err
+			}
+		}
+	}
+	fingerprint.Hash = fmt.Sprintf("%x", h.Sum(nil))
+	return fingerprint, nil
 }
 
 func (s copilotSourceSet) pathFromSource(source SourceRef) (string, bool) {
@@ -350,6 +361,33 @@ func copilotWorkspacePath(eventsPath string) string {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(eventsPath), "workspace.yaml")
+}
+
+func addCopilotFingerprintPart(
+	h hash.Hash,
+	label string,
+	path string,
+	info os.FileInfo,
+) error {
+	if _, err := fmt.Fprintf(
+		h,
+		"%s\x00%s\x00%d\x00%d\x00",
+		label,
+		path,
+		info.Size(),
+		info.ModTime().UnixNano(),
+	); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("hash %s: %w", path, err)
+	}
+	return nil
 }
 
 func copilotProviderCapabilities() Capabilities {
