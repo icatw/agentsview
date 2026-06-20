@@ -720,6 +720,10 @@ func (e *Engine) attachProviderSources(
 		if !ok {
 			continue
 		}
+		if sourcePath := providerDiscoveredPath(source); sourcePath != "" &&
+			sourcePath != files[i].Path {
+			continue
+		}
 		sourceCopy := source
 		files[i].ProviderSource = &sourceCopy
 		files[i].ProviderProcess = e.providerProcessEnabled(files[i].Agent)
@@ -4711,6 +4715,20 @@ func providerProcessCacheKey(
 	return file.Path
 }
 
+func isCodexExecProviderSource(
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+) bool {
+	if file.Agent != parser.AgentCodex && source.Provider != parser.AgentCodex {
+		return false
+	}
+	path := providerDiscoveredPath(source)
+	if path == "" {
+		path = file.Path
+	}
+	return parser.IsCodexExecSessionFile(path)
+}
+
 func (e *Engine) observeProviderShadow(
 	ctx context.Context,
 	file parser.DiscoveredFile,
@@ -4906,7 +4924,7 @@ func (e *Engine) processProviderFile(
 			cacheKey:          cacheKey,
 			cacheHash:         fingerprint.Hash,
 			cacheSize:         fingerprint.Size,
-			cacheCleanSuccess: true,
+			cacheCleanSuccess: !isCodexExecProviderSource(file, source),
 		}, true
 	}
 	if cacheSkip && e.shouldSkipProviderSource(file, source, fingerprint) {
@@ -5375,6 +5393,15 @@ func (e *Engine) preferCodexProviderDuplicateSource(
 	if uuid == "" || uuid == source.Key {
 		return file, source, nil
 	}
+	storedPath := e.db.GetSessionFilePath(e.idPrefix + source.Key)
+	if storedPath != "" && e.effectiveSourcePath(sourcePath) != storedPath {
+		if sourceInfo, sourceErr := os.Stat(sourcePath); sourceErr == nil {
+			if storedInfo, storedErr := os.Stat(storedPath); storedErr == nil &&
+				sourceInfo.ModTime().After(storedInfo.ModTime()) {
+				return file, source, nil
+			}
+		}
+	}
 	candidates := make([]parser.DiscoveredFile, 0)
 	sourcesByPath := make(map[string]parser.SourceRef)
 	for _, root := range e.agentDirs[parser.AgentCodex] {
@@ -5403,6 +5430,9 @@ func (e *Engine) preferCodexProviderDuplicateSource(
 	if len(candidates) < 2 {
 		return file, source, nil
 	}
+	if storedPath == "" && codexSourceIsNewestDuplicate(sourcePath, candidates) {
+		return file, source, nil
+	}
 	chosen := pickPreferredCodexDiscoveredFile(e.db, candidates)
 	chosenSource, ok := sourcesByPath[chosen.Path]
 	if !ok || chosen.Path == file.Path && chosen.Path == sourcePath {
@@ -5413,6 +5443,30 @@ func (e *Engine) preferCodexProviderDuplicateSource(
 	file.ProviderSource = &sourceCopy
 	return file, chosenSource, nil
 }
+
+func codexSourceIsNewestDuplicate(
+	sourcePath string,
+	candidates []parser.DiscoveredFile,
+) bool {
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate.Path == sourcePath {
+			continue
+		}
+		candidateInfo, err := os.Stat(candidate.Path)
+		if err != nil {
+			continue
+		}
+		if !sourceInfo.ModTime().After(candidateInfo.ModTime()) {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *Engine) providerVibeExclusions(
 	file parser.DiscoveredFile,
 	outcome parser.ParseOutcome,
@@ -5464,9 +5518,6 @@ func (e *Engine) providerVibeExclusions(
 }
 
 func (e *Engine) providerProcessEnabled(agent parser.AgentType) bool {
-	if agent == parser.AgentCodex {
-		return false
-	}
 	return e.providerMigrationModes[agent] ==
 		parser.ProviderMigrationProviderAuthoritative
 }
@@ -5508,6 +5559,10 @@ func (e *Engine) shouldSkipCachedProviderFile(
 			lookupPath = e.pathRewriter(lookupPath)
 		}
 		storedSize, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
+		if !ok && file.Agent == parser.AgentCodex &&
+			parser.IsCodexExecSessionFile(providerDiscoveredPath(source)) {
+			return cachedMtime == fingerprint.MTimeNS
+		}
 		if !ok {
 			return false
 		}
@@ -5549,6 +5604,9 @@ func (e *Engine) shouldSkipProviderSource(
 		isPhysicalShelleyProviderSource(providerDiscoveredPath(source)) {
 		return e.shouldSkipShelleyProviderSource(source)
 	}
+	if agent == parser.AgentCodex {
+		return e.shouldSkipCodexProviderSource(file, source, fingerprint)
+	}
 	lookupPath := providerSkipLookupPath(file, source, fingerprint)
 	if e.pathRewriter != nil {
 		lookupPath = e.pathRewriter(lookupPath)
@@ -5567,6 +5625,50 @@ func (e *Engine) shouldSkipProviderSource(
 		}
 	}
 	return e.db.GetDataVersionByPath(lookupPath) >= db.CurrentDataVersion()
+}
+
+func (e *Engine) shouldSkipCodexProviderSource(
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+) bool {
+	sourcePath := providerDiscoveredPath(source)
+	if sourcePath == "" {
+		sourcePath = file.Path
+	}
+	lookupPath := providerSkipLookupPath(file, source, fingerprint)
+	if e.pathRewriter != nil {
+		lookupPath = e.pathRewriter(lookupPath)
+	}
+	storedSize, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
+	if !ok {
+		return false
+	}
+	if fingerprint.Size != 0 && storedSize != fingerprint.Size {
+		return false
+	}
+	if fingerprint.Hash != "" {
+		storedHash, _ := e.db.GetFileHashByPath(lookupPath)
+		if storedHash != fingerprint.Hash {
+			return false
+		}
+	}
+	if e.db.GetDataVersionByPath(lookupPath) < db.CurrentDataVersion() {
+		return false
+	}
+	if storedMtime == fingerprint.MTimeNS {
+		return true
+	}
+	if fingerprint.MTimeNS == 0 || fingerprint.MTimeNS < storedMtime {
+		return false
+	}
+	info, err := os.Stat(sourcePath)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	fileMtime := info.ModTime().UnixNano()
+	return fileMtime <= storedMtime &&
+		!e.codexIndexSessionNameChanged(sourcePath)
 }
 
 func isPhysicalShelleyProviderSource(path string) bool {

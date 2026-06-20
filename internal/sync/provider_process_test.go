@@ -1330,8 +1330,8 @@ func TestProviderProcessEnabledUsesMigrationManifest(t *testing.T) {
 
 	assert.True(t, engine.providerProcessEnabled(parser.AgentClaude))
 	assert.True(t, engine.providerProcessEnabled(parser.AgentForge))
+	assert.True(t, engine.providerProcessEnabled(parser.AgentCodex))
 	assert.False(t, engine.providerProcessEnabled(parser.AgentClaudeAI))
-	assert.False(t, engine.providerProcessEnabled(parser.AgentCodex))
 	assert.False(t, engine.providerProcessEnabled(parser.AgentChatGPT))
 }
 

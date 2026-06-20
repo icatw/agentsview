@@ -105,16 +105,44 @@ func TestCodexProviderSourceMethods(t *testing.T) {
 	assert.Len(t, result.Result.Messages, 1)
 }
 
-func TestCodexProviderDoesNotAdvertiseIncrementalAppend(t *testing.T) {
+func TestCodexProviderParseIncrementalLateTokenCountNeedsFullParse(t *testing.T) {
 	root := t.TempDir()
 	uuid := "019eb791-cf7d-75c1-8439-9ed74c1229e2"
-	writeCodexProviderSession(t, root, uuid, "hello")
+	initial := testjsonl.JoinJSONL(
+		testjsonl.CodexSessionMetaJSON(uuid, "/home/user/code/api", "codex_cli_rs", tsEarly),
+		testjsonl.CodexTurnContextJSON("gpt-5.5", tsEarlyS1),
+		testjsonl.CodexMsgJSON("user", "run command", tsEarlyS1),
+		testjsonl.CodexFunctionCallWithCallIDJSON(
+			"exec_command", "call_cmd",
+			map[string]any{"cmd": "sleep 1"}, tsEarlyS5,
+		),
+	)
+	path := writeCodexProviderSessionContent(t, root, uuid, initial)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	offset := info.Size()
+
+	appended := testjsonl.JoinJSONL(
+		testjsonl.CodexFunctionCallOutputJSON(
+			"call_cmd", "done", "2024-01-01T10:01:00Z",
+		),
+		testjsonl.CodexTokenCountJSON(
+			"2024-01-01T10:01:00Z", 100_000, 250, 64_000,
+		),
+	)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.WriteString(appended)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	info, err = os.Stat(path)
+	require.NoError(t, err)
 
 	provider, ok := NewProvider(AgentCodex, ProviderConfig{Roots: []string{root}})
 	require.True(t, ok)
 	require.NotNil(t, provider)
 	assert.Equal(t,
-		CapabilityNotApplicable,
+		CapabilitySupported,
 		provider.Capabilities().Source.IncrementalAppend,
 	)
 	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
@@ -127,14 +155,15 @@ func TestCodexProviderDoesNotAdvertiseIncrementalAppend(t *testing.T) {
 		context.Background(),
 		IncrementalRequest{
 			Source:       source,
-			Fingerprint:  SourceFingerprint{},
+			Fingerprint:  SourceFingerprint{Size: info.Size()},
 			SessionID:    "codex:" + uuid,
-			Offset:       0,
-			StartOrdinal: 1,
+			Offset:       offset,
+			StartOrdinal: 2,
 		},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, IncrementalUnsupported, status)
+	assert.Equal(t, IncrementalNeedsFullParse, status)
+	assert.True(t, outcome.ForceReplace)
 	assert.Empty(t, outcome.Messages)
 }
 
@@ -159,7 +188,7 @@ func TestCodexProviderDiscoverDedupesLiveAndArchivedByUUID(t *testing.T) {
 	assert.NotEqual(t, archivedPath, discovered[0].DisplayPath)
 }
 
-func TestCodexProviderFindSourceCanonicalizesArchivedDuplicate(t *testing.T) {
+func TestCodexProviderFindSourcePreservesStoredPathAndCanonicalizesRawID(t *testing.T) {
 	base := t.TempDir()
 	liveRoot := filepath.Join(base, "sessions")
 	archivedRoot := filepath.Join(base, "archived_sessions")
@@ -177,6 +206,13 @@ func TestCodexProviderFindSourceCanonicalizesArchivedDuplicate(t *testing.T) {
 	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
 		StoredFilePath: archivedPath,
 		FullSessionID:  "codex:" + uuid,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, archivedPath, found.DisplayPath)
+
+	found, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID: "codex:" + uuid,
 	})
 	require.NoError(t, err)
 	require.True(t, ok)
