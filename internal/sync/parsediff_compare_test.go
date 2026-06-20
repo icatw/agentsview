@@ -1615,6 +1615,54 @@ func TestParseDiffPresenceSweepKeepsMixedProviderRetryCoverage(t *testing.T) {
 	assert.Equal(t, FieldPresence, byID[missing.ID].Fields[0].Field)
 }
 
+func TestParseDiffPresenceSweepSkipsIncompleteProviderResults(t *testing.T) {
+	sourcePath := "/tmp/incomplete-provider-source.jsonl"
+	filePath := sourcePath
+	missing := &db.Session{
+		ID:          "provider-missing",
+		Agent:       string(parser.AgentClaude),
+		Machine:     "devbox",
+		Project:     "provider-project",
+		FilePath:    &filePath,
+		DataVersion: db.CurrentDataVersion(),
+	}
+	storedByPath := map[string][]*db.Session{
+		sourcePath: {missing},
+	}
+	job := syncJob{
+		path: sourcePath,
+		processResult: processResult{
+			suppressPresenceSweep: true,
+		},
+	}
+	engine := &Engine{db: dbtest.OpenTestDB(t)}
+	report := &ParseDiffReport{FieldCounts: map[string]int{}}
+	visited := map[string]bool{}
+	var presencePaths []string
+
+	err := engine.parseDiffCollectFile(
+		context.Background(),
+		report,
+		job,
+		map[string]parser.AgentType{sourcePath: parser.AgentClaude},
+		map[string]*db.Session{missing.ID: missing},
+		storedByPath,
+		visited,
+		engine.loadWorktreeProjectResolver(),
+		&presencePaths,
+	)
+	require.NoError(t, err)
+	engine.parseDiffPresenceSweep(
+		report,
+		presencePaths,
+		storedByPath,
+		visited,
+	)
+
+	assert.Equal(t, 0, report.Totals.Changed)
+	assert.Empty(t, report.Sessions)
+}
+
 func TestParseDiffReportHasFailures(t *testing.T) {
 	tests := []struct {
 		name   string

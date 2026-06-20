@@ -706,6 +706,39 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 	assert.Equal(t, info.ModTime().UnixNano(), cache[sourcePath+"#source-key"])
 	_, cachedByPath := cache[sourcePath]
 	assert.False(t, cachedByPath)
+
+	cleanResult := processResult{
+		results: []parser.ParseResult{{
+			Session: parser.ParsedSession{
+				ID:        "provider-clean",
+				Project:   "provider-project",
+				Agent:     parser.AgentClaude,
+				Machine:   "devbox",
+				StartedAt: info.ModTime(),
+				EndedAt:   info.ModTime(),
+				File: parser.FileInfo{
+					Path:  sourcePath,
+					Mtime: info.ModTime().UnixNano(),
+				},
+			},
+		}},
+		mtime:     info.ModTime().UnixNano(),
+		cacheSkip: true,
+		cacheKey:  sourcePath + "#source-key",
+	}
+	stats = engine.collectAndBatch(
+		context.Background(),
+		singleSyncJob(syncJob{processResult: cleanResult, path: sourcePath}),
+		1,
+		1,
+		nil,
+		syncWriteDefault,
+	)
+
+	assert.Equal(t, 1, stats.Synced)
+	cache = engine.SnapshotSkipCache()
+	assert.NotContains(t, cache, sourcePath+"#source-key")
+	assert.NotContains(t, cache, sourcePath)
 }
 
 type shadowCallerProvider struct {

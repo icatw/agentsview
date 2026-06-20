@@ -395,10 +395,7 @@ type syncJob struct {
 }
 
 func (j syncJob) skipCacheKey() string {
-	if j.cacheKey != "" {
-		return j.cacheKey
-	}
-	return j.path
+	return j.processResult.skipCacheKey(j.path)
 }
 
 func (r processResult) skipCacheKey(path string) string {
