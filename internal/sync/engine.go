@@ -3946,6 +3946,9 @@ func (e *Engine) processFile(
 	ctx context.Context,
 	file parser.DiscoveredFile,
 ) processResult {
+	if res, ok := e.processProviderFile(ctx, file); ok {
+		return res
+	}
 
 	var info os.FileInfo
 	var err error
@@ -4103,6 +4106,130 @@ func (e *Engine) processFile(
 	res.mtime = mtime
 	e.observeProviderShadow(ctx, file, res)
 	return res
+}
+
+func (e *Engine) processProviderFile(
+	ctx context.Context,
+	file parser.DiscoveredFile,
+) (processResult, bool) {
+	mode := e.providerMigrationModes[file.Agent]
+	if mode != parser.ProviderMigrationProviderAuthoritative {
+		return processResult{}, false
+	}
+	if file.ProviderSource != nil && !file.ProviderProcess {
+		return processResult{}, false
+	}
+
+	factory, ok := e.providerFactories[file.Agent]
+	if !ok {
+		return processResult{
+			err: fmt.Errorf("provider not found for agent type: %s", file.Agent),
+		}, true
+	}
+	provider := factory.NewProvider(parser.ProviderConfig{
+		Roots:   e.agentDirs[file.Agent],
+		Machine: e.machine,
+	})
+
+	source, found, err := e.providerSourceForDiscoveredFile(ctx, provider, file)
+	if err != nil {
+		return processResult{err: err}, true
+	}
+	if !found {
+		return processResult{}, false
+	}
+
+	fingerprint, err := provider.Fingerprint(ctx, source)
+	if err != nil {
+		return processResult{err: err}, true
+	}
+	cacheSkip := e.shouldCacheSkip(file)
+	if cacheSkip && !e.forceParse && !file.ForceParse {
+		e.skipMu.RLock()
+		cachedMtime, cached := e.skipCache[file.Path]
+		e.skipMu.RUnlock()
+		if cached && cachedMtime == fingerprint.MTimeNS {
+			return processResult{
+				skip:      true,
+				mtime:     fingerprint.MTimeNS,
+				cacheSkip: true,
+			}, true
+		}
+	}
+
+	outcome, err := provider.Parse(ctx, parser.ParseRequest{
+		Source:      source,
+		Fingerprint: fingerprint,
+		Machine:     e.machine,
+		ForceParse:  e.forceParse || file.ForceParse,
+	})
+	if err != nil {
+		return processResult{
+			err:       err,
+			mtime:     fingerprint.MTimeNS,
+			cacheSkip: cacheSkip,
+		}, true
+	}
+	if err := validateProviderOutcome(
+		provider.Definition(),
+		source,
+		fingerprint,
+		outcome,
+	); err != nil {
+		return processResult{
+			err:       err,
+			mtime:     fingerprint.MTimeNS,
+			cacheSkip: cacheSkip,
+		}, true
+	}
+
+	res := processResult{
+		results:            parseOutcomeResults(outcome.Results),
+		excludedSessionIDs: append([]string(nil), outcome.ExcludedSessionIDs...),
+		mtime:              fingerprint.MTimeNS,
+		cacheSkip:          cacheSkip,
+		forceReplace:       outcome.ForceReplace,
+	}
+	for _, result := range outcome.Results {
+		if result.DataVersion == parser.DataVersionNeedsRetry {
+			res.needsRetry = true
+			break
+		}
+	}
+	if e.forceParse || file.ForceParse {
+		for _, sourceErr := range outcome.SourceErrors {
+			res.sessionErrs = append(res.sessionErrs, sessionParseError{
+				sessionID:   sourceErr.SessionID,
+				virtualPath: sourceErr.SourceKey,
+				err:         sourceErr.Err,
+			})
+		}
+	}
+	return res, true
+}
+
+func (e *Engine) providerSourceForDiscoveredFile(
+	ctx context.Context,
+	provider parser.Provider,
+	file parser.DiscoveredFile,
+) (parser.SourceRef, bool, error) {
+	if file.ProviderSource != nil {
+		source := *file.ProviderSource
+		if source.Provider != file.Agent {
+			return parser.SourceRef{}, false, fmt.Errorf(
+				"provider source mismatch for %s: %s",
+				file.Agent,
+				source.Provider,
+			)
+		}
+		return source, true, nil
+	}
+
+	return provider.FindSource(ctx, parser.FindSourceRequest{
+		StoredFilePath:     file.Path,
+		FingerprintKey:     file.Path,
+		RequireFreshSource: !file.ForceParse,
+	})
 }
 
 func (e *Engine) observeProviderShadow(

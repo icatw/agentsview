@@ -326,7 +326,15 @@ nilaway-golangci-build:
 
 # Run NilAway through the custom golangci-lint module plugin.
 nilaway: ensure-embed-dir nilaway-golangci-build
-	$(CUSTOM_GCL) run --config .golangci.nilaway.yml ./...
+	@set -e; \
+	root=$$(pwd); \
+	dirs=$$(go list -f '{{.Dir}}' ./...); \
+	for dir in $$dirs; do \
+		pkg="./$${dir#$$root/}"; \
+		echo "$(CUSTOM_GCL) run --config .golangci.nilaway.yml $$pkg"; \
+		GOMAXPROCS=$${GOMAXPROCS:-1} GOGC=$${GOGC:-20} GOMEMLIMIT=$${GOMEMLIMIT:-1024MiB} \
+			$(CUSTOM_GCL) run --config .golangci.nilaway.yml "$$pkg"; \
+	done
 
 # Install pinned local lint tools.
 lint-tools:
