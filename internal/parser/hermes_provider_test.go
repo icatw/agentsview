@@ -244,6 +244,102 @@ func TestHermesProviderArchiveWatchRoots(t *testing.T) {
 	}
 }
 
+func TestHermesProviderArchiveWatchRootsBeforeArchiveComplete(t *testing.T) {
+	t.Run("state db exists before sessions directory", func(t *testing.T) {
+		root := t.TempDir()
+		createHermesStateDB(t, root)
+		stateDB := filepath.Join(root, "state.db")
+		sessionsDir := filepath.Join(root, "sessions")
+
+		provider, ok := NewProvider(AgentHermes, ProviderConfig{
+			Roots:   []string{root},
+			Machine: "devbox",
+		})
+		require.True(t, ok)
+
+		plan, err := provider.WatchPlan(context.Background())
+		require.NoError(t, err)
+		require.Len(t, plan.Roots, 2)
+		assert.Equal(t, root, plan.Roots[0].Path)
+		assert.False(t, plan.Roots[0].Recursive)
+		assert.Equal(t, []string{"state.db"}, plan.Roots[0].IncludeGlobs)
+		assert.Equal(t, sessionsDir, plan.Roots[1].Path)
+		assert.True(t, plan.Roots[1].Recursive)
+		assert.Equal(t, []string{"*.jsonl", "session_*.json"}, plan.Roots[1].IncludeGlobs)
+
+		changed, err := provider.SourcesForChangedPath(
+			context.Background(),
+			ChangedPathRequest{Path: stateDB, EventKind: "write", WatchRoot: root},
+		)
+		require.NoError(t, err)
+		require.Len(t, changed, 1)
+		assert.Equal(t, stateDB, changed[0].DisplayPath)
+	})
+
+	t.Run("direct state db root before file exists", func(t *testing.T) {
+		root := t.TempDir()
+		stateDB := filepath.Join(root, "state.db")
+		sessionsDir := filepath.Join(root, "sessions")
+
+		provider, ok := NewProvider(AgentHermes, ProviderConfig{
+			Roots:   []string{stateDB},
+			Machine: "devbox",
+		})
+		require.True(t, ok)
+
+		plan, err := provider.WatchPlan(context.Background())
+		require.NoError(t, err)
+		require.Len(t, plan.Roots, 2)
+		assert.Equal(t, root, plan.Roots[0].Path)
+		assert.False(t, plan.Roots[0].Recursive)
+		assert.Equal(t, []string{"state.db"}, plan.Roots[0].IncludeGlobs)
+		assert.Equal(t, sessionsDir, plan.Roots[1].Path)
+		assert.True(t, plan.Roots[1].Recursive)
+		assert.Equal(t, []string{"*.jsonl", "session_*.json"}, plan.Roots[1].IncludeGlobs)
+
+		createHermesStateDB(t, root)
+		changed, err := provider.SourcesForChangedPath(
+			context.Background(),
+			ChangedPathRequest{Path: stateDB, EventKind: "write", WatchRoot: root},
+		)
+		require.NoError(t, err)
+		require.Len(t, changed, 1)
+		assert.Equal(t, stateDB, changed[0].DisplayPath)
+	})
+
+	t.Run("sessions directory root before state db exists", func(t *testing.T) {
+		root := t.TempDir()
+		stateDB := filepath.Join(root, "state.db")
+		sessionsDir := filepath.Join(root, "sessions")
+		require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
+
+		provider, ok := NewProvider(AgentHermes, ProviderConfig{
+			Roots:   []string{sessionsDir},
+			Machine: "devbox",
+		})
+		require.True(t, ok)
+
+		plan, err := provider.WatchPlan(context.Background())
+		require.NoError(t, err)
+		require.Len(t, plan.Roots, 2)
+		assert.Equal(t, root, plan.Roots[0].Path)
+		assert.False(t, plan.Roots[0].Recursive)
+		assert.Equal(t, []string{"state.db"}, plan.Roots[0].IncludeGlobs)
+		assert.Equal(t, sessionsDir, plan.Roots[1].Path)
+		assert.True(t, plan.Roots[1].Recursive)
+		assert.Equal(t, []string{"*.jsonl", "session_*.json"}, plan.Roots[1].IncludeGlobs)
+
+		createHermesStateDB(t, root)
+		changed, err := provider.SourcesForChangedPath(
+			context.Background(),
+			ChangedPathRequest{Path: stateDB, EventKind: "write", WatchRoot: root},
+		)
+		require.NoError(t, err)
+		require.Len(t, changed, 1)
+		assert.Equal(t, stateDB, changed[0].DisplayPath)
+	})
+}
+
 func TestHermesProviderParse(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "child.jsonl")
