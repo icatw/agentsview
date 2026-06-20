@@ -22,13 +22,16 @@ func TestObserveProviderSourceMatchesDBBackedLegacyParsers(t *testing.T) {
 		{
 			name:         "forge",
 			agent:        parser.AgentForge,
-			rawSessionID: "conv-001",
+			rawSessionID: "forge-provider-process",
 			writeDB: func(t *testing.T, root string) string {
-				return writeProcessProviderForgeDB(t, root)
+				dbPath := filepath.Join(root, ".forge.db")
+				forgeDB := openProcessProviderForgeDB(t, dbPath)
+				seedProcessProviderForgeConversation(t, forgeDB)
+				return dbPath
 			},
 			legacyResults: func(t *testing.T, dbPath string) []parser.ParseResult {
 				sess, msgs, err := parser.ParseForgeSession(
-					dbPath, "conv-001", "devbox",
+					dbPath, "forge-provider-process", "devbox",
 				)
 				require.NoError(t, err)
 				require.NotNil(t, sess)
