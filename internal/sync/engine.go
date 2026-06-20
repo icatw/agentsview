@@ -5177,11 +5177,15 @@ func (e *Engine) preferProviderDuplicateSource(
 	}
 	chosen := e.pickPreferredClaudeDiscoveredFile(sessionID, candidates)
 	chosenSource, ok := sourcesByPath[chosen.Path]
-	if !ok || chosen.Path == file.Path {
+	if !ok {
+		return file, source, nil
+	}
+	sourcePath := providerDiscoveredPath(source)
+	if chosen.Path == file.Path && chosen.Path == sourcePath {
 		return file, source, nil
 	}
 	file.Path = chosen.Path
-	if file.Project == "" {
+	if chosenSource.ProjectHint != "" {
 		file.Project = chosenSource.ProjectHint
 	}
 	sourceCopy := chosenSource
