@@ -983,13 +983,19 @@ not an abstract parser-local model:
 - SSE scopes are comparison data only until the stack reaches
   provider-authoritative mode.
 
-Provider output must be namespaced before it can produce planned effects.
-`ParseResult.Session.Agent` must equal the provider `AgentType`; result,
-exclusion, and diagnostic session IDs must use the provider's persisted
-`AgentDef.IDPrefix` when the provider has one; diagnostic source keys must refer
-to the observed source or to a provider-owned virtual source derived from that
-source. Cross-provider sessions are not legal in shadow mode because they make
-parity false positives indistinguishable from real legacy behavior.
+Provider output must be namespaced before it can produce planned effects and
+before any remote machine prefix is applied. `ParseResult.Session.Agent` must
+equal the provider `AgentType`. Persisted session IDs in the result graph must
+use the provider's `AgentDef.IDPrefix` when one exists; this includes result
+IDs, parent IDs, usage-event session IDs, subagent links, exclusions, and
+diagnostic session IDs. `ParsedSession.SourceSessionID` is excluded from this
+check because current parsers use it for upstream/raw source IDs, not persisted
+session IDs. Diagnostic `SourceError.SourceKey` values are required and must be
+one of the observed source identities or a derived virtual key: the provider
+fingerprint key, `SourceRef.FingerprintKey`, `SourceRef.Key`, or one of those
+values followed by `#`, `::`, or `|`. Cross-provider sessions are not legal in
+shadow mode because they make parity false positives indistinguishable from real
+legacy behavior.
 
 Fingerprint failures and parse failures are compared separately. A fingerprint
 failure means no provider parse was attempted and the mismatch report records a

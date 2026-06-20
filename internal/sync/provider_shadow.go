@@ -138,7 +138,7 @@ func validateProviderOutcome(
 				session.Agent,
 			)
 		}
-		if err := validateProviderSessionID(def, session.ID, "result session id"); err != nil {
+		if err := validateProviderParseResultSessionIDs(def, result.Result); err != nil {
 			return err
 		}
 	}
@@ -151,6 +151,13 @@ func validateProviderOutcome(
 		if err := validateProviderSessionID(def, sourceErr.SessionID, "diagnostic session id"); err != nil {
 			return err
 		}
+		if sourceErr.SourceKey == "" {
+			return fmt.Errorf(
+				"%s: provider diagnostic source key is required for source %q",
+				def.Type,
+				source.Key,
+			)
+		}
 		if !providerSourceKeyMatches(source, fingerprint, sourceErr.SourceKey) {
 			return fmt.Errorf(
 				"%s: provider diagnostic source key %q is unrelated to source %q",
@@ -158,6 +165,44 @@ func validateProviderOutcome(
 				sourceErr.SourceKey,
 				source.Key,
 			)
+		}
+	}
+	return nil
+}
+
+func validateProviderParseResultSessionIDs(def parser.AgentDef, result parser.ParseResult) error {
+	sessionIDs := []struct {
+		field string
+		id    string
+	}{
+		{field: "result session id", id: result.Session.ID},
+		{field: "parent session id", id: result.Session.ParentSessionID},
+	}
+	for _, sessionID := range sessionIDs {
+		if err := validateProviderSessionID(def, sessionID.id, sessionID.field); err != nil {
+			return err
+		}
+	}
+	for _, usage := range result.Session.UsageEvents {
+		if err := validateProviderSessionID(def, usage.SessionID, "session usage event session id"); err != nil {
+			return err
+		}
+	}
+	for _, usage := range result.UsageEvents {
+		if err := validateProviderSessionID(def, usage.SessionID, "usage event session id"); err != nil {
+			return err
+		}
+	}
+	for _, message := range result.Messages {
+		for _, toolCall := range message.ToolCalls {
+			if err := validateProviderSessionID(def, toolCall.SubagentSessionID, "tool call subagent session id"); err != nil {
+				return err
+			}
+			for _, event := range toolCall.ResultEvents {
+				if err := validateProviderSessionID(def, event.SubagentSessionID, "tool result event subagent session id"); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

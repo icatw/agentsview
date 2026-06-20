@@ -42,11 +42,14 @@ source-key/session-ID compatibility. Rollback means moving the manifest entry
 back to `legacy-only`, recording the reason in kata/review notes, and leaving
 the legacy path authoritative until the mismatch is fixed.
 
-Provider observations must reject cross-provider output before planning effects:
-`ParseResult.Session.Agent` must equal the provider `AgentType`; session IDs in
-results, exclusions, and diagnostics must use the provider's persisted ID prefix
-when one exists; diagnostic source keys must refer to the observed source or a
-provider-owned virtual source derived from it.
+Provider observations must reject cross-provider output before planning effects
+and before any remote machine prefix is applied. `ParseResult.Session.Agent`
+must equal the provider `AgentType`. Persisted session IDs in the result graph
+must use the provider's ID prefix when one exists; this includes result IDs,
+parent IDs, usage-event session IDs, subagent links, exclusions, and diagnostic
+session IDs. Diagnostic `SourceError.SourceKey` values are required and must be
+the provider fingerprint key, `SourceRef.FingerprintKey`, `SourceRef.Key`, or a
+virtual key derived from one of those candidates by appending `#`, `::`, or `|`.
 
 `ProviderPlannedEffects` is an engine-shaped comparison model, not a second
 writer. Its source key is the fingerprint key when available, then
@@ -222,13 +225,15 @@ go test -tags "fts5" ./internal/sync -run TestObserveProviderSource -count=1
 
 Expected: PASS.
 
-### Task 3: Caller-Level Wiring Follow-Up
+### Follow-Up: Caller-Level Wiring
 
 **Files:**
 
-- Add/modify in the later sync migration branch, not this root harness branch.
+Add or modify these in a later sync migration branch, not this root harness
+branch. They are included here to preserve ordering, but they are not part of
+the root harness execution checklist.
 
-- [ ] **Step 1: Wire production callers into shadow comparison**
+**Step 1: Wire production callers into shadow comparison**
 
 Move full sync, changed-path sync, and `SyncSingleSession` into a caller-level
 dual-run wrapper. The wrapper must read the migration manifest, run legacy
@@ -236,14 +241,14 @@ authoritatively, run provider observation for `shadow-compare` agents, compare
 parsed output and planned effects, and leave live DB/diagnostic/SSE state driven
 only by the legacy result.
 
-- [ ] **Step 2: Add lookup/watch/diagnostic caller coverage**
+**Step 2: Add lookup/watch/diagnostic caller coverage**
 
 Move session watch flows, export/source lookup, source mtime, token-usage raw
 source probing, parse-diff, and parse diagnostics through the same provider
 runner. Tests must cover source lookup freshness, virtual paths, source mtime,
 raw probing behavior, report shape, and source-error behavior.
 
-- [ ] **Step 3: Define runtime mismatch reporting**
+**Step 3: Define runtime mismatch reporting**
 
 Mismatches are test failures in shared parity tests. Runtime mismatch reporting
 is developer-only logging or debug diagnostics and must include provider, source
@@ -251,11 +256,11 @@ key, fingerprint key, mode, field path, legacy value summary, provider value
 summary, and whether fingerprinting or parsing failed. It must not persist
 user-visible parse diagnostics while `shadow-compare` is active.
 
-### Task 4: Validation And Commit
+### Task 3: Validation And Commit
 
 **Files:**
 
-- Modify as needed from Tasks 1-3.
+- Modify as needed from Tasks 1-2.
 
 - [ ] **Step 1: Format and verify**
 
