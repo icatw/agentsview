@@ -4786,7 +4786,6 @@ func (e *Engine) processProviderFile(
 	}
 
 	res := processResult{
-		results:               parseOutcomeResults(outcome.Results),
 		excludedSessionIDs:    append([]string(nil), outcome.ExcludedSessionIDs...),
 		mtime:                 fingerprint.MTimeNS,
 		cacheSkip:             cacheSkip,
@@ -4794,6 +4793,12 @@ func (e *Engine) processProviderFile(
 		noCacheSkip:           !cleanCache,
 		forceReplace:          forceReplace,
 		suppressPresenceSweep: !outcome.ResultSetComplete,
+	}
+	res.results = parseOutcomeResults(outcome.Results)
+	if file.Project != "" {
+		for i := range res.results {
+			res.results[i].Session.Project = file.Project
+		}
 	}
 	for _, result := range outcome.Results {
 		if result.DataVersion == parser.DataVersionNeedsRetry {

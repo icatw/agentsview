@@ -59,6 +59,44 @@ func TestProcessFileProviderAuthoritativeUsesProviderSourceRef(t *testing.T) {
 	assert.Len(t, res.results[0].Messages, 2)
 }
 
+func TestProcessFileProviderAuthoritativeHonorsDiscoveredProject(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-discovered-project"
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, sessionID,
+	)
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Project:         "stored_project",
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
+	})
+
+	require.NoError(t, res.err)
+	require.Len(t, res.results, 1)
+	assert.Equal(t, "stored_project", res.results[0].Session.Project)
+}
+
 func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-classify-source-ref"
