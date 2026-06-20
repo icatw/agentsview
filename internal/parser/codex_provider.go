@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var _ Provider = (*codexProvider)(nil)
@@ -154,6 +155,9 @@ func (s codexSourceSet) discover(
 		for _, file := range DiscoverCodexSessions(root) {
 			source, ok := s.sourceRef(root, file.Path, true)
 			if !ok {
+				source, ok = s.directPathSource(root, file.Path, true)
+			}
+			if !ok {
 				continue
 			}
 			if current, ok := byKey[source.Key]; ok &&
@@ -209,6 +213,9 @@ func (s codexSourceSet) SourcesForChangedPath(
 	}
 	for _, root := range s.roots {
 		source, ok := s.sourceRef(root, req.Path, true)
+		if !ok {
+			source, ok = s.directPathSource(root, req.Path, true)
+		}
 		if ok {
 			source, _, err := s.canonicalSource(ctx, source)
 			if err != nil {
@@ -220,6 +227,9 @@ func (s codexSourceSet) SourcesForChangedPath(
 			continue
 		}
 		source, ok = s.sourceRef(root, req.Path, false)
+		if !ok {
+			source, ok = s.directPathSource(root, req.Path, false)
+		}
 		if ok {
 			source, _, err := s.canonicalSource(ctx, source)
 			if err != nil {
@@ -244,6 +254,9 @@ func (s codexSourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path, true); ok {
+				return s.canonicalSource(ctx, source)
+			}
+			if source, ok := s.directPathSource(root, path, true); ok {
 				return s.canonicalSource(ctx, source)
 			}
 		}
@@ -312,6 +325,10 @@ func (s codexSourceSet) pathFromSource(source SourceRef) (string, bool) {
 				src := ref.Opaque.(codexSource)
 				return src.Path, true
 			}
+			if ref, ok := s.directPathSource(root, candidate, true); ok {
+				src := ref.Opaque.(codexSource)
+				return src.Path, true
+			}
 		}
 	}
 	return "", false
@@ -354,6 +371,31 @@ func (s codexSourceSet) sourceRef(
 			Path:   path,
 			UUID:   uuid,
 			Layout: layout,
+		},
+	}, true
+}
+
+func (s codexSourceSet) directPathSource(
+	root string,
+	path string,
+	requireRegular bool,
+) (SourceRef, bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	if !strings.HasSuffix(path, ".jsonl") || !pathIsUnderRoot(path, root) {
+		return SourceRef{}, false
+	}
+	if requireRegular && !IsRegularFile(path) {
+		return SourceRef{}, false
+	}
+	return SourceRef{
+		Provider:       AgentCodex,
+		Key:            path,
+		DisplayPath:    path,
+		FingerprintKey: path,
+		Opaque: codexSource{
+			Root: root,
+			Path: path,
 		},
 	}, true
 }

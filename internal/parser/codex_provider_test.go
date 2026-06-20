@@ -184,6 +184,78 @@ func TestCodexProviderFindSourceCanonicalizesArchivedDuplicate(t *testing.T) {
 	assert.Equal(t, livePath, found.DisplayPath)
 }
 
+func TestCodexProviderFindSourceAcceptsLegacyShapedStoredPath(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "test-uuid"
+	sourcePath := filepath.Join(
+		root,
+		"2024",
+		"01",
+		"15",
+		"rollout-20240115-"+sessionID+".jsonl",
+	)
+	content := testjsonl.JoinJSONL(
+		testjsonl.CodexSessionMetaJSON(
+			sessionID,
+			"/home/user/code/api",
+			"codex_cli_rs",
+			tsEarly,
+		),
+		testjsonl.CodexMsgJSON("user", "Add tests", tsEarlyS1),
+	)
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(sourcePath, []byte(content), 0o644))
+
+	provider, ok := NewProvider(AgentCodex, ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+
+	discovered, err := provider.Discover(context.Background())
+	require.NoError(t, err)
+	require.Len(t, discovered, 1)
+	assert.Equal(t, sourcePath, discovered[0].DisplayPath)
+
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: sourcePath, EventKind: "write"},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, sourcePath, changed[0].DisplayPath)
+
+	source, found, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: sourcePath,
+		FingerprintKey: sourcePath,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, AgentCodex, source.Provider)
+	assert.Equal(t, sourcePath, source.DisplayPath)
+	assert.Equal(t, sourcePath, source.FingerprintKey)
+
+	fingerprint, err := provider.Fingerprint(context.Background(), source)
+	require.NoError(t, err)
+	assert.Equal(t, sourcePath, fingerprint.Key)
+	assert.NotEmpty(t, fingerprint.Hash)
+
+	outcome, err := provider.Parse(context.Background(), ParseRequest{
+		Source:      source,
+		Fingerprint: fingerprint,
+		Machine:     "devbox",
+	})
+	require.NoError(t, err)
+	require.True(t, outcome.ResultSetComplete)
+	require.Len(t, outcome.Results, 1)
+	result := outcome.Results[0]
+	assert.Equal(t, "codex:"+sessionID, result.Result.Session.ID)
+	assert.Equal(t, "api", result.Result.Session.Project)
+	assert.Equal(t, "devbox", result.Result.Session.Machine)
+	assert.Equal(t, fingerprint.Hash, result.Result.Session.File.Hash)
+	assert.Len(t, result.Result.Messages, 1)
+}
+
 func TestCodexProviderChangedPathCanonicalizesArchivedDuplicate(t *testing.T) {
 	base := t.TempDir()
 	liveRoot := filepath.Join(base, "sessions")
