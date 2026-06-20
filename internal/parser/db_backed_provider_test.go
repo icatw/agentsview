@@ -207,6 +207,104 @@ func TestDBBackedProviderDeletedRowFingerprintsTombstoneAndSkips(t *testing.T) {
 	assert.Empty(t, outcome.Results)
 }
 
+func TestDBBackedProviderStoredVirtualPathFreshness(t *testing.T) {
+	dbPath, seeder, db := newForgeTestDB(t)
+	seedForgeConversation(t, seeder)
+	root := filepath.Dir(dbPath)
+	virtualPath := dbPath + "#conv-001"
+
+	provider, ok := NewProvider(AgentForge, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, virtualPath, found.DisplayPath)
+
+	_, err = db.Exec(`DELETE FROM conversations WHERE conversation_id = ?`, "conv-001")
+	require.NoError(t, err)
+	_, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a deleted DB row")
+
+	staleSource, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: virtualPath,
+	})
+	require.NoError(t, err)
+	require.True(t, ok, "non-fresh lookup keeps virtual tombstone identity")
+	assert.Equal(t, virtualPath, staleSource.DisplayPath)
+	outcome, err := provider.Parse(context.Background(), ParseRequest{
+		Source: staleSource,
+	})
+	require.NoError(t, err)
+	assert.True(t, outcome.ResultSetComplete)
+	assert.True(t, outcome.ForceReplace)
+	assert.Equal(t, SkipNoSession, outcome.SkipReason)
+	assert.Empty(t, outcome.Results)
+
+	require.NoError(t, db.Close())
+	require.NoError(t, os.Remove(dbPath))
+	_, ok, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a deleted DB file")
+}
+
+func TestDBBackedProviderRejectsInvalidStoredVirtualPaths(t *testing.T) {
+	dbPath, seeder, db := newForgeTestDB(t)
+	defer db.Close()
+	seedForgeConversation(t, seeder)
+	root := filepath.Dir(dbPath)
+	virtualPath := dbPath + "#conv-001"
+	otherPath := dbPath + "#conv-002"
+	seeder.AddConversation(
+		"conv-002",
+		"Other",
+		123,
+		`{"conversation_id":"conv-002","messages":[]}`,
+		"2026-05-03 09:58:15.000000000",
+		"2026-05-03 10:00:16.000000000",
+		"",
+	)
+
+	provider, ok := NewProvider(AgentForge, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	for _, path := range []string{
+		dbPath + "#",
+		filepath.Join(root, "forge-copy.db") + "#conv-001",
+		filepath.Join(root, "nested", forgeDBFilename) + "#conv-001",
+	} {
+		_, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+			StoredFilePath:     path,
+			RequireFreshSource: true,
+		})
+		require.NoError(t, err)
+		assert.False(t, ok, "stored path %q", path)
+	}
+
+	_, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID:       "conv-001",
+		StoredFilePath:     otherPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "fresh lookup must reject a stored path for a different session")
+
+	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: virtualPath,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, virtualPath, source.DisplayPath)
+}
+
 func TestDBBackedProviderMissingDBFingerprintsTombstoneAndSkips(t *testing.T) {
 	dbPath, seeder, db := newForgeTestDB(t)
 	seedForgeConversation(t, seeder)

@@ -264,15 +264,33 @@ func (s dbBackedSourceSet) FindSource(
 	if err := ctx.Err(); err != nil {
 		return SourceRef{}, false, err
 	}
+	freshStoredSource := req.RequireFreshSource &&
+		(req.StoredFilePath != "" || req.FingerprintKey != "")
 	for _, path := range []string{req.StoredFilePath, req.FingerprintKey} {
 		if path == "" {
 			continue
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path, true); ok {
+				src := source.Opaque.(dbBackedSource)
+				if req.RawSessionID != "" && src.SessionID != req.RawSessionID {
+					continue
+				}
+				if req.RequireFreshSource {
+					fresh, err := s.sourceExists(src)
+					if err != nil {
+						return SourceRef{}, false, err
+					}
+					if !fresh {
+						continue
+					}
+				}
 				return source, true, nil
 			}
 		}
+	}
+	if freshStoredSource {
+		return SourceRef{}, false, nil
 	}
 	if req.RawSessionID == "" {
 		return SourceRef{}, false, nil
@@ -293,6 +311,22 @@ func (s dbBackedSourceSet) FindSource(
 		}
 	}
 	return SourceRef{}, false, nil
+}
+
+func (s dbBackedSourceSet) sourceExists(src dbBackedSource) (bool, error) {
+	if !IsRegularFile(src.DBPath) {
+		return false, nil
+	}
+	metas, err := s.spec.listMeta(src.DBPath)
+	if err != nil {
+		return false, err
+	}
+	for _, meta := range metas {
+		if meta.SessionID == src.SessionID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s dbBackedSourceSet) Fingerprint(
@@ -361,7 +395,7 @@ func (s dbBackedSourceSet) sourceRef(
 	if filepath.Base(dbPath) != s.spec.dbName {
 		return SourceRef{}, false
 	}
-	if !pathIsUnderRoot(dbPath, root) {
+	if !samePath(dbPath, filepath.Join(root, s.spec.dbName)) {
 		return SourceRef{}, false
 	}
 	if !allowMissing && !IsRegularFile(dbPath) {
