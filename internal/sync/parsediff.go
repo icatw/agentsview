@@ -67,11 +67,19 @@ func (e *Engine) ParseDiff(ctx context.Context, opts ParseDiffOptions) (*ParseDi
 		report.Agents = append(report.Agents, string(def.Type))
 	}
 
-	// Discovery mirrors syncAllLocked's file phase: per-agent
-	// DiscoverFunc over the configured dirs, then dedupe and the
-	// legacy-Kiro shadow filter.
-	var files []parser.DiscoveredFile
+	// Discovery mirrors syncAllLocked's provider-aware file phase. Provider
+	// authoritative agents use Provider.Discover so parse-diff exercises the
+	// same SourceRef, fingerprint, and parse path as normal sync. Agents not
+	// yet on that path keep the legacy DiscoverFunc fallback while the stack
+	// is staged.
+	files, providerDiscovered, err := e.parseDiffProviderSources(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
 	for _, def := range resolved {
+		if providerDiscovered[def.Type] {
+			continue
+		}
 		for _, d := range e.agentDirs[def.Type] {
 			files = append(files, def.DiscoverFunc(d)...)
 		}
@@ -81,7 +89,7 @@ func (e *Engine) ParseDiff(ctx context.Context, opts ParseDiffOptions) (*ParseDi
 	// reaches those through dedicated phases. Synthesize them here so
 	// their sessions are actually re-parsed; processKiro/processOpenCode
 	// fan one db path out to every contained session under forceParse.
-	files = append(files, e.parseDiffDatabaseSources(resolved)...)
+	files = append(files, e.parseDiffDatabaseSources(resolved, providerDiscovered)...)
 	files = dedupeDiscoveredFiles(files)
 	files = e.filterShadowedLegacyKiroFiles(files)
 
@@ -199,6 +207,53 @@ func (e *Engine) ParseDiff(ctx context.Context, opts ParseDiffOptions) (*ParseDi
 	return report, nil
 }
 
+func (e *Engine) parseDiffProviderSources(
+	ctx context.Context,
+	resolved []parser.AgentDef,
+) ([]parser.DiscoveredFile, map[parser.AgentType]bool, error) {
+	var files []parser.DiscoveredFile
+	discovered := make(map[parser.AgentType]bool)
+	for _, def := range resolved {
+		if !e.providerProcessEnabled(def.Type) {
+			continue
+		}
+		factory := e.providerFactories[def.Type]
+		if factory == nil {
+			continue
+		}
+		provider := factory.NewProvider(parser.ProviderConfig{
+			Roots:   e.agentDirs[def.Type],
+			Machine: e.machine,
+		})
+		sources, err := provider.Discover(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"parse-diff: %s provider discovery: %w",
+				def.Type, err,
+			)
+		}
+		discovered[def.Type] = true
+		for _, source := range sources {
+			sourcePath := providerDiscoveredPath(source)
+			if sourcePath == "" {
+				continue
+			}
+			if source.Provider == "" {
+				source.Provider = def.Type
+			}
+			sourceCopy := source
+			files = append(files, parser.DiscoveredFile{
+				Path:            sourcePath,
+				Agent:           source.Provider,
+				Project:         source.ProjectHint,
+				ProviderSource:  &sourceCopy,
+				ProviderProcess: e.providerProcessEnabled(source.Provider),
+			})
+		}
+	}
+	return files, discovered, nil
+}
+
 // resolveParseDiffAgents validates the requested agent set against
 // the registry and returns the matching defs in registry order. Only
 // file-based agents with a DiscoverFunc have an on-disk source to
@@ -265,9 +320,13 @@ func resolveParseDiffAgents(
 // process function keeps file-backed sessions from being compared twice.
 func (e *Engine) parseDiffDatabaseSources(
 	resolved []parser.AgentDef,
+	providerDiscovered map[parser.AgentType]bool,
 ) []parser.DiscoveredFile {
 	var extra []parser.DiscoveredFile
 	for _, def := range resolved {
+		if providerDiscovered[def.Type] {
+			continue
+		}
 		switch def.Type {
 		case parser.AgentKiro:
 			for _, dir := range e.agentDirs[def.Type] {
