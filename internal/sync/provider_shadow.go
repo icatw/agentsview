@@ -178,7 +178,7 @@ func compareProviderObservationToProcessResult(
 		))
 	}
 	providerSourceErrors := comparableProviderSourceErrors(observation.SourceErrors)
-	legacySourceErrors := comparableLegacySourceErrors(legacy.sessionErrs)
+	legacySourceErrors := comparableLegacySourceErrors(file.Agent, legacy.sessionErrs)
 	if !reflect.DeepEqual(providerSourceErrors, legacySourceErrors) {
 		mismatches = append(mismatches, fmt.Sprintf(
 			"source_errors differ: provider=%v legacy=%v",
@@ -256,11 +256,13 @@ func legacyPlannedEffectsFromProcessResult(
 		planned.SkipCacheKeys = append(planned.SkipCacheKeys, file.Path)
 	}
 	for _, sessionErr := range legacy.sessionErrs {
+		sessionID := normalizeLegacySessionID(file.Agent, sessionErr.sessionID)
 		planned.Diagnostics = append(planned.Diagnostics, ProviderPlannedDiagnostic{
 			SourceKey:   sessionErr.virtualPath,
 			DisplayPath: sessionErr.virtualPath,
-			SessionID:   sessionErr.sessionID,
+			SessionID:   sessionID,
 			Err:         sessionErr.err,
+			Retryable:   true,
 		})
 	}
 	return planned
@@ -268,8 +270,10 @@ func legacyPlannedEffectsFromProcessResult(
 
 type comparableSourceError struct {
 	SessionID string
+	SourceKey string
 	Path      string
 	Err       string
+	Retryable bool
 }
 
 func comparableProviderSourceErrors(sourceErrors []parser.SourceError) []comparableSourceError {
@@ -281,23 +285,49 @@ func comparableProviderSourceErrors(sourceErrors []parser.SourceError) []compara
 		}
 		comparable = append(comparable, comparableSourceError{
 			SessionID: sourceErr.SessionID,
+			SourceKey: sourceErr.SourceKey,
 			Path:      path,
 			Err:       errString(sourceErr.Err),
+			Retryable: sourceErr.Retryable,
 		})
 	}
 	return comparable
 }
 
-func comparableLegacySourceErrors(sessionErrs []sessionParseError) []comparableSourceError {
+func comparableLegacySourceErrors(
+	agent parser.AgentType,
+	sessionErrs []sessionParseError,
+) []comparableSourceError {
 	comparable := make([]comparableSourceError, 0, len(sessionErrs))
 	for _, sessionErr := range sessionErrs {
 		comparable = append(comparable, comparableSourceError{
-			SessionID: sessionErr.sessionID,
+			SessionID: normalizeLegacySessionID(agent, sessionErr.sessionID),
+			SourceKey: sessionErr.virtualPath,
 			Path:      sessionErr.virtualPath,
 			Err:       errString(sessionErr.err),
+			Retryable: true,
 		})
 	}
 	return comparable
+}
+
+func normalizeLegacySessionID(agent parser.AgentType, sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	def, ok := parser.AgentByType(agent)
+	if !ok || def.IDPrefix == "" {
+		return sessionID
+	}
+	host, rawID := parser.StripHostPrefix(sessionID)
+	if strings.HasPrefix(rawID, def.IDPrefix) {
+		return sessionID
+	}
+	normalized := def.IDPrefix + rawID
+	if host != "" {
+		return host + "~" + normalized
+	}
+	return normalized
 }
 
 func errString(err error) string {

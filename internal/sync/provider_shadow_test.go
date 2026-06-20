@@ -127,6 +127,7 @@ func TestCompareProviderObservationDetectsSourceErrorContentMismatch(t *testing.
 	mismatches := compareProviderObservationToProcessResult(
 		ProviderObservation{
 			SourceErrors: []parser.SourceError{{
+				SourceKey:   "source-key",
 				DisplayPath: "source.jsonl",
 				SessionID:   "codex:bad",
 				Err:         errors.New("provider parse failed"),
@@ -144,6 +145,39 @@ func TestCompareProviderObservationDetectsSourceErrorContentMismatch(t *testing.
 
 	require.NotEmpty(t, mismatches)
 	assert.Contains(t, mismatches[0], "source_errors")
+}
+
+func TestCompareProviderObservationNormalizesLegacySourceErrorSessionID(t *testing.T) {
+	mismatches := compareProviderObservationToProcessResult(
+		ProviderObservation{
+			SourceErrors: []parser.SourceError{{
+				SourceKey:   "source.jsonl#bad",
+				DisplayPath: "source.jsonl#bad",
+				SessionID:   "codex:bad",
+				Err:         errors.New("parse failed"),
+				Retryable:   true,
+			}},
+			Planned: ProviderPlannedEffects{
+				Diagnostics: []ProviderPlannedDiagnostic{{
+					SourceKey:   "source.jsonl#bad",
+					DisplayPath: "source.jsonl#bad",
+					SessionID:   "codex:bad",
+					Err:         errors.New("parse failed"),
+					Retryable:   true,
+				}},
+			},
+		},
+		processResult{
+			sessionErrs: []sessionParseError{{
+				sessionID:   "bad",
+				virtualPath: "source.jsonl#bad",
+				err:         errors.New("parse failed"),
+			}},
+		},
+		parser.DiscoveredFile{Agent: parser.AgentCodex},
+	)
+
+	assert.Empty(t, mismatches)
 }
 
 func TestCompareProviderObservationDetectsPlannedDataVersionMismatch(t *testing.T) {
