@@ -646,6 +646,10 @@ func providerChangedPathForceParse(
 	eventKind string,
 	mode parser.ProviderMigrationMode,
 ) bool {
+	if processFileUsesProvider(agent) {
+		return eventKind == "remove" &&
+			providerDeletedPhysicalSQLiteSource(agent, sourcePath)
+	}
 	if mode != parser.ProviderMigrationProviderAuthoritative {
 		return true
 	}
@@ -4500,10 +4504,11 @@ func (e *Engine) processProviderFile(
 	file parser.DiscoveredFile,
 ) (processResult, bool) {
 	mode := e.providerMigrationModes[file.Agent]
-	if mode != parser.ProviderMigrationProviderAuthoritative {
+	usesProvider := processFileUsesProvider(file.Agent)
+	if mode != parser.ProviderMigrationProviderAuthoritative && !usesProvider {
 		return processResult{}, false
 	}
-	if file.ProviderSource != nil && !file.ProviderProcess {
+	if file.ProviderSource != nil && !file.ProviderProcess && !usesProvider {
 		return processResult{}, false
 	}
 
@@ -4550,6 +4555,14 @@ func (e *Engine) processProviderFile(
 				cacheKey:  cacheKey,
 			}, true
 		}
+	}
+	if cacheSkip && e.shouldSkipProviderSource(file, source, fingerprint) {
+		return processResult{
+			skip:      true,
+			mtime:     fingerprint.MTimeNS,
+			cacheSkip: true,
+			cacheKey:  cacheKey,
+		}, true
 	}
 
 	outcome, err := provider.Parse(ctx, parser.ParseRequest{
@@ -4785,82 +4798,6 @@ func (e *Engine) recordProviderShadowComparison(
 	)
 }
 
-func (e *Engine) processProviderFile(
-	ctx context.Context,
-	file parser.DiscoveredFile,
-) (processResult, bool) {
-	if !processFileUsesProvider(file.Agent) {
-		return processResult{}, false
-	}
-
-	provider, ok := parser.NewProvider(file.Agent, parser.ProviderConfig{
-		Roots:   e.agentDirs[file.Agent],
-		Machine: e.machine,
-	})
-	if !ok {
-		return processResult{
-			err: fmt.Errorf("provider not found for agent type: %s", file.Agent),
-		}, true
-	}
-
-	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
-		StoredFilePath:     file.Path,
-		FingerprintKey:     file.Path,
-		RequireFreshSource: !file.ForceParse,
-	})
-	if err != nil {
-		return processResult{err: err}, true
-	}
-	if !found {
-		return processResult{
-			err: fmt.Errorf("provider source not found for %s: %s", file.Agent, file.Path),
-		}, true
-	}
-
-	fingerprint, err := provider.Fingerprint(ctx, source)
-	if err != nil {
-		return processResult{err: err}, true
-	}
-	cacheSkip := e.shouldCacheSkip(file)
-	if cacheSkip && e.shouldSkipCachedProviderFile(file, fingerprint) {
-		return processResult{
-			skip:      true,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: true,
-		}, true
-	}
-
-	outcome, err := provider.Parse(ctx, parser.ParseRequest{
-		Source:      source,
-		Fingerprint: fingerprint,
-		Machine:     e.machine,
-		ForceParse:  e.forceParse || file.ForceParse,
-	})
-	if err != nil {
-		return processResult{
-			err:       err,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: cacheSkip,
-		}, true
-	}
-
-	res := processResult{
-		results:            parseOutcomeResults(outcome.Results),
-		excludedSessionIDs: append([]string(nil), outcome.ExcludedSessionIDs...),
-		sessionErrs:        sourceErrorsToSessionParseErrors(outcome.SourceErrors),
-		mtime:              fingerprint.MTimeNS,
-		cacheSkip:          cacheSkip,
-		forceReplace:       outcome.ForceReplace,
-	}
-	for _, result := range outcome.Results {
-		if result.DataVersion == parser.DataVersionNeedsRetry {
-			res.needsRetry = true
-			break
-		}
-	}
-	return res, true
-}
-
 func processFileUsesProvider(agent parser.AgentType) bool {
 	switch agent {
 	case parser.AgentForge, parser.AgentPiebald, parser.AgentWarp:
@@ -4881,6 +4818,50 @@ func (e *Engine) shouldSkipCachedProviderFile(
 	cachedMtime, cached := e.skipCache[file.Path]
 	e.skipMu.RUnlock()
 	return cached && cachedMtime == fingerprint.MTimeNS
+}
+
+func (e *Engine) shouldSkipProviderSource(
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+) bool {
+	if e.forceParse || file.ForceParse {
+		return false
+	}
+	lookupPath := providerSkipLookupPath(file, source, fingerprint)
+	if e.pathRewriter != nil {
+		lookupPath = e.pathRewriter(lookupPath)
+	}
+	storedSize, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
+	if !ok {
+		return false
+	}
+	if fingerprint.Size != 0 && storedSize != fingerprint.Size {
+		return false
+	}
+	if storedMtime != fingerprint.MTimeNS {
+		return false
+	}
+	return e.db.GetDataVersionByPath(lookupPath) >= db.CurrentDataVersion()
+}
+
+func providerSkipLookupPath(
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+) string {
+	for _, path := range []string{
+		fingerprint.Key,
+		source.FingerprintKey,
+		source.DisplayPath,
+		source.Key,
+		file.Path,
+	} {
+		if path != "" {
+			return path
+		}
+	}
+	return file.Path
 }
 
 func sourceErrorsToSessionParseErrors(
