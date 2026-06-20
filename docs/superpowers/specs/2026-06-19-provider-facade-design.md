@@ -1,5 +1,29 @@
 # Provider Facade Design
 
+## Current Stack Status
+
+This document describes both the target provider facade and the staged migration
+history used by the stacked PRs. On the `provider-explicit-registry` stack tip,
+the provider registry no longer has a legacy fallback factory, concrete
+parse-capable providers are expected to be `provider-authoritative`, and
+Claude.ai / ChatGPT are explicitly `import-only`.
+
+The earlier `legacy-only -> shadow-compare -> provider-authoritative` flow is
+historical guidance for the lower migration branches in the stack. The final tip
+must not reintroduce `ProviderMigrationLegacyOnly`; the literal `"legacy-only"`
+value is rejected as an invalid migration mode. The `shadow-compare` mode
+remains a transitional mode used by lower stack branches and by future staged
+provider migrations before they reach an authoritative stack tip. It is valid as
+a manifest mode, but the tip-level manifest test requires every non-import
+provider to be authoritative.
+
+`provider-authoritative` currently makes the provider registry and migration
+manifest authoritative for provider construction. Full sync-engine dispatch
+authority is still tracked separately by kata issue `n489`: after caller-level
+migration blockers are complete, the stack tip must remove the remaining
+provider-by-provider legacy parser dispatch and old `AgentDef` source callback
+surface.
+
 ## Purpose
 
 agentsview supports many agent formats, but parser integration is currently
@@ -919,12 +943,12 @@ owned and resolved through provider methods rather than hard-coded in sync.
 
 ## Sync Engine Flow
 
-The root of the stack supports both execution shapes:
+The root of the migration stack supports both execution shapes:
 
 - the legacy `DiscoveredFile` and `processFile` shape, which remains
-  authoritative during migration;
+  authoritative on lower migration branches;
 - the provider `SourceRef` shape, which can process the same logical source
-  without writing session state while the stack is in shadow-compare mode.
+  without writing session state while a lower branch is in shadow-compare mode.
 
 The root-level migration harness owns the comparison. It exposes an explicit
 provider runtime manifest keyed by `parser.AgentType`. Family helpers may build
@@ -932,18 +956,21 @@ entries for related providers, but tests must expand the family to every
 concrete `AgentType`; a family-level entry is not enough to mark an individual
 parse-capable provider migrated.
 
-- legacy-only: only the existing sync path runs and writes. This is the normal
-  mode for legacy adapter providers. A concrete provider may move back to this
-  mode only as a documented rollback with an open follow-up task.
-- shadow-compare: legacy runs and writes; provider runs through the new generic
-  path and produces normalized in-memory planned effects. Tests compare those
-  effects against the legacy outcome. Runtime mismatches are developer
-  diagnostics only; they must not persist user-visible parse diagnostics or
-  change SSE-visible state.
-- provider-authoritative: provider dispatch writes, returns the caller result,
-  and the old provider-specific legacy path is absent. This is reserved for the
-  stack-tip cleanup after every parse-capable provider has passed shadow
-  comparison.
+- legacy-only: historical lower-stack mode where only the existing sync path
+  runs and writes. This is the normal mode for legacy adapter providers. A
+  concrete provider may move back to this mode only as a documented rollback
+  with an open follow-up task. The stack tip removes this mode for
+  parse-capable providers and rejects it as invalid.
+- shadow-compare: transitional lower-stack mode where legacy runs and writes;
+  provider runs through the new generic path and produces normalized in-memory
+  planned effects. Tests compare those effects against the legacy outcome.
+  Runtime mismatches are developer diagnostics only; they must not persist
+  user-visible parse diagnostics or change SSE-visible state.
+- provider-authoritative: the provider registry and migration manifest are
+  authoritative for provider construction. In the completed sync migration,
+  provider dispatch also writes, returns the caller result, and the old
+  provider-specific legacy path is absent. This is reserved for the stack-tip
+  cleanup after every parse-capable provider has passed shadow comparison.
 - import-only: the provider exists for non-filesystem import/export metadata and
   is intentionally excluded from parse shadow comparison.
 
@@ -1118,9 +1145,12 @@ must prove the generic hook contract for its source shape:
   tests for the provider's source family before the old legacy dispatch for that
   provider is removed.
 
-If a provider that moved to shadow-compare proves flaky, its manifest entry can
-return to legacy-only with a reason and an open kata task or review note. The
-tip cleanup cannot proceed while any parse-capable provider is legacy-only or
+If a provider that moved to shadow-compare proves flaky on a lower migration
+branch, its manifest entry can return to that branch's legacy-only mode with a
+reason and an open kata task or review note. After the explicit-registry tip,
+legacy-only is no longer a valid code state; regressions should instead be
+handled by reverting or repairing the affected provider branch before the stack
+is resubmitted. The tip cleanup cannot proceed while any parse-capable provider
 has known shadow mismatches.
 
 ## Registry
