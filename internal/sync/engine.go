@@ -6399,6 +6399,11 @@ func (e *Engine) processHermes(
 		if err != nil {
 			return processResult{err: err}
 		}
+		for i := range results {
+			results[i].Session.File.Path = file.Path
+			results[i].Session.File.Size = info.Size()
+			results[i].Session.File.Mtime = info.ModTime().UnixNano()
+		}
 		return processResult{results: results, forceReplace: true}
 	}
 
@@ -6431,8 +6436,8 @@ func hermesArchiveEffectiveInfo(path string, info os.FileInfo) os.FileInfo {
 	}
 	size := info.Size()
 	mtime := info.ModTime().UnixNano()
-	for _, file := range parser.DiscoverHermesSessions(sessionsDir) {
-		fileInfo, err := os.Stat(file.Path)
+	for _, path := range hermesArchiveTranscriptFiles(sessionsDir) {
+		fileInfo, err := os.Stat(path)
 		if err != nil || fileInfo == nil || fileInfo.IsDir() {
 			continue
 		}
@@ -6442,6 +6447,29 @@ func hermesArchiveEffectiveInfo(path string, info os.FileInfo) os.FileInfo {
 		}
 	}
 	return fakeSnapshotInfo{fSize: size, fMtime: mtime}
+}
+
+func hermesArchiveTranscriptFiles(sessionsDir string) []string {
+	if sessionsDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".jsonl") ||
+			strings.HasPrefix(name, "session_") && strings.HasSuffix(name, ".json") {
+			paths = append(paths, filepath.Join(sessionsDir, name))
+		}
+	}
+	slices.Sort(paths)
+	return paths
 }
 
 func hermesArchiveSourcePaths(path string) (stateDB, sessionsDir string, ok bool) {
