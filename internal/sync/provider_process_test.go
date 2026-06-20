@@ -1629,7 +1629,11 @@ func (f configuredChangedPathProviderFactory) Definition() parser.AgentDef {
 }
 
 func (f configuredChangedPathProviderFactory) Capabilities() parser.Capabilities {
-	return parser.Capabilities{}
+	return parser.Capabilities{
+		Source: parser.SourceCapabilities{
+			ClassifyChangedPath: parser.CapabilitySupported,
+		},
+	}
 }
 
 func (f configuredChangedPathProviderFactory) NewProvider(
