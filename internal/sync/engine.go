@@ -104,6 +104,11 @@ type Engine struct {
 	// retried when its mtime changes.
 	skipMu    gosync.RWMutex
 	skipCache map[string]int64
+	// providerCleanSkipCache tracks clean provider parses for the lifetime of
+	// this engine. Unlike skipCache, these entries must not persist to
+	// skipped_files; they are performance hints, not parse failures.
+	providerCleanSkipCache map[string]int64
+	providerCleanSkipHash  map[string]string
 	// idPrefix and pathRewriter support remote sync:
 	// prefix all session IDs to avoid collisions, rewrite
 	// temp paths to "host:/remote/path" form.
@@ -184,6 +189,8 @@ func NewEngine(
 		machine:                 cfg.Machine,
 		blockedResultCategories: blockedCategorySet(cfg.BlockedResultCategories),
 		skipCache:               skipCache,
+		providerCleanSkipCache:  make(map[string]int64),
+		providerCleanSkipHash:   make(map[string]string),
 		ephemeral:               cfg.Ephemeral,
 		idPrefix:                cfg.IDPrefix,
 		pathRewriter:            cfg.PathRewriter,
@@ -730,7 +737,7 @@ func (e *Engine) attachProviderSources(
 		}
 		sourceCopy := source
 		files[i].ProviderSource = &sourceCopy
-		files[i].ProviderProcess = processFileUsesProvider(files[i].Agent)
+		files[i].ProviderProcess = e.providerProcessEnabled(files[i].Agent)
 		if files[i].Project == "" {
 			files[i].Project = source.ProjectHint
 		}
@@ -746,7 +753,7 @@ func (e *Engine) attachChangedPathProviderSources(
 	for i := range files {
 		if files[i].ProviderSource != nil {
 			files[i].ProviderProcess = files[i].ProviderProcess ||
-				processFileUsesProvider(files[i].Agent)
+				e.providerProcessEnabled(files[i].Agent)
 			continue
 		}
 		mode := e.providerMigrationModes[files[i].Agent]
@@ -788,7 +795,7 @@ func (e *Engine) attachChangedPathProviderSources(
 		}
 		sourceCopy := source
 		files[i].ProviderSource = &sourceCopy
-		files[i].ProviderProcess = processFileUsesProvider(files[i].Agent)
+		files[i].ProviderProcess = e.providerProcessEnabled(files[i].Agent)
 		if files[i].Project == "" {
 			files[i].Project = source.ProjectHint
 		}
@@ -2471,12 +2478,18 @@ func (e *Engine) ResyncAll(
 	// matches the persisted DB until the next restart.
 	e.skipMu.Lock()
 	savedSkipCache := e.skipCache
+	savedProviderCleanSkipCache := e.providerCleanSkipCache
+	savedProviderCleanSkipHash := e.providerCleanSkipHash
 	e.skipCache = make(map[string]int64)
+	e.providerCleanSkipCache = make(map[string]int64)
+	e.providerCleanSkipHash = make(map[string]string)
 	e.skipMu.Unlock()
 
 	restoreSkipCache := func() {
 		e.skipMu.Lock()
 		e.skipCache = savedSkipCache
+		e.providerCleanSkipCache = savedProviderCleanSkipCache
+		e.providerCleanSkipHash = savedProviderCleanSkipHash
 		e.skipMu.Unlock()
 	}
 
@@ -4358,11 +4371,15 @@ func (e *Engine) collectAndBatch(
 		} else {
 			for _, pr := range r.results {
 				pending = append(pending, pendingWrite{
-					sess:         pr.Session,
-					msgs:         pr.Messages,
-					usageEvents:  pr.UsageEvents,
-					needsRetry:   r.needsRetryForSession(pr.Session.ID),
-					forceReplace: r.forceReplace,
+					sess:           pr.Session,
+					msgs:           pr.Messages,
+					usageEvents:    pr.UsageEvents,
+					needsRetry:     r.needsRetryForSession(pr.Session.ID),
+					forceReplace:   r.forceReplace,
+					skipCache:      r.cacheCleanSuccess,
+					skipCacheKey:   r.skipCacheKey(),
+					skipCacheMTime: r.mtime,
+					skipCacheHash:  r.cacheHash,
 				})
 			}
 		}
@@ -4464,7 +4481,11 @@ type processResult struct {
 	// would silently skip the file on later syncs instead of
 	// retrying it.
 	noCacheSkip bool
-	needsRetry  bool
+	// cacheCleanSuccess records successful provider parses after their DB
+	// writes complete, preserving composite source freshness that may not
+	// match the stored session file path.
+	cacheCleanSuccess bool
+	needsRetry        bool
 	// forceReplace requests full message replacement on write,
 	// even when the existing rows would otherwise be left in
 	// place. Set when a fall-through to full parse is recovering
@@ -4473,6 +4494,7 @@ type processResult struct {
 	// writeMessages would silently drop the rewrite.
 	forceReplace bool
 	cacheKey     string
+	cacheHash    string
 	// retrySessionIDs carries provider per-result data-version state.
 	// Legacy parsers use needsRetry as a source-wide fallback.
 	retrySessionIDs map[string]bool
@@ -4829,7 +4851,7 @@ func (e *Engine) processProviderFile(
 	file parser.DiscoveredFile,
 ) (processResult, bool) {
 	mode := e.providerMigrationModes[file.Agent]
-	usesProvider := processFileUsesProvider(file.Agent)
+	usesProvider := e.providerProcessEnabled(file.Agent)
 	if mode != parser.ProviderMigrationProviderAuthoritative && !usesProvider {
 		return processResult{}, false
 	}
@@ -4891,7 +4913,7 @@ func (e *Engine) processProviderFile(
 			fingerprint.Hash = hash
 		}
 	}
-	cacheSkip := e.shouldCacheSkip(file)
+	cacheSkip := e.shouldCacheSkip(file) || e.providerProcessEnabled(file.Agent)
 	cacheKey := providerProcessCacheKey(file, source, fingerprint)
 	if cacheSkip && e.shouldSkipCachedProviderFile(file, fingerprint, cacheKey) {
 		return processResult{
@@ -5001,11 +5023,14 @@ func (e *Engine) processProviderFile(
 	}
 
 	res := processResult{
-		excludedSessionIDs:    append([]string(nil), outcome.ExcludedSessionIDs...),
-		mtime:                 fingerprint.MTimeNS,
-		cacheSkip:             cacheSkip,
-		cacheKey:              cacheKey,
-		noCacheSkip:           !cleanCache,
+		excludedSessionIDs: append([]string(nil), outcome.ExcludedSessionIDs...),
+		mtime:              fingerprint.MTimeNS,
+		cacheSkip:          cacheSkip,
+		cacheKey:           cacheKey,
+		cacheHash:          fingerprint.Hash,
+		noCacheSkip:        !cleanCache,
+		cacheCleanSuccess: cacheSkip && cleanCache &&
+			!e.forceParse && !file.ForceParse,
 		forceReplace:          forceReplace,
 		suppressPresenceSweep: !outcome.ResultSetComplete,
 		noSession: outcome.ResultSetComplete &&
@@ -5017,11 +5042,6 @@ func (e *Engine) processProviderFile(
 	}
 	res.results = parseOutcomeResults(outcome.Results)
 	applyProviderFingerprint(res.results, fingerprint)
-	if file.Project != "" {
-		for i := range res.results {
-			res.results[i].Session.Project = file.Project
-		}
-	}
 	for _, result := range outcome.Results {
 		if result.DataVersion == parser.DataVersionNeedsRetry {
 			if res.retrySessionIDs == nil {
@@ -5285,6 +5305,9 @@ func (e *Engine) preferProviderDuplicateSource(
 	file parser.DiscoveredFile,
 	source parser.SourceRef,
 ) (parser.DiscoveredFile, parser.SourceRef, error) {
+	if file.Agent == parser.AgentCodex {
+		return e.preferCodexProviderDuplicateSource(ctx, provider, file, source)
+	}
 	if file.Agent != parser.AgentClaude {
 		return file, source, nil
 	}
@@ -5344,6 +5367,58 @@ func (e *Engine) preferProviderDuplicateSource(
 	return file, chosenSource, nil
 }
 
+func (e *Engine) preferCodexProviderDuplicateSource(
+	ctx context.Context,
+	_ parser.Provider,
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+) (parser.DiscoveredFile, parser.SourceRef, error) {
+	sourcePath := providerDiscoveredPath(source)
+	if source.Key == "" || sourcePath == "" {
+		return file, source, nil
+	}
+	uuid := strings.TrimPrefix(source.Key, string(parser.AgentCodex)+":")
+	if uuid == "" || uuid == source.Key {
+		return file, source, nil
+	}
+	candidates := make([]parser.DiscoveredFile, 0)
+	sourcesByPath := make(map[string]parser.SourceRef)
+	for _, root := range e.agentDirs[parser.AgentCodex] {
+		if err := ctx.Err(); err != nil {
+			return file, source, err
+		}
+		for _, candidate := range parser.DiscoverCodexSessions(root) {
+			if parser.CodexSessionUUIDFromFilename(
+				filepath.Base(candidate.Path),
+			) != uuid {
+				continue
+			}
+			path := candidate.Path
+			candidates = append(candidates, parser.DiscoveredFile{
+				Path:  path,
+				Agent: file.Agent,
+			})
+			sourcesByPath[path] = parser.SourceRef{
+				Provider:       parser.AgentCodex,
+				Key:            source.Key,
+				DisplayPath:    path,
+				FingerprintKey: path,
+			}
+		}
+	}
+	if len(candidates) < 2 {
+		return file, source, nil
+	}
+	chosen := pickPreferredCodexDiscoveredFile(e.db, candidates)
+	chosenSource, ok := sourcesByPath[chosen.Path]
+	if !ok || chosen.Path == file.Path && chosen.Path == sourcePath {
+		return file, source, nil
+	}
+	file.Path = chosen.Path
+	sourceCopy := chosenSource
+	file.ProviderSource = &sourceCopy
+	return file, chosenSource, nil
+}
 func (e *Engine) providerVibeExclusions(
 	file parser.DiscoveredFile,
 	outcome parser.ParseOutcome,
@@ -5403,6 +5478,15 @@ func processFileUsesProvider(agent parser.AgentType) bool {
 	}
 }
 
+func (e *Engine) providerProcessEnabled(agent parser.AgentType) bool {
+	if agent == parser.AgentCodex {
+		return false
+	}
+	return e.providerMigrationModes[agent] ==
+		parser.ProviderMigrationProviderAuthoritative ||
+		processFileUsesProvider(agent)
+}
+
 func (e *Engine) shouldSkipCachedProviderFile(
 	file parser.DiscoveredFile,
 	fingerprint parser.SourceFingerprint,
@@ -5413,7 +5497,17 @@ func (e *Engine) shouldSkipCachedProviderFile(
 	}
 	e.skipMu.RLock()
 	cachedMtime, cached := e.skipCache[cacheKey]
+	cachedHash := ""
+	transient := false
+	if !cached {
+		cachedMtime, cached = e.providerCleanSkipCache[cacheKey]
+		cachedHash = e.providerCleanSkipHash[cacheKey]
+		transient = cached
+	}
 	e.skipMu.RUnlock()
+	if transient && fingerprint.Hash != "" && cachedHash != fingerprint.Hash {
+		return false
+	}
 	return cached && cachedMtime == fingerprint.MTimeNS
 }
 
@@ -5436,26 +5530,27 @@ func (e *Engine) shouldSkipProviderSource(
 	if e.pathRewriter != nil {
 		lookupPath = e.pathRewriter(lookupPath)
 	}
-	storedSize, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
+	_, storedMtime, ok := e.db.GetFileInfoByPath(lookupPath)
 	if !ok {
-		return false
-	}
-	if fingerprint.Size != 0 && storedSize != fingerprint.Size {
 		return false
 	}
 	if storedMtime != fingerprint.MTimeNS {
 		return false
 	}
+	if fingerprint.Hash != "" {
+		storedHash, _ := e.db.GetFileHashByPath(lookupPath)
+		if storedHash != fingerprint.Hash {
+			return false
+		}
+	}
 	return e.db.GetDataVersionByPath(lookupPath) >= db.CurrentDataVersion()
 }
 
 func providerSourceSupportsPersistedFreshness(agent parser.AgentType) bool {
-	switch agent {
-	case parser.AgentAntigravityCLI, parser.AgentForge, parser.AgentWarp:
-		return true
-	default:
+	if agent == parser.AgentPiebald {
 		return false
 	}
+	return agent != ""
 }
 
 func providerNotFoundFallsBack(file parser.DiscoveredFile) bool {
@@ -5556,8 +5651,25 @@ func (e *Engine) shouldCacheSkip(
 // cacheSkip records a file so it won't be retried until
 // its mtime changes.
 func (e *Engine) cacheSkip(path string, mtime int64) {
+	if e.forceParse {
+		return
+	}
 	e.skipMu.Lock()
 	e.skipCache[path] = mtime
+	e.skipMu.Unlock()
+}
+
+func (e *Engine) cacheProviderCleanSkip(path string, mtime int64, hash string) {
+	if e.forceParse {
+		return
+	}
+	e.skipMu.Lock()
+	e.providerCleanSkipCache[path] = mtime
+	if hash != "" {
+		e.providerCleanSkipHash[path] = hash
+	} else {
+		delete(e.providerCleanSkipHash, path)
+	}
 	e.skipMu.Unlock()
 }
 
@@ -5566,6 +5678,8 @@ func (e *Engine) cacheSkip(path string, mtime int64) {
 func (e *Engine) clearSkip(path string) {
 	e.skipMu.Lock()
 	delete(e.skipCache, path)
+	delete(e.providerCleanSkipCache, path)
+	delete(e.providerCleanSkipHash, path)
 	e.skipMu.Unlock()
 	_ = e.db.DeleteSkippedFile(path)
 }
@@ -8041,11 +8155,15 @@ func (e *Engine) recomputeSignalsFromDB(
 }
 
 type pendingWrite struct {
-	sess         parser.ParsedSession
-	msgs         []parser.ParsedMessage
-	usageEvents  []parser.ParsedUsageEvent
-	needsRetry   bool
-	forceReplace bool
+	sess           parser.ParsedSession
+	msgs           []parser.ParsedMessage
+	usageEvents    []parser.ParsedUsageEvent
+	needsRetry     bool
+	forceReplace   bool
+	skipCache      bool
+	skipCacheKey   string
+	skipCacheMTime int64
+	skipCacheHash  string
 }
 
 func dataVersionForWrite(pw pendingWrite) int {
@@ -8205,6 +8323,14 @@ func (e *Engine) writeBatch(
 				update.SecretsRulesVersion); err != nil {
 				log.Printf("secrets: persist %s: %v", s.ID, err)
 			}
+		}
+		if pw.skipCache && pw.skipCacheKey != "" &&
+			pw.skipCacheMTime != 0 {
+			e.cacheProviderCleanSkip(
+				pw.skipCacheKey,
+				pw.skipCacheMTime,
+				pw.skipCacheHash,
+			)
 		}
 		writtenSessions++
 		writtenMessages += len(msgs)
@@ -8915,6 +9041,24 @@ func (e *Engine) writeBatchBulk(
 	for _, id := range result.ExcludedIDs {
 		if source, ok := sources[id]; ok && source.path != "" {
 			e.cacheSkip(source.path, source.mtime)
+		}
+	}
+	if result.FailedSessions == 0 {
+		cached := make(map[string]struct{})
+		for _, pw := range batch {
+			if !pw.skipCache || pw.skipCacheKey == "" ||
+				pw.skipCacheMTime == 0 {
+				continue
+			}
+			if _, ok := cached[pw.skipCacheKey]; ok {
+				continue
+			}
+			e.cacheProviderCleanSkip(
+				pw.skipCacheKey,
+				pw.skipCacheMTime,
+				pw.skipCacheHash,
+			)
+			cached[pw.skipCacheKey] = struct{}{}
 		}
 	}
 	for _, err := range result.Errors {

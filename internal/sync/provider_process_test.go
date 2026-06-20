@@ -62,7 +62,7 @@ func TestProcessFileProviderAuthoritativeUsesProviderSourceRef(t *testing.T) {
 	assert.Len(t, res.results[0].Messages, 2)
 }
 
-func TestProcessFileProviderAuthoritativeHonorsDiscoveredProject(t *testing.T) {
+func TestProcessFileProviderAuthoritativeKeepsParsedProject(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-discovered-project"
 	sourcePath := writeProcessProviderClaudeSession(
@@ -97,7 +97,7 @@ func TestProcessFileProviderAuthoritativeHonorsDiscoveredProject(t *testing.T) {
 
 	require.NoError(t, res.err)
 	require.Len(t, res.results, 1)
-	assert.Equal(t, "stored_project", res.results[0].Session.Project)
+	assert.Equal(t, "demo", res.results[0].Session.Project)
 }
 
 func TestProcessFileProviderAuthoritativeClaudeDuplicatePrefersAppendProgress(t *testing.T) {
@@ -238,7 +238,7 @@ func TestProcessFileProviderAuthoritativeClaudeDuplicateUsesPreferredProject(t *
 	require.NoError(t, res.err)
 	require.Len(t, res.results, 1)
 	assert.Equal(t, livePath, res.results[0].Session.File.Path)
-	assert.Equal(t, "-Users-dev-code-demo", res.results[0].Session.Project)
+	assert.Equal(t, "demo", res.results[0].Session.Project)
 }
 
 func TestProcessFileProviderAuthoritativeClaudeDuplicateUpdatesStaleSource(t *testing.T) {
@@ -890,7 +890,7 @@ func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	assert.False(t, files[0].ProviderProcess)
 }
 
-func TestClassifyPathsAttachesProviderSourceWithoutMigratingProcess(t *testing.T) {
+func TestClassifyPathsAttachesProviderSourceForProviderProcess(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-classify-ordinary"
 	sourcePath := writeProcessProviderClaudeSession(
@@ -910,10 +910,10 @@ func TestClassifyPathsAttachesProviderSourceWithoutMigratingProcess(t *testing.T
 	assert.Equal(t, sourcePath, files[0].Path)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
 	assert.False(t, files[0].ForceParse)
-	assert.False(t, files[0].ProviderProcess)
+	assert.True(t, files[0].ProviderProcess)
 
 	_, ok := engine.processProviderFile(context.Background(), files[0])
-	assert.False(t, ok)
+	assert.True(t, ok)
 }
 
 func TestAttachProviderSourcesCarriesSourceRefForFullSyncDiscovery(t *testing.T) {
@@ -937,7 +937,7 @@ func TestAttachProviderSourcesCarriesSourceRefForFullSyncDiscovery(t *testing.T)
 	require.Len(t, files, 1)
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
-	assert.False(t, files[0].ProviderProcess)
+	assert.True(t, files[0].ProviderProcess)
 }
 
 func writeProcessProviderClaudeSession(

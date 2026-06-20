@@ -2155,7 +2155,8 @@ func TestEngine_ClassifyPathsProviderSidecarKeepsExistingGeminiSources(
 	require.Len(t, files, 1)
 	assert.Equal(t, sessionPath, files[0].Path)
 	assert.Equal(t, parser.AgentGemini, files[0].Agent)
-	assert.True(t, files[0].ForceParse)
+	assert.False(t, files[0].ForceParse)
+	assert.True(t, files[0].ProviderProcess)
 }
 
 func TestEngine_ClassifyPathsProviderRemoveKeepsDeletedSQLiteSources(

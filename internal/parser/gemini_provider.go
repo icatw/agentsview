@@ -156,7 +156,6 @@ func (s geminiSourceSet) discoverRoot(
 		if !ok {
 			continue
 		}
-		source.ProjectHint = file.Project
 		addJSONLSource(source, &sources, seen)
 	}
 	sortJSONLSources(sources)
