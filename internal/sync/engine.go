@@ -4525,13 +4525,7 @@ func (e *Engine) processProviderFile(
 		return processResult{err: err}, true
 	}
 	if !found {
-		return processResult{
-			err: fmt.Errorf(
-				"%s provider source not found for %s",
-				file.Agent,
-				file.Path,
-			),
-		}, true
+		return processResult{}, false
 	}
 
 	fingerprint, err := provider.Fingerprint(ctx, source)
@@ -4590,6 +4584,30 @@ func (e *Engine) processProviderFile(
 			cacheKey:    cacheKey,
 			noCacheSkip: true,
 		}, true
+	}
+	if file.Agent == parser.AgentVibe {
+		excluded, blocked, err := e.providerVibeExclusions(file, outcome)
+		if err != nil {
+			return processResult{
+				err:         err,
+				mtime:       fingerprint.MTimeNS,
+				cacheSkip:   cacheSkip,
+				cacheKey:    cacheKey,
+				noCacheSkip: true,
+			}, true
+		}
+		outcome.ExcludedSessionIDs = append(outcome.ExcludedSessionIDs, excluded...)
+		if blocked {
+			return processResult{
+				excludedSessionIDs: append(
+					[]string(nil),
+					outcome.ExcludedSessionIDs...,
+				),
+				mtime:     fingerprint.MTimeNS,
+				cacheSkip: cacheSkip,
+				cacheKey:  cacheKey,
+			}, true
+		}
 	}
 	cleanCache := providerOutcomeAllowsCleanSkipCache(outcome)
 	if outcome.SkipReason != parser.SkipNone {
@@ -4664,11 +4682,52 @@ func (e *Engine) providerSourceForDiscoveredFile(
 		return source, true, nil
 	}
 
-	return provider.FindSource(ctx, parser.FindSourceRequest{
+	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
 		StoredFilePath:     file.Path,
 		FingerprintKey:     file.Path,
 		RequireFreshSource: !e.forceParse && !file.ForceParse,
 	})
+	if err != nil || found {
+		return source, found, err
+	}
+
+	sources, err := provider.SourcesForChangedPath(ctx, parser.ChangedPathRequest{
+		Path:      file.Path,
+		EventKind: providerChangedPathEventKind(file.Path),
+		WatchRoot: findContainingDir(
+			e.agentDirs[file.Agent],
+			file.Path,
+		),
+	})
+	if err != nil {
+		if errors.Is(err, parser.ErrUnsupportedProviderFeature) {
+			return parser.SourceRef{}, false, nil
+		}
+		return parser.SourceRef{}, false, err
+	}
+	if len(sources) == 0 {
+		return parser.SourceRef{}, false, nil
+	}
+	for _, candidate := range sources {
+		if candidate.Provider == "" {
+			candidate.Provider = file.Agent
+		}
+		if providerDiscoveredPath(candidate) == file.Path {
+			return candidate, true, nil
+		}
+	}
+	if len(sources) == 1 {
+		source := sources[0]
+		if source.Provider == "" {
+			source.Provider = file.Agent
+		}
+		return source, true, nil
+	}
+	return parser.SourceRef{}, false, fmt.Errorf(
+		"provider source ambiguous for %s: %s",
+		file.Agent,
+		file.Path,
+	)
 }
 
 func providerProcessCacheKey(
@@ -4795,6 +4854,56 @@ func (e *Engine) recordProviderShadowComparison(
 	)
 }
 
+func (e *Engine) providerVibeExclusions(
+	file parser.DiscoveredFile,
+	outcome parser.ParseOutcome,
+) ([]string, bool, error) {
+	if len(outcome.Results) == 0 {
+		return nil, false, nil
+	}
+	currentID := outcome.Results[0].Result.Session.ID
+	lookupPath := file.Path
+	if e.pathRewriter != nil {
+		lookupPath = e.pathRewriter(file.Path)
+	}
+	existingIDs, err := e.db.ListSessionIDsByFilePath(
+		lookupPath,
+		string(parser.AgentVibe),
+	)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var excluded []string
+	currentPrefixedID := e.idPrefix + currentID
+	for _, id := range existingIDs {
+		if id != currentID && id != currentPrefixedID &&
+			!slices.Contains(outcome.ExcludedSessionIDs, id) &&
+			!slices.Contains(excluded, id) {
+			excluded = append(excluded, id)
+		}
+	}
+
+	fallbackID := string(parser.AgentVibe) + ":" +
+		filepath.Base(filepath.Dir(file.Path))
+	currentFallbackTrashed := currentID == fallbackID &&
+		e.isSessionTrashed(fallbackID)
+	if e.isSessionBlocked(fallbackID) ||
+		(currentID == fallbackID &&
+			e.db.HasTrashedSessionByFilePath(
+				lookupPath,
+				string(parser.AgentVibe),
+			)) {
+		if !currentFallbackTrashed &&
+			!slices.Contains(outcome.ExcludedSessionIDs, currentID) &&
+			!slices.Contains(excluded, currentID) {
+			excluded = append(excluded, currentID)
+		}
+		return excluded, true, nil
+	}
+	return excluded, false, nil
+}
+
 func processFileUsesProvider(agent parser.AgentType) bool {
 	switch agent {
 	case parser.AgentForge, parser.AgentPiebald, parser.AgentWarp:
@@ -4838,7 +4947,7 @@ func (e *Engine) shouldSkipProviderSource(
 
 func providerSourceSupportsPersistedFreshness(agent parser.AgentType) bool {
 	switch agent {
-	case parser.AgentForge, parser.AgentWarp:
+	case parser.AgentAntigravityCLI, parser.AgentForge, parser.AgentWarp:
 		return true
 	default:
 		return false
