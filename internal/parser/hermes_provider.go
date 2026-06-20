@@ -167,12 +167,7 @@ func (s hermesSourceSet) Discover(ctx context.Context) ([]SourceRef, error) {
 func (s hermesSourceSet) WatchPlan(context.Context) (WatchPlan, error) {
 	roots := make([]WatchRoot, 0, len(s.roots))
 	for _, root := range s.roots {
-		roots = append(roots, WatchRoot{
-			Path:         root,
-			Recursive:    true,
-			IncludeGlobs: []string{"state.db", "*.jsonl", "session_*.json"},
-			DebounceKey:  string(AgentHermes) + ":sessions:" + root,
-		})
+		roots = append(roots, hermesWatchRoots(root)...)
 	}
 	return WatchPlan{Roots: roots}, nil
 }
@@ -184,19 +179,22 @@ func (s hermesSourceSet) SourcesForChangedPath(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	allowMissing := jsonlMissingPathFallbackAllowed(req)
 	if req.WatchRoot != "" {
-		root := filepath.Clean(req.WatchRoot)
-		if !s.hasRoot(root) {
-			return nil, nil
+		watchRoot := filepath.Clean(req.WatchRoot)
+		for _, root := range s.roots {
+			if !hermesWatchRootMatches(root, watchRoot) {
+				continue
+			}
+			source, ok := s.sourceForChangedPath(root, req.Path, allowMissing)
+			if ok {
+				return []SourceRef{source}, nil
+			}
 		}
-		source, ok := s.sourceForPath(root, req.Path)
-		if !ok {
-			return nil, nil
-		}
-		return []SourceRef{source}, nil
+		return nil, nil
 	}
 	for _, root := range s.roots {
-		source, ok := s.sourceForPath(root, req.Path)
+		source, ok := s.sourceForChangedPath(root, req.Path, allowMissing)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -301,13 +299,31 @@ func (s hermesSourceSet) pathFromSource(source SourceRef) (string, bool) {
 }
 
 func (s hermesSourceSet) sourceForPath(root, path string) (SourceRef, bool) {
+	return s.sourceForChangedPath(root, path, false)
+}
+
+func (s hermesSourceSet) sourceForChangedPath(
+	root,
+	path string,
+	allowMissing bool,
+) (SourceRef, bool) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
 	if stateDB, sessionsDir, ok := hermesStatePaths(root); ok {
 		if samePath(path, stateDB) || hermesPathInTranscriptDir(sessionsDir, path) {
-			return s.sourceRef(root, stateDB)
+			return hermesArchiveSourceRef(root, stateDB)
 		}
 		return SourceRef{}, false
+	}
+	if allowMissing {
+		if stateDB, sessionsDir, ok := hermesArchivePathsForEvent(root, path); ok &&
+			(samePath(path, stateDB) || hermesPathInTranscriptDir(sessionsDir, path)) {
+			return hermesArchiveSourceRef(root, stateDB)
+		}
+		transcriptRoot := hermesTranscriptRoot(root)
+		if hermesPathInTranscriptDir(transcriptRoot, path) {
+			return hermesTranscriptSourceRef(root, path)
+		}
 	}
 	return s.sourceRef(root, path)
 }
@@ -316,21 +332,33 @@ func (s hermesSourceSet) sourceRef(root, path string) (SourceRef, bool) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
 	if stateDB, _, ok := hermesStatePaths(root); ok && samePath(path, stateDB) {
-		return SourceRef{
-			Provider:       AgentHermes,
-			Key:            stateDB,
-			DisplayPath:    stateDB,
-			FingerprintKey: stateDB,
-			Opaque: hermesSource{
-				Root: root,
-				Path: stateDB,
-			},
-		}, true
+		return hermesArchiveSourceRef(root, stateDB)
 	}
 	transcriptRoot := hermesTranscriptRoot(root)
 	if !hermesPathInTranscriptDir(transcriptRoot, path) || !IsRegularFile(path) {
 		return SourceRef{}, false
 	}
+	return hermesTranscriptSourceRef(root, path)
+}
+
+func hermesArchiveSourceRef(root, stateDB string) (SourceRef, bool) {
+	root = filepath.Clean(root)
+	stateDB = filepath.Clean(stateDB)
+	return SourceRef{
+		Provider:       AgentHermes,
+		Key:            stateDB,
+		DisplayPath:    stateDB,
+		FingerprintKey: stateDB,
+		Opaque: hermesSource{
+			Root: root,
+			Path: stateDB,
+		},
+	}, true
+}
+
+func hermesTranscriptSourceRef(root, path string) (SourceRef, bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
 	return SourceRef{
 		Provider:       AgentHermes,
 		Key:            path,
@@ -343,13 +371,72 @@ func (s hermesSourceSet) sourceRef(root, path string) (SourceRef, bool) {
 	}, true
 }
 
-func (s hermesSourceSet) hasRoot(root string) bool {
-	for _, configured := range s.roots {
-		if samePath(root, configured) {
-			return true
+func hermesWatchRoots(root string) []WatchRoot {
+	root = filepath.Clean(root)
+	if stateDB, sessionsDir, ok := hermesStatePaths(root); ok {
+		watchRoots := []WatchRoot{{
+			Path:         filepath.Dir(stateDB),
+			Recursive:    false,
+			IncludeGlobs: []string{"state.db"},
+			DebounceKey:  string(AgentHermes) + ":archive:" + root,
+		}}
+		if info, err := os.Stat(sessionsDir); err == nil && info.IsDir() {
+			watchRoots = append(watchRoots, WatchRoot{
+				Path:         sessionsDir,
+				Recursive:    true,
+				IncludeGlobs: []string{"*.jsonl", "session_*.json"},
+				DebounceKey:  string(AgentHermes) + ":sessions:" + root,
+			})
 		}
+		return watchRoots
 	}
-	return false
+	return []WatchRoot{{
+		Path:         root,
+		Recursive:    true,
+		IncludeGlobs: []string{"state.db", "*.jsonl", "session_*.json"},
+		DebounceKey:  string(AgentHermes) + ":sessions:" + root,
+	}}
+}
+
+func hermesWatchRootMatches(root, watchRoot string) bool {
+	root = filepath.Clean(root)
+	watchRoot = filepath.Clean(watchRoot)
+	if samePath(root, watchRoot) {
+		return true
+	}
+	if stateDB, sessionsDir, ok := hermesStatePaths(root); ok {
+		return samePath(watchRoot, filepath.Dir(stateDB)) ||
+			samePath(watchRoot, sessionsDir)
+	}
+	switch filepath.Base(root) {
+	case "state.db":
+		return samePath(watchRoot, filepath.Dir(root)) ||
+			samePath(watchRoot, filepath.Join(filepath.Dir(root), "sessions"))
+	case "sessions":
+		return samePath(watchRoot, filepath.Dir(root))
+	default:
+		return samePath(watchRoot, filepath.Join(root, "sessions"))
+	}
+}
+
+func hermesArchivePathsForEvent(root, path string) (stateDB, sessionsDir string, ok bool) {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	switch {
+	case filepath.Base(root) == "state.db":
+		stateDB = root
+		sessionsDir = filepath.Join(filepath.Dir(root), "sessions")
+	case filepath.Base(root) == "sessions":
+		stateDB = filepath.Join(filepath.Dir(root), "state.db")
+		sessionsDir = root
+	case samePath(path, filepath.Join(root, "state.db")) ||
+		IsRegularFile(filepath.Join(root, "state.db")):
+		stateDB = filepath.Join(root, "state.db")
+		sessionsDir = filepath.Join(root, "sessions")
+	default:
+		return "", "", false
+	}
+	return stateDB, sessionsDir, true
 }
 
 func hermesTranscriptRoot(root string) string {

@@ -83,6 +83,15 @@ func TestHermesProviderTranscriptSourceMethods(t *testing.T) {
 	require.Len(t, changed, 1)
 	assert.Equal(t, jsonlPath, changed[0].DisplayPath)
 
+	require.NoError(t, os.Remove(jsonlPath))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: jsonlPath, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, jsonlPath, changed[0].DisplayPath)
+
 	ignored, err := provider.SourcesForChangedPath(
 		context.Background(),
 		ChangedPathRequest{
@@ -109,6 +118,16 @@ func TestHermesProviderStateDBSourceMethods(t *testing.T) {
 		Machine: "devbox",
 	})
 	require.True(t, ok)
+
+	plan, err := provider.WatchPlan(context.Background())
+	require.NoError(t, err)
+	require.Len(t, plan.Roots, 2)
+	assert.Equal(t, root, plan.Roots[0].Path)
+	assert.False(t, plan.Roots[0].Recursive)
+	assert.Equal(t, []string{"state.db"}, plan.Roots[0].IncludeGlobs)
+	assert.Equal(t, sessionsDir, plan.Roots[1].Path)
+	assert.True(t, plan.Roots[1].Recursive)
+	assert.Equal(t, []string{"*.jsonl", "session_*.json"}, plan.Roots[1].IncludeGlobs)
 
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
@@ -148,6 +167,75 @@ func TestHermesProviderStateDBSourceMethods(t *testing.T) {
 			changed, err := provider.SourcesForChangedPath(
 				context.Background(),
 				ChangedPathRequest{Path: tc.path, EventKind: "write", WatchRoot: root},
+			)
+			require.NoError(t, err)
+			require.Len(t, changed, 1)
+			assert.Equal(t, stateDB, changed[0].DisplayPath)
+		})
+	}
+
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: stateDB, EventKind: "write", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, stateDB, changed[0].DisplayPath)
+
+	require.NoError(t, os.Remove(transcriptPath))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: transcriptPath, EventKind: "remove", WatchRoot: sessionsDir},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, stateDB, changed[0].DisplayPath)
+
+	require.NoError(t, os.Remove(stateDB))
+	changed, err = provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: stateDB, EventKind: "remove", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, stateDB, changed[0].DisplayPath)
+}
+
+func TestHermesProviderArchiveWatchRoots(t *testing.T) {
+	root := t.TempDir()
+	sessionsDir := filepath.Join(root, "sessions")
+	require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
+	createHermesStateDB(t, root)
+	stateDB := filepath.Join(root, "state.db")
+
+	for _, tc := range []struct {
+		name       string
+		configRoot string
+	}{
+		{name: "archive parent", configRoot: root},
+		{name: "sessions directory", configRoot: sessionsDir},
+		{name: "state db file", configRoot: stateDB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, ok := NewProvider(AgentHermes, ProviderConfig{
+				Roots:   []string{tc.configRoot},
+				Machine: "devbox",
+			})
+			require.True(t, ok)
+
+			plan, err := provider.WatchPlan(context.Background())
+			require.NoError(t, err)
+			require.Len(t, plan.Roots, 2)
+			assert.Equal(t, root, plan.Roots[0].Path)
+			assert.False(t, plan.Roots[0].Recursive)
+			assert.Equal(t, []string{"state.db"}, plan.Roots[0].IncludeGlobs)
+			assert.Equal(t, sessionsDir, plan.Roots[1].Path)
+			assert.True(t, plan.Roots[1].Recursive)
+			assert.Equal(t, []string{"*.jsonl", "session_*.json"}, plan.Roots[1].IncludeGlobs)
+
+			changed, err := provider.SourcesForChangedPath(
+				context.Background(),
+				ChangedPathRequest{Path: stateDB, EventKind: "write", WatchRoot: root},
 			)
 			require.NoError(t, err)
 			require.Len(t, changed, 1)
