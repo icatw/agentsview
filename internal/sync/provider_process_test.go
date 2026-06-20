@@ -1318,16 +1318,21 @@ func TestProcessFileProviderAuthoritativePiebaldDoesNotSkipStoredFreshSource(t *
 	assert.Equal(t, "piebald:42", second.results[0].Session.ID)
 }
 
-func TestProcessFileUsesProviderMigratedAgents(t *testing.T) {
-	for _, agent := range []parser.AgentType{
-		parser.AgentForge,
-		parser.AgentPiebald,
-		parser.AgentWarp,
-	} {
-		assert.True(t, processFileUsesProvider(agent), agent)
+func TestProviderProcessEnabledUsesMigrationManifest(t *testing.T) {
+	engine := &Engine{
+		providerMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude:   parser.ProviderMigrationProviderAuthoritative,
+			parser.AgentForge:    parser.ProviderMigrationProviderAuthoritative,
+			parser.AgentClaudeAI: parser.ProviderMigrationImportOnly,
+			parser.AgentCodex:    parser.ProviderMigrationProviderAuthoritative,
+		},
 	}
-	assert.False(t, processFileUsesProvider(parser.AgentClaude))
-	assert.False(t, processFileUsesProvider(parser.AgentClaudeAI))
+
+	assert.True(t, engine.providerProcessEnabled(parser.AgentClaude))
+	assert.True(t, engine.providerProcessEnabled(parser.AgentForge))
+	assert.False(t, engine.providerProcessEnabled(parser.AgentClaudeAI))
+	assert.False(t, engine.providerProcessEnabled(parser.AgentCodex))
+	assert.False(t, engine.providerProcessEnabled(parser.AgentChatGPT))
 }
 
 func openProcessProviderForgeDB(t *testing.T, path string) *sql.DB {

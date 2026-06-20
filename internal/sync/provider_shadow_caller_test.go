@@ -398,16 +398,6 @@ func TestClassifyProviderChangedPathMarksAuthoritativeProviderProcess(
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
 }
 
-func TestProviderVirtualSourceBackedByEventPreservesHashInDBPath(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "state#prod", "sessions.db")
-	sourcePath := dbPath + "#session-a"
-
-	assert.True(t, providerVirtualSourceBackedByEvent(sourcePath, dbPath))
-	assert.True(t, providerVirtualSourceBackedByEvent(sourcePath, dbPath+"-wal"))
-	assert.True(t, providerVirtualSourceBackedByEvent(sourcePath, dbPath+"-shm"))
-	assert.False(t, providerVirtualSourceBackedByEvent(sourcePath, filepath.Dir(dbPath)))
-}
-
 func TestProcessFileShadowRecordsCachedSkipAsNotComparable(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-skip.jsonl")

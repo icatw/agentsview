@@ -608,7 +608,7 @@ func (e *Engine) classifyProviderChangedPath(
 					Path:            sourcePath,
 					Project:         source.ProjectHint,
 					Agent:           agent,
-					ForceParse:      providerChangedPathForceParse(agent, sourcePath, path, eventKind, mode),
+					ForceParse:      providerChangedPathForceParse(agent, sourcePath, eventKind, mode),
 					ProviderSource:  &sourceCopy,
 					ProviderProcess: e.providerProcessEnabled(agent),
 				})
@@ -656,35 +656,14 @@ func providerChangedPathWatchRoots(
 func providerChangedPathForceParse(
 	agent parser.AgentType,
 	sourcePath string,
-	eventPath string,
 	eventKind string,
 	mode parser.ProviderMigrationMode,
 ) bool {
-	if mode == parser.ProviderMigrationProviderAuthoritative {
-		return eventKind == "remove" &&
-			providerDeletedPhysicalSQLiteSource(agent, sourcePath)
-	}
-	if !processFileUsesProvider(agent) {
-		return true
-	}
-	if filepath.Clean(sourcePath) != filepath.Clean(eventPath) &&
-		!providerVirtualSourceBackedByEvent(sourcePath, eventPath) {
+	if mode != parser.ProviderMigrationProviderAuthoritative {
 		return true
 	}
 	return eventKind == "remove" &&
 		providerDeletedPhysicalSQLiteSource(agent, sourcePath)
-}
-
-func providerVirtualSourceBackedByEvent(sourcePath, eventPath string) bool {
-	idx := strings.LastIndex(sourcePath, "#")
-	if idx < 0 {
-		return false
-	}
-	dbPath := filepath.Clean(sourcePath[:idx])
-	eventPath = filepath.Clean(eventPath)
-	return eventPath == dbPath ||
-		eventPath == dbPath+"-wal" ||
-		eventPath == dbPath+"-shm"
 }
 
 func providerChangedPathEventKind(path string) string {
@@ -5484,22 +5463,12 @@ func (e *Engine) providerVibeExclusions(
 	return excluded, false, nil
 }
 
-func processFileUsesProvider(agent parser.AgentType) bool {
-	switch agent {
-	case parser.AgentForge, parser.AgentPiebald, parser.AgentWarp:
-		return true
-	default:
-		return false
-	}
-}
-
 func (e *Engine) providerProcessEnabled(agent parser.AgentType) bool {
 	if agent == parser.AgentCodex {
 		return false
 	}
 	return e.providerMigrationModes[agent] ==
-		parser.ProviderMigrationProviderAuthoritative ||
-		processFileUsesProvider(agent)
+		parser.ProviderMigrationProviderAuthoritative
 }
 
 func (e *Engine) shouldSkipCachedProviderFile(
