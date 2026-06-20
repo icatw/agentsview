@@ -85,12 +85,32 @@ func TestProcessFileHermesArchiveSkipCacheUsesAggregateMtime(t *testing.T) {
 	transcriptTime := time.Now().Add(2 * time.Second).Truncate(time.Second)
 	require.NoError(t, os.Chtimes(transcriptPath, transcriptTime, transcriptTime))
 
-	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
 			parser.AgentHermes: {filepath.Join(root, "sessions")},
 		},
 		Machine: "local",
 	})
+	first := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  stateDB,
+		Agent: parser.AgentHermes,
+	})
+	require.NoError(t, first.err)
+	require.NotEmpty(t, first.results)
+
+	pending := make([]pendingWrite, 0, len(first.results))
+	for _, result := range first.results {
+		pending = append(pending, pendingWrite{
+			sess:        result.Session,
+			msgs:        result.Messages,
+			usageEvents: result.UsageEvents,
+		})
+	}
+	written, _, failed := engine.writeBatch(pending, syncWriteDefault, true)
+	require.Equal(t, 0, failed)
+	require.NotZero(t, written)
+
 	engine.InjectSkipCache(map[string]int64{
 		stateDB: transcriptTime.UnixNano(),
 	})

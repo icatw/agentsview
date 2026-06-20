@@ -93,6 +93,7 @@ func (p *hermesProvider) Parse(
 		if err != nil {
 			return ParseOutcome{}, err
 		}
+		applyHermesArchiveFingerprint(results, req.Fingerprint)
 		out := make([]ParseResultOutcome, 0, len(results))
 		for _, result := range results {
 			out = append(out, ParseResultOutcome{
@@ -130,6 +131,29 @@ func (p *hermesProvider) Parse(
 		}},
 		ResultSetComplete: true,
 	}, nil
+}
+
+func applyHermesArchiveFingerprint(
+	results []ParseResult,
+	fingerprint SourceFingerprint,
+) {
+	for i := range results {
+		if fingerprint.Size != 0 {
+			results[i].Session.File.Size = fingerprint.Size
+		}
+		if fingerprint.MTimeNS != 0 {
+			results[i].Session.File.Mtime = fingerprint.MTimeNS
+		}
+		if fingerprint.Hash != "" {
+			results[i].Session.File.Hash = fingerprint.Hash
+		}
+		if fingerprint.Inode != 0 {
+			results[i].Session.File.Inode = int64(fingerprint.Inode)
+		}
+		if fingerprint.Device != 0 {
+			results[i].Session.File.Device = int64(fingerprint.Device)
+		}
+	}
 }
 
 type hermesSource struct {

@@ -109,6 +109,7 @@ type Engine struct {
 	// skipped_files; they are performance hints, not parse failures.
 	providerCleanSkipCache map[string]int64
 	providerCleanSkipHash  map[string]string
+	providerCleanSkipSize  map[string]int64
 	// idPrefix and pathRewriter support remote sync:
 	// prefix all session IDs to avoid collisions, rewrite
 	// temp paths to "host:/remote/path" form.
@@ -191,6 +192,7 @@ func NewEngine(
 		skipCache:               skipCache,
 		providerCleanSkipCache:  make(map[string]int64),
 		providerCleanSkipHash:   make(map[string]string),
+		providerCleanSkipSize:   make(map[string]int64),
 		ephemeral:               cfg.Ephemeral,
 		idPrefix:                cfg.IDPrefix,
 		pathRewriter:            cfg.PathRewriter,
@@ -2484,9 +2486,11 @@ func (e *Engine) ResyncAll(
 	savedSkipCache := e.skipCache
 	savedProviderCleanSkipCache := e.providerCleanSkipCache
 	savedProviderCleanSkipHash := e.providerCleanSkipHash
+	savedProviderCleanSkipSize := e.providerCleanSkipSize
 	e.skipCache = make(map[string]int64)
 	e.providerCleanSkipCache = make(map[string]int64)
 	e.providerCleanSkipHash = make(map[string]string)
+	e.providerCleanSkipSize = make(map[string]int64)
 	e.skipMu.Unlock()
 
 	restoreSkipCache := func() {
@@ -2494,6 +2498,7 @@ func (e *Engine) ResyncAll(
 		e.skipCache = savedSkipCache
 		e.providerCleanSkipCache = savedProviderCleanSkipCache
 		e.providerCleanSkipHash = savedProviderCleanSkipHash
+		e.providerCleanSkipSize = savedProviderCleanSkipSize
 		e.skipMu.Unlock()
 	}
 
@@ -4378,6 +4383,7 @@ func (e *Engine) collectAndBatch(
 					skipCacheKey:   r.skipCacheKey(),
 					skipCacheMTime: r.mtime,
 					skipCacheHash:  r.cacheHash,
+					skipCacheSize:  r.cacheSize,
 				})
 			}
 		}
@@ -4493,6 +4499,7 @@ type processResult struct {
 	forceReplace bool
 	cacheKey     string
 	cacheHash    string
+	cacheSize    int64
 	// retrySessionIDs carries provider per-result data-version state.
 	// Legacy parsers use needsRetry as a source-wide fallback.
 	retrySessionIDs map[string]bool
@@ -4914,18 +4921,24 @@ func (e *Engine) processProviderFile(
 	cacheKey := providerProcessCacheKey(file, source, fingerprint)
 	if cacheSkip && e.shouldSkipCachedProviderFile(file, source, fingerprint, cacheKey) {
 		return processResult{
-			skip:      true,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: true,
-			cacheKey:  cacheKey,
+			skip:              true,
+			mtime:             fingerprint.MTimeNS,
+			cacheSkip:         true,
+			cacheKey:          cacheKey,
+			cacheHash:         fingerprint.Hash,
+			cacheSize:         fingerprint.Size,
+			cacheCleanSuccess: true,
 		}, true
 	}
 	if cacheSkip && e.shouldSkipProviderSource(file, source, fingerprint) {
 		return processResult{
-			skip:      true,
-			mtime:     fingerprint.MTimeNS,
-			cacheSkip: true,
-			cacheKey:  cacheKey,
+			skip:              true,
+			mtime:             fingerprint.MTimeNS,
+			cacheSkip:         true,
+			cacheKey:          cacheKey,
+			cacheHash:         fingerprint.Hash,
+			cacheSize:         fingerprint.Size,
+			cacheCleanSuccess: true,
 		}, true
 	}
 	var incrementalFallback processResult
@@ -4987,7 +5000,8 @@ func (e *Engine) processProviderFile(
 			cacheSkip:   cacheSkip,
 			cacheKey:    cacheKey,
 			cacheHash:   fingerprint.Hash,
-			noCacheSkip: !cleanCache,
+			cacheSize:   fingerprint.Size,
+			noCacheSkip: !cleanCache || e.forceParse || file.ForceParse,
 			cacheCleanSuccess: cacheSkip && cleanCache &&
 				!e.forceParse && !file.ForceParse,
 			forceReplace: forceReplace,
@@ -5028,6 +5042,7 @@ func (e *Engine) processProviderFile(
 		cacheSkip:          cacheSkip,
 		cacheKey:           cacheKey,
 		cacheHash:          fingerprint.Hash,
+		cacheSize:          fingerprint.Size,
 		noCacheSkip:        !cleanCache,
 		cacheCleanSuccess: cacheSkip && cleanCache &&
 			!e.forceParse && !file.ForceParse,
@@ -5499,10 +5514,12 @@ func (e *Engine) shouldSkipCachedProviderFile(
 	e.skipMu.RLock()
 	cachedMtime, cached := e.skipCache[cacheKey]
 	cachedHash := ""
+	cachedSize := int64(0)
 	transient := false
 	if !cached {
 		cachedMtime, cached = e.providerCleanSkipCache[cacheKey]
 		cachedHash = e.providerCleanSkipHash[cacheKey]
+		cachedSize = e.providerCleanSkipSize[cacheKey]
 		transient = cached
 	}
 	e.skipMu.RUnlock()
@@ -5512,13 +5529,17 @@ func (e *Engine) shouldSkipCachedProviderFile(
 	if transient && fingerprint.Hash != "" && cachedHash != fingerprint.Hash {
 		return false
 	}
+	if transient && fingerprint.Size != 0 &&
+		cachedSize != 0 && cachedSize != fingerprint.Size {
+		return false
+	}
 	if !transient && fingerprint.Size != 0 {
 		lookupPath := providerSkipLookupPath(file, source, fingerprint)
 		if e.pathRewriter != nil {
 			lookupPath = e.pathRewriter(lookupPath)
 		}
 		storedSize, _, ok := e.db.GetFileInfoByPath(lookupPath)
-		if ok && storedSize != fingerprint.Size {
+		if !ok || storedSize != fingerprint.Size {
 			return false
 		}
 	}
@@ -5673,16 +5694,27 @@ func (e *Engine) cacheSkip(path string, mtime int64) {
 	e.skipMu.Unlock()
 }
 
-func (e *Engine) cacheProviderCleanSkip(path string, mtime int64, hash string) {
+func (e *Engine) cacheProviderCleanSkip(
+	path string,
+	mtime int64,
+	hash string,
+	size int64,
+) {
 	if e.forceParse {
 		return
 	}
 	e.skipMu.Lock()
+	delete(e.skipCache, path)
 	e.providerCleanSkipCache[path] = mtime
 	if hash != "" {
 		e.providerCleanSkipHash[path] = hash
 	} else {
 		delete(e.providerCleanSkipHash, path)
+	}
+	if size != 0 {
+		e.providerCleanSkipSize[path] = size
+	} else {
+		delete(e.providerCleanSkipSize, path)
 	}
 	e.skipMu.Unlock()
 }
@@ -5693,7 +5725,7 @@ func (e *Engine) cacheProcessResultSkip(path string, res processResult) {
 	}
 	key := res.skipCacheKey(path)
 	if res.cacheCleanSuccess {
-		e.cacheProviderCleanSkip(key, res.mtime, res.cacheHash)
+		e.cacheProviderCleanSkip(key, res.mtime, res.cacheHash, res.cacheSize)
 		return
 	}
 	e.cacheSkip(key, res.mtime)
@@ -8190,6 +8222,7 @@ type pendingWrite struct {
 	skipCacheKey   string
 	skipCacheMTime int64
 	skipCacheHash  string
+	skipCacheSize  int64
 }
 
 func dataVersionForWrite(pw pendingWrite) int {
@@ -8356,6 +8389,7 @@ func (e *Engine) writeBatch(
 				pw.skipCacheKey,
 				pw.skipCacheMTime,
 				pw.skipCacheHash,
+				pw.skipCacheSize,
 			)
 		}
 		writtenSessions++
@@ -9083,6 +9117,7 @@ func (e *Engine) writeBatchBulk(
 				pw.skipCacheKey,
 				pw.skipCacheMTime,
 				pw.skipCacheHash,
+				pw.skipCacheSize,
 			)
 			cached[pw.skipCacheKey] = struct{}{}
 		}

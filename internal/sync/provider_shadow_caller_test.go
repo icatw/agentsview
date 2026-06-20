@@ -1004,7 +1004,56 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 	engine.skipMu.RLock()
 	assert.Equal(t, info.ModTime().UnixNano(), engine.providerCleanSkipCache[sourcePath+"#source-key"])
 	assert.Equal(t, "hash-one", engine.providerCleanSkipHash[sourcePath+"#source-key"])
+	assert.Equal(t, info.Size(), engine.providerCleanSkipSize[sourcePath+"#source-key"])
 	engine.skipMu.RUnlock()
+
+	result = engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+	require.NoError(t, result.err)
+	assert.True(t, result.skip)
+	assert.True(t, result.cacheCleanSuccess)
+
+	stats = engine.collectAndBatch(
+		context.Background(),
+		singleSyncJob(syncJob{processResult: result, path: sourcePath}),
+		1,
+		1,
+		nil,
+		syncWriteDefault,
+	)
+	assert.Equal(t, 1, stats.Skipped)
+	cache = engine.SnapshotSkipCache()
+	assert.NotContains(t, cache, sourcePath+"#source-key")
+	assert.NotContains(t, cache, sourcePath)
+	assert.Equal(t, 0, engine.persistSkipCache())
+	skipped, err := engine.db.LoadSkippedFiles()
+	require.NoError(t, err)
+	assert.NotContains(t, skipped, sourcePath+"#source-key")
+	assert.NotContains(t, skipped, sourcePath)
+
+	result = engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:       sourcePath,
+		Agent:      parser.AgentClaude,
+		ForceParse: true,
+	})
+	require.NoError(t, result.err)
+	assert.True(t, result.skip)
+	assert.True(t, result.noCacheSkip)
+	assert.False(t, result.cacheCleanSuccess)
+	stats = engine.collectAndBatch(
+		context.Background(),
+		singleSyncJob(syncJob{processResult: result, path: sourcePath}),
+		1,
+		1,
+		nil,
+		syncWriteDefault,
+	)
+	assert.Equal(t, 1, stats.Skipped)
+	cache = engine.SnapshotSkipCache()
+	assert.NotContains(t, cache, sourcePath+"#source-key")
+	assert.NotContains(t, cache, sourcePath)
 
 	cleanResult := processResult{
 		results: []parser.ParseResult{{
@@ -1025,6 +1074,7 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 		cacheSkip:         true,
 		cacheKey:          sourcePath + "#source-key",
 		cacheHash:         "hash-one",
+		cacheSize:         info.Size(),
 		cacheCleanSuccess: true,
 	}
 	stats = engine.collectAndBatch(
@@ -1040,6 +1090,65 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 	cache = engine.SnapshotSkipCache()
 	assert.NotContains(t, cache, sourcePath+"#source-key")
 	assert.NotContains(t, cache, sourcePath)
+}
+
+func TestProcessFileProviderAuthoritativePersistentSkipRequiresStoredFileInfo(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "legacy-persisted-provider-skip.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+			fingerprint: parser.SourceFingerprint{
+				Key:     sourcePath,
+				Size:    info.Size(),
+				MTimeNS: info.ModTime().UnixNano(),
+				Hash:    "hash-one",
+			},
+			outcome: parser.ParseOutcome{
+				ResultSetComplete: true,
+				SkipReason:        parser.SkipNoSession,
+			},
+		},
+		source: parser.SourceRef{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourcePath + "#source-key",
+		},
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+	engine.InjectSkipCache(map[string]int64{
+		sourcePath + "#source-key": info.ModTime().UnixNano(),
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.NoError(t, result.err)
+	assert.True(t, result.skip)
+	assert.Contains(t, provider.calls, "parse")
 }
 
 type shadowCallerProvider struct {

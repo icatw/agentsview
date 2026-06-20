@@ -1146,17 +1146,20 @@ func TestSyncAllVisualStudioCopilotSkipCacheUsesCompositeFingerprint(t *testing.
 	require.NotZero(t, engine.SyncAll(context.Background(), nil).Synced)
 	assertSessionMessageCount(t, database, sessionID, 1)
 
-	// Trash the conversation and re-sync so its virtual path lands in the skip
-	// cache with the composite mtime (equal to the representative's mtime).
+	// Trash the conversation and re-sync. Provider clean/no-session freshness
+	// stays in the transient provider cache rather than persisted skipped_files.
 	require.NoError(t, database.SoftDeleteSession(sessionID))
 	require.NoError(t, database.ResetAllMtimes())
 	engine.SyncAll(context.Background(), nil)
-	require.NotZero(t,
-		engine.SnapshotSkipCache()[parser.VisualStudioCopilotVirtualPath(
-			primary, conversationID,
-		)],
-		"trashed conversation must be in the skip cache for this test to "+
-			"exercise the bypass",
+	assert.NotContains(t,
+		engine.SnapshotSkipCache(),
+		parser.VisualStudioCopilotVirtualPath(primary, conversationID),
+	)
+	skipped, err := database.LoadSkippedFiles()
+	require.NoError(t, err)
+	assert.NotContains(t,
+		skipped,
+		parser.VisualStudioCopilotVirtualPath(primary, conversationID),
 	)
 
 	// Restore the conversation and add a sibling (older mtime, so the
