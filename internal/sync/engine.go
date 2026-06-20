@@ -471,6 +471,9 @@ func (e *Engine) classifyPaths(
 				dfs = []parser.DiscoveredFile{df}
 			}
 		}
+		if len(dfs) == 0 {
+			dfs = e.classifyProviderChangedPath(p)
+		}
 		for _, df := range dfs {
 			key := string(df.Agent) + "\x00" + df.Path
 			if _, ok := seen[key]; ok {
@@ -483,6 +486,209 @@ func (e *Engine) classifyPaths(
 	files = e.expandClaudeDuplicateCandidates(files)
 	files = dedupeDiscoveredFiles(files)
 	return e.dedupeClaudeDiscoveredFiles(files)
+}
+
+func (e *Engine) classifyProviderChangedPath(
+	path string,
+) []parser.DiscoveredFile {
+	ctx := context.Background()
+	eventKind := providerChangedPathEventKind(path)
+	var files []parser.DiscoveredFile
+	seen := map[string]struct{}{}
+
+	agents := make([]parser.AgentType, 0, len(e.providerFactories))
+	for agent := range e.providerFactories {
+		agents = append(agents, agent)
+	}
+	slices.SortFunc(agents, func(a, b parser.AgentType) int {
+		return strings.Compare(string(a), string(b))
+	})
+
+	for _, agentType := range agents {
+		mode := e.providerMigrationModes[agentType]
+		switch mode {
+		case parser.ProviderMigrationShadowCompare,
+			parser.ProviderMigrationProviderAuthoritative:
+		default:
+			continue
+		}
+		roots := e.agentDirs[agentType]
+		if len(roots) == 0 {
+			continue
+		}
+		factory, ok := e.providerFactories[agentType]
+		if !ok || factory == nil {
+			continue
+		}
+		provider := factory.NewProvider(parser.ProviderConfig{
+			Roots:   roots,
+			Machine: e.machine,
+		})
+		def := provider.Definition()
+		watchRoots := providerChangedPathWatchRoots(ctx, provider, roots)
+		for _, watchRoot := range watchRoots {
+			storedSourcePaths, err := e.db.ListStoredSourcePathHints(
+				string(def.Type),
+				[]string{watchRoot},
+			)
+			if err != nil {
+				log.Printf(
+					"%s provider changed-path stored hints: %v",
+					def.Type, err,
+				)
+			}
+			sources, err := provider.SourcesForChangedPath(
+				ctx,
+				parser.ChangedPathRequest{
+					Path:              path,
+					EventKind:         eventKind,
+					WatchRoot:         watchRoot,
+					StoredSourcePaths: storedSourcePaths,
+				},
+			)
+			if err != nil {
+				if !errors.Is(err, parser.ErrUnsupportedProviderFeature) {
+					log.Printf(
+						"%s provider changed-path classification: %v",
+						def.Type, err,
+					)
+				}
+				continue
+			}
+			for _, source := range sources {
+				sourcePath := providerDiscoveredPath(source)
+				if sourcePath == "" {
+					continue
+				}
+				agent := source.Provider
+				if agent == "" {
+					agent = def.Type
+				}
+				key := string(agent) + "\x00" + sourcePath
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				if eventKind == "remove" &&
+					filepath.Clean(sourcePath) == filepath.Clean(path) &&
+					!parser.IsRegularFile(sourcePath) &&
+					!providerDeletedPhysicalSQLiteSource(agent, sourcePath) {
+					continue
+				}
+				seen[key] = struct{}{}
+				sourceCopy := source
+				files = append(files, parser.DiscoveredFile{
+					Path:            sourcePath,
+					Project:         source.ProjectHint,
+					Agent:           agent,
+					ForceParse:      providerChangedPathForceParse(agent, sourcePath, path, eventKind, mode),
+					ProviderSource:  &sourceCopy,
+					ProviderProcess: mode == parser.ProviderMigrationProviderAuthoritative,
+				})
+			}
+		}
+	}
+	return files
+}
+
+func providerChangedPathWatchRoots(
+	ctx context.Context,
+	provider parser.Provider,
+	roots []string,
+) []string {
+	plan, err := provider.WatchPlan(ctx)
+	if err == nil && len(plan.Roots) > 0 {
+		watchRoots := make([]string, 0, len(plan.Roots))
+		seen := make(map[string]struct{}, len(plan.Roots))
+		for _, root := range plan.Roots {
+			path := filepath.Clean(root.Path)
+			if path == "" || path == "." {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			watchRoots = append(watchRoots, path)
+		}
+		if len(watchRoots) > 0 {
+			return watchRoots
+		}
+	}
+	watchRoots := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = filepath.Clean(root)
+		if root == "" || root == "." {
+			continue
+		}
+		watchRoots = append(watchRoots, root)
+	}
+	return watchRoots
+}
+
+func providerChangedPathForceParse(
+	agent parser.AgentType,
+	sourcePath string,
+	eventPath string,
+	eventKind string,
+	mode parser.ProviderMigrationMode,
+) bool {
+	if mode != parser.ProviderMigrationProviderAuthoritative {
+		return true
+	}
+	if filepath.Clean(sourcePath) != filepath.Clean(eventPath) &&
+		!providerVirtualSourceBackedByEvent(sourcePath, eventPath) {
+		return true
+	}
+	return eventKind == "remove" &&
+		providerDeletedPhysicalSQLiteSource(agent, sourcePath)
+}
+
+func providerVirtualSourceBackedByEvent(sourcePath, eventPath string) bool {
+	dbPath, _, ok := strings.Cut(sourcePath, "#")
+	if !ok {
+		return false
+	}
+	dbPath = filepath.Clean(dbPath)
+	eventPath = filepath.Clean(eventPath)
+	return eventPath == dbPath ||
+		eventPath == dbPath+"-wal" ||
+		eventPath == dbPath+"-shm"
+}
+
+func providerChangedPathEventKind(path string) string {
+	if path == "" {
+		return ""
+	}
+	if _, err := os.Lstat(path); err != nil && os.IsNotExist(err) {
+		return "remove"
+	}
+	return "write"
+}
+
+func providerDiscoveredPath(source parser.SourceRef) string {
+	for _, path := range []string{
+		source.DisplayPath,
+		source.FingerprintKey,
+		source.Key,
+	} {
+		if path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+func providerDeletedPhysicalSQLiteSource(
+	agent parser.AgentType, path string,
+) bool {
+	switch agent {
+	case parser.AgentZed:
+		return filepath.Base(path) == "threads.db"
+	case parser.AgentShelley:
+		return filepath.Base(path) == shelleyDBFile
+	default:
+		return false
+	}
 }
 
 func dedupeDiscoveredFiles(

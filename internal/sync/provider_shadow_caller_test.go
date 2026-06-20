@@ -113,6 +113,116 @@ func TestProcessFileShadowObservesProviderWithoutReplacingLegacy(t *testing.T) {
 	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
 }
 
+func TestClassifyProviderChangedPathPassesStoredHintsToShadowProvider(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	eventPath := filepath.Join(root, "state.sqlite3-wal")
+	storedPath := filepath.Join(root, "state.sqlite3") + "#session-a"
+	database := dbtest.OpenTestDB(t)
+	require.NoError(t, database.UpsertSession(db.Session{
+		ID:       "claude:session-a",
+		Project:  "demo",
+		Machine:  "devbox",
+		Agent:    string(parser.AgentClaude),
+		FilePath: &storedPath,
+	}))
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		watchPlan: parser.WatchPlan{Roots: []parser.WatchRoot{{
+			Path: root,
+		}}},
+		changedSources: []parser.SourceRef{{
+			Provider:       parser.AgentClaude,
+			Key:            storedPath,
+			DisplayPath:    storedPath,
+			FingerprintKey: storedPath,
+			ProjectHint:    "demo",
+		}},
+	}
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
+		},
+	})
+
+	files := engine.classifyPaths([]string{eventPath})
+
+	require.Len(t, provider.changedRequests, 1)
+	assert.Equal(t, eventPath, provider.changedRequests[0].Path)
+	assert.Equal(t, root, provider.changedRequests[0].WatchRoot)
+	assert.Equal(t, []string{storedPath}, provider.changedRequests[0].StoredSourcePaths)
+	require.Len(t, files, 1)
+	assert.Equal(t, storedPath, files[0].Path)
+	assert.Equal(t, "demo", files[0].Project)
+	assert.True(t, files[0].ForceParse)
+	assert.False(t, files[0].ProviderProcess)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, storedPath, files[0].ProviderSource.DisplayPath)
+}
+
+func TestClassifyProviderChangedPathMarksAuthoritativeProviderProcess(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	eventPath := filepath.Join(root, "state.sqlite3-wal")
+	sourcePath := filepath.Join(root, "state.sqlite3") + "#session-a"
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		watchPlan: parser.WatchPlan{Roots: []parser.WatchRoot{{
+			Path: root,
+		}}},
+		changedSources: []parser.SourceRef{{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourcePath,
+		}},
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+
+	files := engine.classifyPaths([]string{eventPath})
+
+	require.Len(t, files, 1)
+	assert.Equal(t, sourcePath, files[0].Path)
+	assert.True(t, files[0].ProviderProcess)
+	assert.False(t, files[0].ForceParse)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+}
+
 func TestProcessFileShadowRecordsCachedSkipAsNotComparable(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-skip.jsonl")
@@ -743,9 +853,13 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 
 type shadowCallerProvider struct {
 	shadowTestProvider
-	source      parser.SourceRef
-	findRequest parser.FindSourceRequest
-	findFound   *bool
+	source          parser.SourceRef
+	findRequest     parser.FindSourceRequest
+	findFound       *bool
+	watchPlan       parser.WatchPlan
+	changedSources  []parser.SourceRef
+	changedRequests []parser.ChangedPathRequest
+	changedErr      error
 }
 
 func (p *shadowCallerProvider) FindSource(
@@ -757,6 +871,23 @@ func (p *shadowCallerProvider) FindSource(
 		return parser.SourceRef{}, false, nil
 	}
 	return p.source, true, nil
+}
+
+func (p *shadowCallerProvider) WatchPlan(
+	context.Context,
+) (parser.WatchPlan, error) {
+	return p.watchPlan, nil
+}
+
+func (p *shadowCallerProvider) SourcesForChangedPath(
+	_ context.Context,
+	req parser.ChangedPathRequest,
+) ([]parser.SourceRef, error) {
+	p.changedRequests = append(p.changedRequests, req)
+	if p.changedErr != nil {
+		return nil, p.changedErr
+	}
+	return append([]parser.SourceRef(nil), p.changedSources...), nil
 }
 
 type shadowCallerFactory struct {
