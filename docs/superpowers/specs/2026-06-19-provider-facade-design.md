@@ -303,8 +303,15 @@ func (p *CodexProvider) Parse(
 	ctx context.Context,
 	req ParseRequest,
 ) (ParseOutcome, error) {
+	sourcePath, ok := p.sources.Path(req.Source)
+	if !ok {
+		return ParseOutcome{}, fmt.Errorf(
+			"codex source missing file path: %s",
+			req.Source.Key,
+		)
+	}
 	sess, msgs, err := ParseCodexSession(
-		req.Source.DisplayPath,
+		sourcePath,
 		req.Machine,
 		false,
 	)
@@ -959,8 +966,8 @@ parse-capable provider migrated.
 - legacy-only: historical lower-stack mode where only the existing sync path
   runs and writes. This is the normal mode for legacy adapter providers. A
   concrete provider may move back to this mode only as a documented rollback
-  with an open follow-up task. The stack tip removes this mode for
-  parse-capable providers and rejects it as invalid.
+  with an open follow-up task. The stack tip removes this mode for parse-capable
+  providers and rejects it as invalid.
 - shadow-compare: transitional lower-stack mode where legacy runs and writes;
   provider runs through the new generic path and produces normalized in-memory
   planned effects. Tests compare those effects against the legacy outcome.
