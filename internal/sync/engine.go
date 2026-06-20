@@ -597,7 +597,7 @@ func (e *Engine) classifyProviderChangedPath(
 					Agent:           agent,
 					ForceParse:      providerChangedPathForceParse(agent, sourcePath, path, eventKind, mode),
 					ProviderSource:  &sourceCopy,
-					ProviderProcess: processFileUsesProvider(agent),
+					ProviderProcess: mode == parser.ProviderMigrationProviderAuthoritative || processFileUsesProvider(agent),
 				})
 			}
 		}
@@ -647,6 +647,10 @@ func providerChangedPathForceParse(
 	eventKind string,
 	mode parser.ProviderMigrationMode,
 ) bool {
+	if mode == parser.ProviderMigrationProviderAuthoritative {
+		return eventKind == "remove" &&
+			providerDeletedPhysicalSQLiteSource(agent, sourcePath)
+	}
 	if !processFileUsesProvider(agent) {
 		return true
 	}
@@ -4675,6 +4679,145 @@ func (e *Engine) processFile(
 	return res
 }
 
+func providerOutcomeAllowsCleanSkipCache(outcome parser.ParseOutcome) bool {
+	if !outcome.ResultSetComplete {
+		return false
+	}
+	if len(outcome.SourceErrors) > 0 {
+		return false
+	}
+	for _, result := range outcome.Results {
+		if result.DataVersion == parser.DataVersionNeedsRetry {
+			return false
+		}
+	}
+	return true
+}
+
+func providerProcessCacheKey(
+	file parser.DiscoveredFile,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+) string {
+	if key := plannedSkipKey(source, fingerprint); key != "" {
+		return key
+	}
+	return file.Path
+}
+
+func (e *Engine) observeProviderShadow(
+	ctx context.Context,
+	file parser.DiscoveredFile,
+	legacy processResult,
+) {
+	mode := e.providerMigrationModes[file.Agent]
+	if mode != parser.ProviderMigrationShadowCompare {
+		return
+	}
+	comparison := ProviderShadowComparison{File: file, Mode: mode}
+	if reason := providerShadowNotComparableReason(legacy); reason != "" {
+		comparison.NotComparableReason = reason
+		e.recordProviderShadowComparison(comparison)
+		return
+	}
+	factory, ok := e.providerFactories[file.Agent]
+	if !ok {
+		return
+	}
+	provider := factory.NewProvider(parser.ProviderConfig{
+		Roots:   e.agentDirs[file.Agent],
+		Machine: e.machine,
+	})
+	source, found, err := e.providerSourceForDiscoveredFile(ctx, provider, file)
+	comparison.Err = err
+	if err == nil && found {
+		comparison.Source = source
+		comparison.Observation, comparison.Err = ObserveProviderSource(
+			ctx,
+			provider,
+			ProviderObserveRequest{
+				Source:     source,
+				Machine:    e.machine,
+				ForceParse: e.forceParse || file.ForceParse,
+			},
+		)
+		if comparison.Err == nil {
+			comparison.Mismatches = compareProviderObservationToProcessResult(
+				comparison.Observation,
+				legacy,
+				file,
+			)
+		}
+	}
+	if err == nil && !found {
+		comparison.Err = fmt.Errorf(
+			"%s provider shadow source not found for %s",
+			file.Agent,
+			file.Path,
+		)
+	}
+	e.recordProviderShadowComparison(comparison)
+}
+
+func providerShadowNotComparableReason(legacy processResult) string {
+	switch {
+	case legacy.err != nil:
+		return "legacy error"
+	case legacy.incremental != nil:
+		return "legacy incremental"
+	case legacy.skip:
+		return "legacy skip"
+	default:
+		return ""
+	}
+}
+
+func (e *Engine) recordProviderShadowComparison(
+	comparison ProviderShadowComparison,
+) {
+	if e.providerShadowRecorder != nil {
+		e.providerShadowMu.Lock()
+		defer e.providerShadowMu.Unlock()
+		e.providerShadowRecorder(comparison)
+		return
+	}
+	if comparison.NotComparableReason != "" {
+		return
+	}
+	sourceKey := comparison.Source.Key
+	if sourceKey == "" {
+		sourceKey = comparison.Source.FingerprintKey
+	}
+	fingerprintKey := comparison.Observation.Fingerprint.Key
+	if fingerprintKey == "" {
+		fingerprintKey = comparison.Source.FingerprintKey
+	}
+	if comparison.Err != nil {
+		log.Printf(
+			"%s provider shadow %s mode=%s source=%q fingerprint=%q: %v",
+			comparison.File.Agent,
+			comparison.File.Path,
+			comparison.Mode,
+			sourceKey,
+			fingerprintKey,
+			comparison.Err,
+		)
+		return
+	}
+	if len(comparison.Mismatches) == 0 {
+		return
+	}
+	log.Printf(
+		"%s provider shadow %s mode=%s source=%q fingerprint=%q mismatches: %s",
+		comparison.File.Agent,
+		comparison.File.Path,
+		comparison.Mode,
+		sourceKey,
+		fingerprintKey,
+		strings.Join(comparison.Mismatches, "; "),
+	)
+}
+
 func (e *Engine) processProviderFile(
 	ctx context.Context,
 	file parser.DiscoveredFile,
@@ -4704,14 +4847,25 @@ func (e *Engine) processProviderFile(
 		return processResult{err: err}, true
 	}
 	if !found {
-		return processResult{}, false
+		if file.ForceParse || !file.ProviderProcess || providerNotFoundFallsBack(file) {
+			return processResult{}, false
+		}
+		return processResult{
+			err: fmt.Errorf(
+				"%s provider source not found for %s",
+				file.Agent,
+				file.Path,
+			),
+		}, true
 	}
-	file, source, err = e.preferProviderDuplicateSource(
-		ctx, provider, file, source,
-	)
+	originalPath := file.Path
+	originalSourcePath := providerDiscoveredPath(source)
+	file, source, err = e.preferProviderDuplicateSource(ctx, provider, file, source)
 	if err != nil {
 		return processResult{err: err}, true
 	}
+	sourcePathChanged := file.Path != originalPath ||
+		providerDiscoveredPath(source) != originalSourcePath
 
 	fingerprint, err := provider.Fingerprint(ctx, source)
 	if err != nil {
@@ -4731,20 +4885,15 @@ func (e *Engine) processProviderFile(
 			fingerprint.Hash = hash
 		}
 	}
-	cacheKey := providerProcessCacheKey(file, source, fingerprint)
 	cacheSkip := e.shouldCacheSkip(file)
-	if cacheSkip && !e.forceParse && !file.ForceParse {
-		e.skipMu.RLock()
-		cachedMtime, cached := e.skipCache[cacheKey]
-		e.skipMu.RUnlock()
-		if cached && cachedMtime == fingerprint.MTimeNS {
-			return processResult{
-				skip:      true,
-				mtime:     fingerprint.MTimeNS,
-				cacheSkip: true,
-				cacheKey:  cacheKey,
-			}, true
-		}
+	cacheKey := providerProcessCacheKey(file, source, fingerprint)
+	if cacheSkip && e.shouldSkipCachedProviderFile(file, fingerprint, cacheKey) {
+		return processResult{
+			skip:      true,
+			mtime:     fingerprint.MTimeNS,
+			cacheSkip: true,
+			cacheKey:  cacheKey,
+		}, true
 	}
 	if cacheSkip && e.shouldSkipProviderSource(file, source, fingerprint) {
 		return processResult{
@@ -4754,14 +4903,18 @@ func (e *Engine) processProviderFile(
 			cacheKey:  cacheKey,
 		}, true
 	}
-	incrementalFallback, incrementalHandled := e.tryProviderIncremental(
-		ctx, provider, source, fingerprint, file,
-	)
-	if incrementalHandled {
-		incrementalFallback.cacheSkip = cacheSkip
-		incrementalFallback.mtime = fingerprint.MTimeNS
-		incrementalFallback.cacheKey = cacheKey
-		return incrementalFallback, true
+	var incrementalFallback processResult
+	if !sourcePathChanged {
+		var incrementalHandled bool
+		incrementalFallback, incrementalHandled = e.tryProviderIncremental(
+			ctx, provider, source, fingerprint, file,
+		)
+		if incrementalHandled {
+			incrementalFallback.cacheSkip = cacheSkip
+			incrementalFallback.mtime = fingerprint.MTimeNS
+			incrementalFallback.cacheKey = cacheKey
+			return incrementalFallback, true
+		}
 	}
 
 	outcome, err := provider.Parse(ctx, parser.ParseRequest{
@@ -4793,6 +4946,28 @@ func (e *Engine) processProviderFile(
 			noCacheSkip: true,
 		}, true
 	}
+	forceReplace := outcome.ForceReplace ||
+		incrementalFallback.forceReplace ||
+		(file.ForceParse &&
+			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path) &&
+			!parser.IsRegularFile(file.Path))
+	cleanCache := providerOutcomeAllowsCleanSkipCache(outcome)
+	if outcome.SkipReason != parser.SkipNone &&
+		(!forceReplace ||
+			outcome.SkipReason != parser.SkipNoSession || !outcome.ResultSetComplete ||
+			len(outcome.Results) != 0) {
+		return processResult{
+			skip:         true,
+			mtime:        fingerprint.MTimeNS,
+			cacheSkip:    cacheSkip,
+			cacheKey:     cacheKey,
+			noCacheSkip:  !cleanCache,
+			forceReplace: forceReplace,
+			noSession: outcome.ResultSetComplete &&
+				outcome.SkipReason == parser.SkipNoSession &&
+				len(outcome.Results) == 0,
+		}, true
+	}
 	if file.Agent == parser.AgentVibe {
 		excluded, blocked, err := e.providerVibeExclusions(file, outcome)
 		if err != nil {
@@ -4811,30 +4986,12 @@ func (e *Engine) processProviderFile(
 					[]string(nil),
 					outcome.ExcludedSessionIDs...,
 				),
-				mtime:     fingerprint.MTimeNS,
-				cacheSkip: cacheSkip,
-				cacheKey:  cacheKey,
+				mtime:       fingerprint.MTimeNS,
+				cacheSkip:   cacheSkip,
+				cacheKey:    cacheKey,
+				noCacheSkip: !cleanCache,
 			}, true
 		}
-	}
-	forceReplace := outcome.ForceReplace ||
-		incrementalFallback.forceReplace ||
-		(file.ForceParse &&
-			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path) &&
-			!parser.IsRegularFile(file.Path))
-	cleanCache := providerOutcomeAllowsCleanSkipCache(outcome)
-	if outcome.SkipReason != parser.SkipNone {
-		noSession := forceReplace &&
-			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path)
-		return processResult{
-			skip:         true,
-			mtime:        fingerprint.MTimeNS,
-			cacheSkip:    cacheSkip,
-			cacheKey:     cacheKey,
-			noCacheSkip:  !cleanCache,
-			forceReplace: forceReplace,
-			noSession:    noSession,
-		}, true
 	}
 
 	res := processResult{
@@ -4845,19 +5002,15 @@ func (e *Engine) processProviderFile(
 		noCacheSkip:           !cleanCache,
 		forceReplace:          forceReplace,
 		suppressPresenceSweep: !outcome.ResultSetComplete,
+		noSession: outcome.ResultSetComplete &&
+			outcome.SkipReason == parser.SkipNoSession &&
+			len(outcome.Results) == 0,
+	}
+	if e.forceParse || file.ForceParse {
+		res.sessionErrs = sourceErrorsToSessionParseErrors(outcome.SourceErrors)
 	}
 	res.results = parseOutcomeResults(outcome.Results)
-	for i := range res.results {
-		if res.results[i].Session.File.Inode == 0 {
-			res.results[i].Session.File.Inode = int64(fingerprint.Inode)
-		}
-		if res.results[i].Session.File.Device == 0 {
-			res.results[i].Session.File.Device = int64(fingerprint.Device)
-		}
-		if res.results[i].Session.File.Hash == "" {
-			res.results[i].Session.File.Hash = fingerprint.Hash
-		}
-	}
+	applyProviderFingerprint(res.results, fingerprint)
 	if file.Project != "" {
 		for i := range res.results {
 			res.results[i].Session.Project = file.Project
@@ -4871,31 +5024,24 @@ func (e *Engine) processProviderFile(
 			res.retrySessionIDs[result.Result.Session.ID] = true
 		}
 	}
-	if e.forceParse {
-		for _, sourceErr := range outcome.SourceErrors {
-			res.sessionErrs = append(res.sessionErrs, sessionParseError{
-				sessionID:   sourceErr.SessionID,
-				virtualPath: sourceErr.SourceKey,
-				err:         sourceErr.Err,
-			})
-		}
-	}
 	return res, true
 }
 
-func providerOutcomeAllowsCleanSkipCache(outcome parser.ParseOutcome) bool {
-	if !outcome.ResultSetComplete {
-		return false
-	}
-	if len(outcome.SourceErrors) > 0 {
-		return false
-	}
-	for _, result := range outcome.Results {
-		if result.DataVersion == parser.DataVersionNeedsRetry {
-			return false
+func applyProviderFingerprint(
+	results []parser.ParseResult,
+	fingerprint parser.SourceFingerprint,
+) {
+	for i := range results {
+		if results[i].Session.File.Hash == "" && fingerprint.Hash != "" {
+			results[i].Session.File.Hash = fingerprint.Hash
+		}
+		if results[i].Session.File.Inode == 0 && fingerprint.Inode != 0 {
+			results[i].Session.File.Inode = int64(fingerprint.Inode)
+		}
+		if results[i].Session.File.Device == 0 && fingerprint.Device != 0 {
+			results[i].Session.File.Device = int64(fingerprint.Device)
 		}
 	}
-	return true
 }
 
 func (e *Engine) tryProviderIncremental(
@@ -5124,11 +5270,7 @@ func (e *Engine) providerSourceForDiscoveredFile(
 		}
 		return source, true, nil
 	}
-	return parser.SourceRef{}, false, fmt.Errorf(
-		"provider source ambiguous for %s: %s",
-		file.Agent,
-		file.Path,
-	)
+	return parser.SourceRef{}, false, nil
 }
 
 func (e *Engine) preferProviderDuplicateSource(
@@ -5149,7 +5291,11 @@ func (e *Engine) preferProviderDuplicateSource(
 	}
 	fullID := e.idPrefix + sessionID
 	storedPath := e.db.GetSessionFilePath(fullID)
-	if storedPath == "" || e.effectiveSourcePath(file.Path) != storedPath {
+	sourcePath := providerDiscoveredPath(source)
+	sourceMatchesStored := sourcePath != "" &&
+		e.effectiveSourcePath(sourcePath) == storedPath
+	if storedPath == "" ||
+		(e.effectiveSourcePath(file.Path) != storedPath && !sourceMatchesStored) {
 		return file, source, nil
 	}
 	discovered, err := provider.Discover(ctx)
@@ -5180,7 +5326,6 @@ func (e *Engine) preferProviderDuplicateSource(
 	if !ok {
 		return file, source, nil
 	}
-	sourcePath := providerDiscoveredPath(source)
 	if chosen.Path == file.Path && chosen.Path == sourcePath {
 		return file, source, nil
 	}
@@ -5191,130 +5336,6 @@ func (e *Engine) preferProviderDuplicateSource(
 	sourceCopy := chosenSource
 	file.ProviderSource = &sourceCopy
 	return file, chosenSource, nil
-}
-
-func providerProcessCacheKey(
-	file parser.DiscoveredFile,
-	source parser.SourceRef,
-	fingerprint parser.SourceFingerprint,
-) string {
-	if key := plannedSkipKey(source, fingerprint); key != "" {
-		return key
-	}
-	return file.Path
-}
-
-func (e *Engine) observeProviderShadow(
-	ctx context.Context,
-	file parser.DiscoveredFile,
-	legacy processResult,
-) {
-	mode := e.providerMigrationModes[file.Agent]
-	if mode != parser.ProviderMigrationShadowCompare {
-		return
-	}
-	comparison := ProviderShadowComparison{File: file, Mode: mode}
-	if reason := providerShadowNotComparableReason(legacy); reason != "" {
-		comparison.NotComparableReason = reason
-		e.recordProviderShadowComparison(comparison)
-		return
-	}
-	factory, ok := e.providerFactories[file.Agent]
-	if !ok {
-		return
-	}
-	provider := factory.NewProvider(parser.ProviderConfig{
-		Roots:   e.agentDirs[file.Agent],
-		Machine: e.machine,
-	})
-	source, found, err := e.providerSourceForDiscoveredFile(ctx, provider, file)
-	comparison.Err = err
-	if err == nil && found {
-		comparison.Source = source
-		comparison.Observation, comparison.Err = ObserveProviderSource(
-			ctx,
-			provider,
-			ProviderObserveRequest{
-				Source:     source,
-				Machine:    e.machine,
-				ForceParse: e.forceParse || file.ForceParse,
-			},
-		)
-		if comparison.Err == nil {
-			comparison.Mismatches = compareProviderObservationToProcessResult(
-				comparison.Observation,
-				legacy,
-				file,
-			)
-		}
-	}
-	if err == nil && !found {
-		comparison.Err = fmt.Errorf(
-			"%s provider shadow source not found for %s",
-			file.Agent,
-			file.Path,
-		)
-	}
-	e.recordProviderShadowComparison(comparison)
-}
-
-func providerShadowNotComparableReason(legacy processResult) string {
-	switch {
-	case legacy.err != nil:
-		return "legacy error"
-	case legacy.incremental != nil:
-		return "legacy incremental"
-	case legacy.skip:
-		return "legacy skip"
-	default:
-		return ""
-	}
-}
-
-func (e *Engine) recordProviderShadowComparison(
-	comparison ProviderShadowComparison,
-) {
-	if e.providerShadowRecorder != nil {
-		e.providerShadowMu.Lock()
-		defer e.providerShadowMu.Unlock()
-		e.providerShadowRecorder(comparison)
-		return
-	}
-	if comparison.NotComparableReason != "" {
-		return
-	}
-	sourceKey := comparison.Source.Key
-	if sourceKey == "" {
-		sourceKey = comparison.Source.FingerprintKey
-	}
-	fingerprintKey := comparison.Observation.Fingerprint.Key
-	if fingerprintKey == "" {
-		fingerprintKey = comparison.Source.FingerprintKey
-	}
-	if comparison.Err != nil {
-		log.Printf(
-			"%s provider shadow %s mode=%s source=%q fingerprint=%q: %v",
-			comparison.File.Agent,
-			comparison.File.Path,
-			comparison.Mode,
-			sourceKey,
-			fingerprintKey,
-			comparison.Err,
-		)
-		return
-	}
-	if len(comparison.Mismatches) == 0 {
-		return
-	}
-	log.Printf(
-		"%s provider shadow %s mode=%s source=%q fingerprint=%q mismatches: %s",
-		comparison.File.Agent,
-		comparison.File.Path,
-		comparison.Mode,
-		sourceKey,
-		fingerprintKey,
-		strings.Join(comparison.Mismatches, "; "),
-	)
 }
 
 func (e *Engine) providerVibeExclusions(
@@ -5376,6 +5397,20 @@ func processFileUsesProvider(agent parser.AgentType) bool {
 	}
 }
 
+func (e *Engine) shouldSkipCachedProviderFile(
+	file parser.DiscoveredFile,
+	fingerprint parser.SourceFingerprint,
+	cacheKey string,
+) bool {
+	if e.forceParse || file.ForceParse {
+		return false
+	}
+	e.skipMu.RLock()
+	cachedMtime, cached := e.skipCache[cacheKey]
+	e.skipMu.RUnlock()
+	return cached && cachedMtime == fingerprint.MTimeNS
+}
+
 func (e *Engine) shouldSkipProviderSource(
 	file parser.DiscoveredFile,
 	source parser.SourceRef,
@@ -5415,6 +5450,14 @@ func providerSourceSupportsPersistedFreshness(agent parser.AgentType) bool {
 	default:
 		return false
 	}
+}
+
+func providerNotFoundFallsBack(file parser.DiscoveredFile) bool {
+	if isOpenCodeFormatStorageAgent(file.Agent) &&
+		filepath.Base(file.Path) == openCodeFormatDBName(file.Agent) {
+		return true
+	}
+	return false
 }
 
 func providerSkipLookupPath(
@@ -9702,6 +9745,10 @@ func (e *Engine) SyncSingleSessionContext(
 	}
 
 	path := e.FindSourceFile(sessionID)
+	if path == "" &&
+		e.providerMigrationModes[def.Type] == parser.ProviderMigrationProviderAuthoritative {
+		path = e.db.GetSessionFilePath(sessionID)
+	}
 	if path == "" {
 		return fmt.Errorf(
 			"source file not found for %s", sessionID,
@@ -9757,15 +9804,37 @@ func (e *Engine) SyncSingleSessionContext(
 	}
 
 	// Reuse processFile for stat and DB-skip logic.
+	singleSessionSourceUnchanged := false
+	singleSessionSourceProject := ""
+	singleSessionStoredProject := ""
+	preserveSingleSessionProject := false
+	singleSessionProjectOverride := ""
 	switch agent {
 	case parser.AgentClaude:
-		// Try to preserve existing project from DB first
+		if storedSize, storedMtime, ok := e.db.GetSessionFileInfo(
+			sessionID,
+		); ok {
+			if info, err := os.Stat(path); err == nil &&
+				info.Size() == storedSize &&
+				info.ModTime().UnixNano() == storedMtime {
+				singleSessionSourceUnchanged = true
+			}
+		}
+		singleSessionSourceProject = parser.GetProjectName(
+			filepath.Base(filepath.Dir(path)),
+		)
+		if cwd, gitBranch := parser.ExtractClaudeProjectHints(path); cwd != "" {
+			if p := parser.ExtractProjectFromCwdWithBranchContext(
+				ctx, cwd, gitBranch,
+			); p != "" {
+				singleSessionSourceProject = p
+			}
+		}
+		file.Project = singleSessionSourceProject
 		if sess, _ := e.db.GetSession(ctx, sessionID); sess != nil &&
 			sess.Project != "" &&
 			!parser.NeedsProjectReparse(sess.Project) {
-			file.Project = sess.Project
-		} else {
-			file.Project = filepath.Base(filepath.Dir(path))
+			singleSessionStoredProject = sess.Project
 		}
 	case parser.AgentVSCopilot:
 		// processVisualStudioCopilot persists file.Project into every
@@ -9928,16 +9997,39 @@ func (e *Engine) SyncSingleSessionContext(
 	if len(res.results) == 0 {
 		return nil
 	}
+	if singleSessionStoredProject != "" {
+		for _, pr := range res.results {
+			if pr.Session.ID != sessionID {
+				continue
+			}
+			if singleSessionSourceProject != singleSessionStoredProject ||
+				singleSessionSourceUnchanged {
+				preserveSingleSessionProject = true
+				singleSessionProjectOverride = singleSessionStoredProject
+			}
+			break
+		}
+	}
+	if singleSessionProjectOverride != "" {
+		for i := range res.results {
+			res.results[i].Session.Project = singleSessionProjectOverride
+		}
+	}
 
 	for _, pr := range res.results {
-		if err := e.writeSessionFull(
-			pendingWrite{
-				sess:        pr.Session,
-				msgs:        pr.Messages,
-				usageEvents: pr.UsageEvents,
-				needsRetry:  res.needsRetryForSession(pr.Session.ID),
-			},
-		); err != nil &&
+		pw := pendingWrite{
+			sess:        pr.Session,
+			msgs:        pr.Messages,
+			usageEvents: pr.UsageEvents,
+			needsRetry:  res.needsRetryForSession(pr.Session.ID),
+		}
+		var err error
+		if preserveSingleSessionProject {
+			err = e.writeSessionFullWithResolver(pw, nil)
+		} else {
+			err = e.writeSessionFull(pw)
+		}
+		if err != nil &&
 			!isIntentionalSessionSkip(err) &&
 			!errors.Is(err, errSessionPreserved) {
 			return fmt.Errorf("write session %s: %w",
@@ -10014,18 +10106,26 @@ func (e *Engine) applyWorktreeMappingToSingleSession(
 		return err
 	}
 
-	machine := sess.Machine
-	if machine == "" {
-		machine = e.machine
+	machines := []string{e.machine}
+	if sess.Machine != "" && sess.Machine != e.machine {
+		machines = append(machines, sess.Machine)
 	}
-	_, err = e.db.ApplyWorktreeProjectMappingToSessionFromSync(
-		ctx, machine, sess.ID, sess.Cwd, sess.Project,
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"apply worktree mapping to session %s: %w",
-			sessionID, err,
+	for _, machine := range machines {
+		if machine == "" {
+			continue
+		}
+		changed, err := e.db.ApplyWorktreeProjectMappingToSessionFromSync(
+			ctx, machine, sess.ID, sess.Cwd, sess.Project,
 		)
+		if err != nil {
+			return fmt.Errorf(
+				"apply worktree mapping to session %s: %w",
+				sessionID, err,
+			)
+		}
+		if changed {
+			return nil
+		}
 	}
 	return nil
 }

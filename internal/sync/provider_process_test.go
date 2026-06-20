@@ -875,6 +875,9 @@ func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 			parser.AgentClaude: {root},
 		},
 		Machine: "devbox",
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
+		},
 	})
 
 	files := engine.classifyProviderChangedPath(sourcePath)
