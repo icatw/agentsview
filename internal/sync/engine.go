@@ -9986,13 +9986,14 @@ func (e *Engine) findProviderSource(
 		return nil, parser.SourceRef{}, false
 	}
 
-	provider, ok := parser.NewProvider(def.Type, parser.ProviderConfig{
+	factory, ok := e.providerFactories[def.Type]
+	if !ok || factory == nil {
+		return nil, parser.SourceRef{}, false
+	}
+	provider := factory.NewProvider(parser.ProviderConfig{
 		Roots:   e.agentDirs[def.Type],
 		Machine: e.machine,
 	})
-	if !ok {
-		return nil, parser.SourceRef{}, false
-	}
 	rawSessionID := strings.TrimPrefix(rawID, def.IDPrefix)
 	storedPath := e.db.GetSessionFilePath(sessionID)
 	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{

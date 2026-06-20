@@ -824,6 +824,7 @@ func TestSyncSingleSessionProviderAuthoritativeBypassesProviderSkipCache(t *test
 
 	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
 	assert.True(t, provider.parseRequest.ForceParse)
+	assert.Equal(t, sourceKey, provider.parseRequest.Source.FingerprintKey)
 	cache := engine.SnapshotSkipCache()
 	assert.NotContains(t, cache, sourceKey)
 }
@@ -980,7 +981,7 @@ func TestSyncSingleSessionShadowModeUsesStoredPathFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sess)
 	assert.Equal(t, "demo", sess.Project)
-	assert.Contains(t, provider.calls, "parse")
+	assert.Empty(t, provider.calls)
 }
 
 func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
