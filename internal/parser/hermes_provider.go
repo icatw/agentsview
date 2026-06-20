@@ -396,6 +396,22 @@ func hermesWatchRoots(root string) []WatchRoot {
 	}}
 }
 
+func ResolveHermesWatchRoots(root string) []string {
+	root = filepath.Clean(root)
+	if _, sessionsDir, ok := hermesArchiveRootPaths(root); ok {
+		return []string{sessionsDir}
+	}
+	return []string{root}
+}
+
+func ResolveHermesShallowWatchRoots(root string) []string {
+	root = filepath.Clean(root)
+	if stateDB, _, ok := hermesArchiveRootPaths(root); ok {
+		return []string{filepath.Dir(stateDB)}
+	}
+	return nil
+}
+
 func hermesWatchRootMatches(root, watchRoot string) bool {
 	root = filepath.Clean(root)
 	watchRoot = filepath.Clean(watchRoot)
