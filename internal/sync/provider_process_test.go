@@ -1091,6 +1091,36 @@ func TestClassifyProviderChangedPathUsesStoredSourceHints(t *testing.T) {
 	assert.Equal(t, virtualPath, files[0].ProviderSource.DisplayPath)
 }
 
+func TestClassifyProviderChangedPathUsesConfiguredFactories(t *testing.T) {
+	root := t.TempDir()
+	changedPath := filepath.Join(root, "custom.trigger")
+	sourcePath := filepath.Join(root, "configured-source.jsonl")
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			configuredChangedPathProviderFactory{
+				agent:      parser.AgentClaude,
+				sourcePath: sourcePath,
+			},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
+		},
+	})
+
+	files := engine.classifyProviderChangedPath(changedPath)
+
+	require.Len(t, files, 1)
+	assert.Equal(t, sourcePath, files[0].Path)
+	assert.Equal(t, parser.AgentClaude, files[0].Agent)
+	assert.Equal(t, "configured_provider", files[0].Project)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+}
+
 func TestProcessFileProviderAuthoritativePiebaldVirtualSource(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "app.db")
@@ -1305,14 +1335,6 @@ func openProcessProviderForgeDB(t *testing.T, path string) *sql.DB {
 	`)
 	require.NoError(t, err)
 	return database
-}
-
-func writeProcessProviderForgeDB(t *testing.T, root string) string {
-	t.Helper()
-	dbPath := filepath.Join(root, ".forge.db")
-	database := openProcessProviderForgeDB(t, dbPath)
-	seedProcessProviderForgeConversationWithID(t, database, "conv-001")
-	return dbPath
 }
 
 func seedProcessProviderForgeConversation(t *testing.T, database *sql.DB) {
@@ -1595,6 +1617,56 @@ func seedProcessProviderWarpConversation(t *testing.T, database *sql.DB) {
 		`"Completed"`,
 		"auto-genius",
 	)
+}
+
+type configuredChangedPathProviderFactory struct {
+	agent      parser.AgentType
+	sourcePath string
+}
+
+func (f configuredChangedPathProviderFactory) Definition() parser.AgentDef {
+	return parser.AgentDef{Type: f.agent}
+}
+
+func (f configuredChangedPathProviderFactory) Capabilities() parser.Capabilities {
+	return parser.Capabilities{}
+}
+
+func (f configuredChangedPathProviderFactory) NewProvider(
+	cfg parser.ProviderConfig,
+) parser.Provider {
+	return configuredChangedPathProvider{
+		ProviderBase: parser.ProviderBase{
+			Def:    f.Definition(),
+			Config: cfg.Clone(),
+		},
+		sourcePath: f.sourcePath,
+	}
+}
+
+type configuredChangedPathProvider struct {
+	parser.ProviderBase
+	sourcePath string
+}
+
+func (p configuredChangedPathProvider) SourcesForChangedPath(
+	context.Context,
+	parser.ChangedPathRequest,
+) ([]parser.SourceRef, error) {
+	return []parser.SourceRef{{
+		Provider:       p.Def.Type,
+		Key:            p.sourcePath,
+		DisplayPath:    p.sourcePath,
+		FingerprintKey: p.sourcePath,
+		ProjectHint:    "configured_provider",
+	}}, nil
+}
+
+func (p configuredChangedPathProvider) Parse(
+	context.Context,
+	parser.ParseRequest,
+) (parser.ParseOutcome, error) {
+	return parser.ParseOutcome{}, nil
 }
 
 func mustExecProcessProviderSQL(
