@@ -175,12 +175,85 @@ func TestClassifyProviderChangedPathPassesStoredHintsToShadowProvider(
 	assert.Equal(t, storedPath, files[0].ProviderSource.DisplayPath)
 }
 
+func TestClassifyProviderChangedPathRunsAlongsideLegacyClassifier(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "shadow-recognized.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"legacy already recognizes this",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+		)),
+		0o644,
+	))
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		watchPlan: parser.WatchPlan{Roots: []parser.WatchRoot{{
+			Path: root,
+		}}},
+		changedSources: []parser.SourceRef{{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourcePath,
+			ProjectHint:    "provider-project",
+		}},
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationShadowCompare,
+		},
+	})
+
+	files := engine.classifyPaths([]string{sourcePath})
+
+	require.Len(t, provider.changedRequests, 1)
+	assert.Equal(t, sourcePath, provider.changedRequests[0].Path)
+	require.Len(t, files, 1)
+	assert.Equal(t, sourcePath, files[0].Path)
+	assert.True(t, files[0].ForceParse)
+	assert.False(t, files[0].ProviderProcess)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+}
+
 func TestClassifyProviderChangedPathMarksAuthoritativeProviderProcess(
 	t *testing.T,
 ) {
 	root := t.TempDir()
-	eventPath := filepath.Join(root, "state.sqlite3-wal")
-	sourcePath := filepath.Join(root, "state.sqlite3") + "#session-a"
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", "auth-recognized.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"authoritative provider owns this",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+		)),
+		0o644,
+	))
 	provider := &shadowCallerProvider{
 		shadowTestProvider: shadowTestProvider{
 			ProviderBase: parser.ProviderBase{
@@ -213,14 +286,26 @@ func TestClassifyProviderChangedPathMarksAuthoritativeProviderProcess(
 		},
 	})
 
-	files := engine.classifyPaths([]string{eventPath})
+	files := engine.classifyPaths([]string{sourcePath})
 
+	require.Len(t, provider.changedRequests, 1)
+	assert.Equal(t, sourcePath, provider.changedRequests[0].Path)
 	require.Len(t, files, 1)
 	assert.Equal(t, sourcePath, files[0].Path)
 	assert.True(t, files[0].ProviderProcess)
 	assert.False(t, files[0].ForceParse)
 	require.NotNil(t, files[0].ProviderSource)
 	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+}
+
+func TestProviderVirtualSourceBackedByEventPreservesHashInDBPath(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "state#prod", "sessions.db")
+	sourcePath := dbPath + "#session-a"
+
+	assert.True(t, providerVirtualSourceBackedByEvent(sourcePath, dbPath))
+	assert.True(t, providerVirtualSourceBackedByEvent(sourcePath, dbPath+"-wal"))
+	assert.True(t, providerVirtualSourceBackedByEvent(sourcePath, dbPath+"-shm"))
+	assert.False(t, providerVirtualSourceBackedByEvent(sourcePath, filepath.Dir(dbPath)))
 }
 
 func TestProcessFileShadowRecordsCachedSkipAsNotComparable(t *testing.T) {

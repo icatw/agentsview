@@ -454,8 +454,8 @@ func (e *Engine) classifyPaths(
 	paths []string,
 ) []parser.DiscoveredFile {
 	geminiProjectsByDir := make(map[string]map[string]string)
-	seen := make(map[string]struct{}, len(paths))
-	var files []parser.DiscoveredFile
+	seen := make(map[string]int, len(paths))
+	files := make([]parser.DiscoveredFile, 0, len(paths))
 	for _, p := range paths {
 		// Antigravity sidecar events map to potentially several
 		// session sources and must classify even when the event
@@ -471,21 +471,35 @@ func (e *Engine) classifyPaths(
 				dfs = []parser.DiscoveredFile{df}
 			}
 		}
-		if len(dfs) == 0 {
-			dfs = e.classifyProviderChangedPath(p)
-		}
+		dfs = append(dfs, e.classifyProviderChangedPath(p)...)
 		for _, df := range dfs {
 			key := string(df.Agent) + "\x00" + df.Path
-			if _, ok := seen[key]; ok {
+			if idx, ok := seen[key]; ok {
+				files[idx] = mergeChangedPathDiscoveredFile(files[idx], df)
 				continue
 			}
-			seen[key] = struct{}{}
+			seen[key] = len(files)
 			files = append(files, df)
 		}
 	}
 	files = e.expandClaudeDuplicateCandidates(files)
 	files = dedupeDiscoveredFiles(files)
 	return e.dedupeClaudeDiscoveredFiles(files)
+}
+
+func mergeChangedPathDiscoveredFile(
+	current parser.DiscoveredFile,
+	next parser.DiscoveredFile,
+) parser.DiscoveredFile {
+	current.ForceParse = current.ForceParse || next.ForceParse
+	current.ProviderProcess = current.ProviderProcess || next.ProviderProcess
+	if current.Project == "" {
+		current.Project = next.Project
+	}
+	if current.ProviderSource == nil && next.ProviderSource != nil {
+		current.ProviderSource = next.ProviderSource
+	}
+	return current
 }
 
 func (e *Engine) classifyProviderChangedPath(
@@ -644,11 +658,11 @@ func providerChangedPathForceParse(
 }
 
 func providerVirtualSourceBackedByEvent(sourcePath, eventPath string) bool {
-	dbPath, _, ok := strings.Cut(sourcePath, "#")
-	if !ok {
+	idx := strings.LastIndex(sourcePath, "#")
+	if idx < 0 {
 		return false
 	}
-	dbPath = filepath.Clean(dbPath)
+	dbPath := filepath.Clean(sourcePath[:idx])
 	eventPath = filepath.Clean(eventPath)
 	return eventPath == dbPath ||
 		eventPath == dbPath+"-wal" ||
