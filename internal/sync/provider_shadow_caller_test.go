@@ -414,6 +414,61 @@ func TestProcessFileProviderAuthoritativeNotFoundFails(t *testing.T) {
 	assert.Empty(t, provider.calls)
 }
 
+func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "skip-provider-owned.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+			fingerprint: parser.SourceFingerprint{
+				Key:     sourcePath,
+				Size:    info.Size(),
+				MTimeNS: info.ModTime().UnixNano(),
+			},
+			outcome: parser.ParseOutcome{
+				ResultSetComplete: true,
+				SkipReason:        parser.SkipNoSession,
+			},
+		},
+		source: parser.SourceRef{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourcePath,
+		},
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.NoError(t, result.err)
+	assert.True(t, result.skip)
+	assert.True(t, result.cacheSkip)
+	assert.Equal(t, info.ModTime().UnixNano(), result.mtime)
+	assert.Empty(t, result.results)
+}
+
 type shadowCallerProvider struct {
 	shadowTestProvider
 	source      parser.SourceRef

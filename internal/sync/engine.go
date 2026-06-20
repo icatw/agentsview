@@ -4198,6 +4198,13 @@ func (e *Engine) processProviderFile(
 			cacheSkip: cacheSkip,
 		}, true
 	}
+	if outcome.SkipReason != parser.SkipNone {
+		return processResult{
+			skip:      true,
+			mtime:     fingerprint.MTimeNS,
+			cacheSkip: cacheSkip,
+		}, true
+	}
 
 	res := processResult{
 		results:            parseOutcomeResults(outcome.Results),
