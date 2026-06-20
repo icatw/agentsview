@@ -534,6 +534,10 @@ func (e *Engine) classifyProviderChangedPath(
 		default:
 			continue
 		}
+		if mode == parser.ProviderMigrationProviderAuthoritative &&
+			!e.providerProcessEnabled(agentType) {
+			continue
+		}
 		roots := e.agentDirs[agentType]
 		if len(roots) == 0 {
 			continue
@@ -604,7 +608,7 @@ func (e *Engine) classifyProviderChangedPath(
 					Agent:           agent,
 					ForceParse:      providerChangedPathForceParse(agent, sourcePath, path, eventKind, mode),
 					ProviderSource:  &sourceCopy,
-					ProviderProcess: mode == parser.ProviderMigrationProviderAuthoritative || processFileUsesProvider(agent),
+					ProviderProcess: e.providerProcessEnabled(agent),
 				})
 			}
 		}
@@ -4302,16 +4306,12 @@ func (e *Engine) collectAndBatch(
 				goto flush
 			}
 			stats.RecordFailed()
-			if r.cacheSkip && r.mtime != 0 && !r.noCacheSkip {
-				e.cacheSkip(r.skipCacheKey(), r.mtime)
-			}
+			e.cacheProcessResultSkip(r.path, r.processResult)
 			log.Printf("sync error: %v", r.err)
 			continue
 		}
 		if r.skip {
-			if r.cacheSkip && r.mtime != 0 && !r.noCacheSkip {
-				e.cacheSkip(r.skipCacheKey(), r.mtime)
-			}
+			e.cacheProcessResultSkip(r.path, r.processResult)
 			stats.RecordSkip()
 			progress.SessionsDone++
 			if onProgress != nil {
@@ -4343,9 +4343,7 @@ func (e *Engine) collectAndBatch(
 				stats.filesOK++
 				stats.noSessionFiles++
 			}
-			if r.cacheSkip && !r.noCacheSkip {
-				e.cacheSkip(r.skipCacheKey(), r.mtime)
-			}
+			e.cacheProcessResultSkip(r.path, r.processResult)
 			progress.SessionsDone++
 			if onProgress != nil {
 				onProgress(progress)
@@ -4850,9 +4848,8 @@ func (e *Engine) processProviderFile(
 	ctx context.Context,
 	file parser.DiscoveredFile,
 ) (processResult, bool) {
-	mode := e.providerMigrationModes[file.Agent]
 	usesProvider := e.providerProcessEnabled(file.Agent)
-	if mode != parser.ProviderMigrationProviderAuthoritative && !usesProvider {
+	if !usesProvider {
 		return processResult{}, false
 	}
 	if file.ProviderSource != nil && !file.ProviderProcess {
@@ -4915,7 +4912,7 @@ func (e *Engine) processProviderFile(
 	}
 	cacheSkip := e.shouldCacheSkip(file) || e.providerProcessEnabled(file.Agent)
 	cacheKey := providerProcessCacheKey(file, source, fingerprint)
-	if cacheSkip && e.shouldSkipCachedProviderFile(file, fingerprint, cacheKey) {
+	if cacheSkip && e.shouldSkipCachedProviderFile(file, source, fingerprint, cacheKey) {
 		return processResult{
 			skip:      true,
 			mtime:     fingerprint.MTimeNS,
@@ -4985,11 +4982,14 @@ func (e *Engine) processProviderFile(
 			outcome.SkipReason != parser.SkipNoSession || !outcome.ResultSetComplete ||
 			len(outcome.Results) != 0) {
 		return processResult{
-			skip:         true,
-			mtime:        fingerprint.MTimeNS,
-			cacheSkip:    cacheSkip,
-			cacheKey:     cacheKey,
-			noCacheSkip:  !cleanCache,
+			skip:        true,
+			mtime:       fingerprint.MTimeNS,
+			cacheSkip:   cacheSkip,
+			cacheKey:    cacheKey,
+			cacheHash:   fingerprint.Hash,
+			noCacheSkip: !cleanCache,
+			cacheCleanSuccess: cacheSkip && cleanCache &&
+				!e.forceParse && !file.ForceParse,
 			forceReplace: forceReplace,
 			noSession: outcome.ResultSetComplete &&
 				outcome.SkipReason == parser.SkipNoSession &&
@@ -5489,6 +5489,7 @@ func (e *Engine) providerProcessEnabled(agent parser.AgentType) bool {
 
 func (e *Engine) shouldSkipCachedProviderFile(
 	file parser.DiscoveredFile,
+	source parser.SourceRef,
 	fingerprint parser.SourceFingerprint,
 	cacheKey string,
 ) bool {
@@ -5505,10 +5506,23 @@ func (e *Engine) shouldSkipCachedProviderFile(
 		transient = cached
 	}
 	e.skipMu.RUnlock()
+	if !cached {
+		return false
+	}
 	if transient && fingerprint.Hash != "" && cachedHash != fingerprint.Hash {
 		return false
 	}
-	return cached && cachedMtime == fingerprint.MTimeNS
+	if !transient && fingerprint.Size != 0 {
+		lookupPath := providerSkipLookupPath(file, source, fingerprint)
+		if e.pathRewriter != nil {
+			lookupPath = e.pathRewriter(lookupPath)
+		}
+		storedSize, _, ok := e.db.GetFileInfoByPath(lookupPath)
+		if ok && storedSize != fingerprint.Size {
+			return false
+		}
+	}
+	return cachedMtime == fingerprint.MTimeNS
 }
 
 func (e *Engine) shouldSkipProviderSource(
@@ -5671,6 +5685,18 @@ func (e *Engine) cacheProviderCleanSkip(path string, mtime int64, hash string) {
 		delete(e.providerCleanSkipHash, path)
 	}
 	e.skipMu.Unlock()
+}
+
+func (e *Engine) cacheProcessResultSkip(path string, res processResult) {
+	if !res.cacheSkip || res.mtime == 0 || res.noCacheSkip {
+		return
+	}
+	key := res.skipCacheKey(path)
+	if res.cacheCleanSuccess {
+		e.cacheProviderCleanSkip(key, res.mtime, res.cacheHash)
+		return
+	}
+	e.cacheSkip(key, res.mtime)
 }
 
 // clearSkip removes a skip-cache entry when a file
@@ -10105,12 +10131,11 @@ func (e *Engine) SyncSingleSessionContext(
 
 	res := e.processFile(ctx, file)
 	if res.err != nil {
-		if res.cacheSkip && res.mtime != 0 && !res.noCacheSkip {
-			e.cacheSkip(res.skipCacheKey(path), res.mtime)
-		}
+		e.cacheProcessResultSkip(path, res)
 		return res.err
 	}
 	if res.skip {
+		e.cacheProcessResultSkip(path, res)
 		return nil
 	}
 	if res.cacheSkip {

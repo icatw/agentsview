@@ -950,6 +950,7 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 				Key:     sourcePath,
 				Size:    info.Size(),
 				MTimeNS: info.ModTime().UnixNano(),
+				Hash:    "hash-one",
 			},
 			outcome: parser.ParseOutcome{
 				ResultSetComplete: true,
@@ -984,6 +985,8 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 	assert.True(t, result.cacheSkip)
 	assert.Equal(t, sourcePath+"#source-key", result.cacheKey)
 	assert.Equal(t, info.ModTime().UnixNano(), result.mtime)
+	assert.True(t, result.cacheCleanSuccess)
+	assert.Equal(t, "hash-one", result.cacheHash)
 	assert.Empty(t, result.results)
 
 	results := make(chan syncJob, 1)
@@ -996,9 +999,12 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 
 	assert.Equal(t, 1, stats.Skipped)
 	cache := engine.SnapshotSkipCache()
-	assert.Equal(t, info.ModTime().UnixNano(), cache[sourcePath+"#source-key"])
-	_, cachedByPath := cache[sourcePath]
-	assert.False(t, cachedByPath)
+	assert.NotContains(t, cache, sourcePath+"#source-key")
+	assert.NotContains(t, cache, sourcePath)
+	engine.skipMu.RLock()
+	assert.Equal(t, info.ModTime().UnixNano(), engine.providerCleanSkipCache[sourcePath+"#source-key"])
+	assert.Equal(t, "hash-one", engine.providerCleanSkipHash[sourcePath+"#source-key"])
+	engine.skipMu.RUnlock()
 
 	cleanResult := processResult{
 		results: []parser.ParseResult{{
@@ -1015,9 +1021,11 @@ func TestProcessFileProviderAuthoritativeTranslatesSkipReason(t *testing.T) {
 				},
 			},
 		}},
-		mtime:     info.ModTime().UnixNano(),
-		cacheSkip: true,
-		cacheKey:  sourcePath + "#source-key",
+		mtime:             info.ModTime().UnixNano(),
+		cacheSkip:         true,
+		cacheKey:          sourcePath + "#source-key",
+		cacheHash:         "hash-one",
+		cacheCleanSuccess: true,
 	}
 	stats = engine.collectAndBatch(
 		context.Background(),
