@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -1661,6 +1662,63 @@ func TestParseDiffPresenceSweepSkipsIncompleteProviderResults(t *testing.T) {
 
 	assert.Equal(t, 0, report.Totals.Changed)
 	assert.Empty(t, report.Sessions)
+}
+
+func TestParseDiffCollectFileAttributesVirtualJobErrorToExactPath(
+	t *testing.T,
+) {
+	dbPath := "/tmp/kilo.db"
+	badPath := dbPath + "#bad-session"
+	goodPath := dbPath + "#good-session"
+	bad := &db.Session{
+		ID:          "kilo:bad-session",
+		Agent:       string(parser.AgentKilo),
+		FilePath:    &badPath,
+		DataVersion: db.CurrentDataVersion(),
+	}
+	good := &db.Session{
+		ID:          "kilo:good-session",
+		Agent:       string(parser.AgentKilo),
+		FilePath:    &goodPath,
+		DataVersion: db.CurrentDataVersion(),
+	}
+	storedByPath := map[string][]*db.Session{
+		dbPath:   {bad, good},
+		badPath:  {bad},
+		goodPath: {good},
+	}
+	job := syncJob{
+		path: badPath,
+		processResult: processResult{
+			err: errors.New("bad virtual source"),
+		},
+	}
+	engine := &Engine{db: dbtest.OpenTestDB(t)}
+	report := &ParseDiffReport{FieldCounts: map[string]int{}}
+	visited := map[string]bool{}
+	var presencePaths []string
+
+	err := engine.parseDiffCollectFile(
+		context.Background(),
+		report,
+		job,
+		map[string]parser.AgentType{badPath: parser.AgentKilo},
+		map[string]*db.Session{bad.ID: bad, good.ID: good},
+		storedByPath,
+		visited,
+		engine.loadWorktreeProjectResolver(),
+		&presencePaths,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, ParseDiffTotals{ParseErrors: 1}, report.Totals)
+	if assert.Len(t, report.Sessions, 1) {
+		assert.Equal(t, bad.ID, report.Sessions[0].SessionID)
+		assert.Equal(t, badPath, report.Sessions[0].FilePath)
+		assert.Equal(t, DiffParseError, report.Sessions[0].Class)
+	}
+	assert.True(t, visited[bad.ID])
+	assert.False(t, visited[good.ID])
 }
 
 func TestParseDiffReportHasFailures(t *testing.T) {

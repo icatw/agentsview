@@ -238,7 +238,7 @@ func parseDiffAgentTypes(names []string) ([]parser.AgentType, error) {
 				strings.Join(parseDiffSupportedAgents(), ", "),
 			)
 		}
-		if !def.FileBased || def.DiscoverFunc == nil {
+		if !parseDiffAgentSupported(def.Type) {
 			return nil, fmt.Errorf(
 				"agent %q is not supported by parse-diff "+
 					"(no on-disk source to re-parse)",
@@ -254,15 +254,24 @@ func parseDiffAgentTypes(names []string) ([]parser.AgentType, error) {
 }
 
 // parseDiffSupportedAgents lists the agent types parse-diff can
-// re-parse: file-based agents with a discovery function.
+// re-parse through provider discovery.
 func parseDiffSupportedAgents() []string {
 	var names []string
 	for _, def := range parser.Registry {
-		if def.FileBased && def.DiscoverFunc != nil {
+		if parseDiffAgentSupported(def.Type) {
 			names = append(names, string(def.Type))
 		}
 	}
 	return names
+}
+
+func parseDiffAgentSupported(agent parser.AgentType) bool {
+	factory, ok := parser.ProviderFactoryByType(agent)
+	if !ok {
+		return false
+	}
+	return factory.Capabilities().Source.DiscoverSources ==
+		parser.CapabilitySupported
 }
 
 // renderParseDiffReport writes the human-readable report. An empty

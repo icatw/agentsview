@@ -116,7 +116,12 @@ func (e *Engine) ParseDiff(ctx context.Context, opts ParseDiffOptions) (*ParseDi
 		s := &storedSessions[i]
 		storedByID[s.ID] = s
 		if s.FilePath != nil && *s.FilePath != "" {
-			base := stripVirtualSourceSuffix(*s.FilePath)
+			path := *s.FilePath
+			storedByPath[path] = append(storedByPath[path], s)
+			base := stripVirtualSourceSuffix(path)
+			if base == path {
+				continue
+			}
 			storedByPath[base] = append(storedByPath[base], s)
 		}
 	}
@@ -439,7 +444,7 @@ func (e *Engine) parseDiffCollectFile(
 	base := stripVirtualSourceSuffix(job.path)
 
 	if job.err != nil {
-		storedHere := storedByPath[base]
+		storedHere := storedByPath[job.path]
 		if len(storedHere) == 0 {
 			report.Sessions = append(report.Sessions, SessionDiff{
 				Agent:    string(fileAgents[job.path]),

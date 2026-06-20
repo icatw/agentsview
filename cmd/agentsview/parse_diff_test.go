@@ -54,7 +54,11 @@ func TestParseDiff_UnknownAgentListsSupported(t *testing.T) {
 		assert.Contains(t, err.Error(), want,
 			"error should list supported agent %q", want)
 	}
-	for _, unwanted := range []string{"forge", "piebald", "warp"} {
+	for _, want := range []string{"forge", "piebald", "warp"} {
+		assert.Contains(t, err.Error(), want,
+			"error should list provider-discovered agent %q", want)
+	}
+	for _, unwanted := range []string{"claude-ai", "chatgpt"} {
 		assert.NotContains(t, err.Error(), unwanted,
 			"error should not list unsupported agent %q", unwanted)
 	}
@@ -65,9 +69,6 @@ func TestParseDiff_RejectsAgentsWithoutOnDiskSource(t *testing.T) {
 		name  string
 		agent string
 	}{
-		{"database-backed forge", "forge"},
-		{"database-backed piebald", "piebald"},
-		{"database-backed warp", "warp"},
 		{"import-only claude-ai", "claude-ai"},
 		{"import-only chatgpt", "chatgpt"},
 	}
@@ -118,13 +119,18 @@ func TestParseDiffAgentTypes(t *testing.T) {
 			want: []string{"codex", "claude"},
 		},
 		{
+			name: "provider-discovered database-backed agent",
+			in:   []string{"forge"},
+			want: []string{"forge"},
+		},
+		{
 			name:    "unknown agent",
 			in:      []string{"nope"},
 			wantErr: `unknown agent "nope"`,
 		},
 		{
-			name:    "db-backed agent",
-			in:      []string{"forge"},
+			name:    "import-only agent",
+			in:      []string{"chatgpt"},
 			wantErr: "no on-disk source to re-parse",
 		},
 	}
