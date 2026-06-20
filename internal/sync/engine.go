@@ -4825,6 +4825,13 @@ func (e *Engine) shouldSkipProviderSource(
 	source parser.SourceRef,
 	fingerprint parser.SourceFingerprint,
 ) bool {
+	agent := file.Agent
+	if agent == "" {
+		agent = source.Provider
+	}
+	if !providerSourceSupportsPersistedFreshness(agent) {
+		return false
+	}
 	if e.forceParse || file.ForceParse {
 		return false
 	}
@@ -4843,6 +4850,15 @@ func (e *Engine) shouldSkipProviderSource(
 		return false
 	}
 	return e.db.GetDataVersionByPath(lookupPath) >= db.CurrentDataVersion()
+}
+
+func providerSourceSupportsPersistedFreshness(agent parser.AgentType) bool {
+	switch agent {
+	case parser.AgentForge, parser.AgentWarp:
+		return true
+	default:
+		return false
+	}
 }
 
 func providerSkipLookupPath(

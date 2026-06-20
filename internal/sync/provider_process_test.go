@@ -113,6 +113,50 @@ func TestProcessFileProviderShadowComparePiebaldVirtualSource(t *testing.T) {
 	assert.Len(t, res.results[0].Messages, 2)
 }
 
+func TestProcessFileProviderShadowComparePiebaldDoesNotSkipStoredFreshSource(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "app.db")
+	piebaldDB := openProcessProviderPiebaldDB(t, dbPath)
+	seedProcessProviderPiebaldChat(t, piebaldDB)
+	virtualPath := dbPath + "#42"
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentPiebald: {root},
+		},
+		Machine: "devbox",
+	})
+
+	first := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  virtualPath,
+		Agent: parser.AgentPiebald,
+	})
+	require.NoError(t, first.err)
+	require.Len(t, first.results, 1)
+	written, _, failed := engine.writeBatch(
+		[]pendingWrite{{
+			sess:         first.results[0].Session,
+			msgs:         first.results[0].Messages,
+			usageEvents:  first.results[0].UsageEvents,
+			forceReplace: first.forceReplace,
+		}},
+		syncWriteDefault,
+		false,
+	)
+	require.Equal(t, 0, failed)
+	require.Equal(t, 1, written)
+
+	second := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  virtualPath,
+		Agent: parser.AgentPiebald,
+	})
+
+	require.NoError(t, second.err)
+	assert.False(t, second.skip)
+	require.Len(t, second.results, 1)
+	assert.Equal(t, "piebald:42", second.results[0].Session.ID)
+}
+
 func TestProcessFileProviderShadowCompareWarpVirtualSource(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "warp.sqlite")
