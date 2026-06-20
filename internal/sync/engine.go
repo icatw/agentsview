@@ -2573,12 +2573,18 @@ func (e *Engine) ResyncAll(
 		stats.Failed == 0 &&
 		stats.parserExcludedFiles > 0 &&
 		stats.filesOK == stats.parserExcludedFiles
+	noSessionOnly := stats.Synced == 0 &&
+		stats.TotalSessions > 0 &&
+		stats.Failed == 0 &&
+		stats.noSessionFiles > 0 &&
+		stats.filesOK == stats.noSessionFiles
 	abortSwap := stats.Aborted ||
 		emptyDiscovery ||
 		(stats.Synced == 0 &&
 			stats.TotalSessions > 0 &&
 			!preservedOnly &&
-			!excludedOnly) ||
+			!excludedOnly &&
+			!noSessionOnly) ||
 		(stats.Failed > 0 && stats.Failed > stats.filesOK)
 	if abortSwap {
 		log.Printf(
@@ -4311,6 +4317,9 @@ func (e *Engine) collectAndBatch(
 			if len(r.excludedSessionIDs) > 0 {
 				stats.filesOK++
 				stats.parserExcludedFiles++
+			} else if r.noSession {
+				stats.filesOK++
+				stats.noSessionFiles++
 			}
 			if r.cacheSkip && !r.noCacheSkip {
 				e.cacheSkip(r.skipCacheKey(), r.mtime)
@@ -4461,6 +4470,11 @@ type processResult struct {
 	// suppressPresenceSweep marks an incomplete source result where
 	// missing stored sessions are expected rather than parser drift.
 	suppressPresenceSweep bool
+	// noSession marks a successful provider parse that intentionally
+	// emitted no sessions for a complete source, such as a deleted
+	// DB-backed source. ResyncAll treats this as file-level progress
+	// even though there is nothing to write.
+	noSession bool
 }
 
 func (r processResult) needsRetryForSession(sessionID string) bool {
@@ -4692,6 +4706,20 @@ func (e *Engine) processProviderFile(
 	if err != nil {
 		return processResult{err: err}, true
 	}
+	sourcePath := providerDiscoveredPath(source)
+	if (fingerprint.Inode == 0 || fingerprint.Device == 0) &&
+		sourcePath != "" {
+		if info, err := os.Stat(sourcePath); err == nil {
+			inode, device := getFileIdentity(info)
+			fingerprint.Inode = uint64(inode)
+			fingerprint.Device = uint64(device)
+		}
+	}
+	if fingerprint.Hash == "" && sourcePath != "" {
+		if hash, err := ComputeFileHash(sourcePath); err == nil {
+			fingerprint.Hash = hash
+		}
+	}
 	cacheKey := providerProcessCacheKey(file, source, fingerprint)
 	cacheSkip := e.shouldCacheSkip(file)
 	if cacheSkip && !e.forceParse && !file.ForceParse {
@@ -4785,6 +4813,8 @@ func (e *Engine) processProviderFile(
 			!parser.IsRegularFile(file.Path))
 	cleanCache := providerOutcomeAllowsCleanSkipCache(outcome)
 	if outcome.SkipReason != parser.SkipNone {
+		noSession := forceReplace &&
+			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path)
 		return processResult{
 			skip:         true,
 			mtime:        fingerprint.MTimeNS,
@@ -4792,6 +4822,7 @@ func (e *Engine) processProviderFile(
 			cacheKey:     cacheKey,
 			noCacheSkip:  !cleanCache,
 			forceReplace: forceReplace,
+			noSession:    noSession,
 		}, true
 	}
 
@@ -4805,6 +4836,17 @@ func (e *Engine) processProviderFile(
 		suppressPresenceSweep: !outcome.ResultSetComplete,
 	}
 	res.results = parseOutcomeResults(outcome.Results)
+	for i := range res.results {
+		if res.results[i].Session.File.Inode == 0 {
+			res.results[i].Session.File.Inode = int64(fingerprint.Inode)
+		}
+		if res.results[i].Session.File.Device == 0 {
+			res.results[i].Session.File.Device = int64(fingerprint.Device)
+		}
+		if res.results[i].Session.File.Hash == "" {
+			res.results[i].Session.File.Hash = fingerprint.Hash
+		}
+	}
 	if file.Project != "" {
 		for i := range res.results {
 			res.results[i].Session.Project = file.Project

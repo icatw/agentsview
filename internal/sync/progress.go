@@ -50,6 +50,7 @@ type SyncStats struct {
 	filesDiscovered     int // file-based total, excludes DB-backed agents
 	messagesIndexed     int // unexported: progress message counter
 	parserExcludedFiles int // file-level intentional parser exclusions
+	noSessionFiles      int // file-level provider no-session outcomes
 	parserExcludedIDs   []string
 }
 

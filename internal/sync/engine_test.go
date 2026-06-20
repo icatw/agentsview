@@ -2249,8 +2249,42 @@ func TestEngine_ProcessFileProviderDeletedSQLiteSourcesDoNotFail(
 			require.NoError(t, res.err)
 			assert.Empty(t, res.results)
 			assert.True(t, res.forceReplace)
+
+			files := engine.classifyPaths([]string{dbPath})
+			require.Len(t, files, 1)
+			require.NotNil(t, files[0].ProviderSource)
+			files[0].ProviderProcess = true
+			res = engine.processFile(context.Background(), files[0])
+			require.NoError(t, res.err)
+			assert.Empty(t, res.results)
+			assert.True(t, res.forceReplace)
+			assert.True(t, res.noSession)
 		})
 	}
+}
+
+func TestCollectAndBatchCountsNoSessionProviderFilesOK(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	results := make(chan syncJob, 1)
+	results <- syncJob{
+		processResult: processResult{
+			noSession: true,
+		},
+		path: "/missing/provider.db",
+	}
+	close(results)
+
+	e := &Engine{db: database}
+	stats := e.collectAndBatch(
+		ctx, results, 1, 1, nil, syncWriteDefault,
+	)
+
+	assert.Equal(t, 0, stats.Failed)
+	assert.Equal(t, 0, stats.Synced)
+	assert.Equal(t, 1, stats.filesOK)
+	assert.Equal(t, 1, stats.noSessionFiles)
 }
 
 func TestEngine_ClassifyPathsOpenCodeRemovedPartDir(
