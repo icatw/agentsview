@@ -156,6 +156,40 @@ func TestKiroProviderParsePhysicalVirtualAndLegacySources(t *testing.T) {
 	assert.Equal(t, SkipNoSession, missingOutcome.SkipReason)
 }
 
+func TestKiroProviderFindSourceRequiresFreshStoredVirtualSession(t *testing.T) {
+	root := t.TempDir()
+	dbPath, db := newKiroProviderSQLiteDBAt(t, root)
+	seedKiroSQLiteSession(
+		t, db, "/home/user/code/kiro-app", "sqlite-session",
+		readKiroFixture(t, "standard_payload.json"),
+		1779012000000, 1779012030000,
+	)
+	virtualPath := KiroSQLiteVirtualPath(dbPath, "sqlite-session")
+	provider, ok := NewProvider(AgentKiro, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+
+	_, err := db.Exec(
+		`DELETE FROM conversations_v2 WHERE conversation_id = ?`,
+		"sqlite-session",
+	)
+	require.NoError(t, err)
+
+	source, found, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     virtualPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Empty(t, source)
+
+	source, found, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: virtualPath,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, virtualPath, source.DisplayPath)
+}
+
 func TestKiroProviderSkipsShadowedLegacySource(t *testing.T) {
 	root := t.TempDir()
 	dbPath, db := newKiroProviderSQLiteDBAt(t, root)

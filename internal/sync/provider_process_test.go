@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -14,10 +15,42 @@ import (
 	"go.kenn.io/agentsview/internal/parser"
 )
 
-func TestProcessFileProviderShadowCompareForgeVirtualSource(t *testing.T) {
+func TestProcessFileProviderAuthoritativeForgeVirtualSource(t *testing.T) {
 	root := t.TempDir()
-	dbPath := writeProcessProviderForgeDB(t, root)
-	engine := NewEngine(openTestDB(t), EngineConfig{
+	dbPath := filepath.Join(root, ".forge.db")
+	forgeDB := openProcessProviderForgeDB(t, dbPath)
+	seedProcessProviderForgeConversation(t, forgeDB)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentForge: {root},
+		},
+		Machine: "devbox",
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  dbPath + "#forge-provider-process",
+		Agent: parser.AgentForge,
+	})
+
+	require.NoError(t, res.err)
+	require.Len(t, res.results, 1)
+	assert.True(t, res.forceReplace)
+	assert.NotZero(t, res.mtime)
+	assert.Equal(t, "forge:forge-provider-process", res.results[0].Session.ID)
+	assert.Equal(t, res.results[0].Session.File.Mtime, res.mtime)
+	assert.Equal(t, parser.AgentForge, res.results[0].Session.Agent)
+	assert.Equal(t, "devbox", res.results[0].Session.Machine)
+	assert.Len(t, res.results[0].Messages, 2)
+}
+
+func TestProcessFileProviderChangedPathForgeVirtualSource(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".forge.db")
+	forgeDB := openProcessProviderForgeDB(t, dbPath)
+	seedProcessProviderForgeConversation(t, forgeDB)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
 		AgentDirs: map[parser.AgentType][]string{
 			parser.AgentForge: {root},
 		},
@@ -26,7 +59,7 @@ func TestProcessFileProviderShadowCompareForgeVirtualSource(t *testing.T) {
 
 	files := engine.classifyProviderChangedPath(dbPath)
 	require.Len(t, files, 1)
-	assert.Equal(t, dbPath+"#conv-001", files[0].Path)
+	assert.Equal(t, dbPath+"#forge-provider-process", files[0].Path)
 	assert.Equal(t, parser.AgentForge, files[0].Agent)
 	assert.False(t, files[0].ForceParse)
 
@@ -35,11 +68,7 @@ func TestProcessFileProviderShadowCompareForgeVirtualSource(t *testing.T) {
 	require.NoError(t, res.err)
 	require.Len(t, res.results, 1)
 	assert.True(t, res.forceReplace)
-	assert.NotZero(t, res.mtime)
-	assert.Equal(t, "forge:conv-001", res.results[0].Session.ID)
-	assert.Equal(t, parser.AgentForge, res.results[0].Session.Agent)
-	assert.Equal(t, "devbox", res.results[0].Session.Machine)
-	assert.Len(t, res.results[0].Messages, 2)
+	assert.Equal(t, "forge:forge-provider-process", res.results[0].Session.ID)
 }
 
 func TestProcessFileProviderShadowCompareSkipsStoredFreshSource(t *testing.T) {
@@ -195,12 +224,12 @@ func TestProcessFileUsesProviderDBBackedFamily(t *testing.T) {
 	assert.False(t, processFileUsesProvider(parser.AgentClaude))
 }
 
-func writeProcessProviderForgeDB(t *testing.T, root string) string {
+func openProcessProviderForgeDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(root, ".forge.db")
-	database, err := sql.Open("sqlite3", dbPath)
+	database, err := sql.Open("sqlite3", path)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = database.Close() })
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+
 	_, err = database.Exec(`
 		CREATE TABLE conversations (
 			conversation_id TEXT PRIMARY KEY NOT NULL,
@@ -210,26 +239,88 @@ func writeProcessProviderForgeDB(t *testing.T, root string) string {
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP,
 			metrics TEXT
-		);
+		)
 	`)
 	require.NoError(t, err)
-	_, err = database.Exec(
+	return database
+}
+
+func writeProcessProviderForgeDB(t *testing.T, root string) string {
+	t.Helper()
+	dbPath := filepath.Join(root, ".forge.db")
+	database := openProcessProviderForgeDB(t, dbPath)
+	seedProcessProviderForgeConversationWithID(t, database, "conv-001")
+	return dbPath
+}
+
+func seedProcessProviderForgeConversation(t *testing.T, database *sql.DB) {
+	t.Helper()
+	seedProcessProviderForgeConversationWithID(
+		t, database, "forge-provider-process",
+	)
+}
+
+func seedProcessProviderForgeConversationWithID(
+	t *testing.T,
+	database *sql.DB,
+	conversationID string,
+) {
+	t.Helper()
+	contextJSON := processProviderForgeContext(t, conversationID)
+	_, err := database.Exec(
 		`INSERT INTO conversations
 			(conversation_id, title, workspace_id, context, created_at, updated_at, metrics)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		"conv-001",
+		conversationID,
 		"Provider Process",
 		int64(1),
-		`{"conversation_id":"conv-001","messages":[`+
-			`{"message":{"text":{"role":"User","content":"Run provider process.","raw_content":{"Text":"Run provider process."},"timestamp":"2026-05-02T09:58:16Z"}}},`+
-			`{"message":{"text":{"role":"Assistant","content":"Processed through provider.","timestamp":"2026-05-02T09:58:17Z"}}}`+
-			`]}`,
-		"2026-05-02 09:58:16.000000000",
-		"2026-05-02 09:58:17.000000000",
-		"",
+		contextJSON,
+		"2026-06-01 10:20:00",
+		"2026-06-01 10:21:00",
+		`{"input_tokens":25,"output_tokens":8}`,
 	)
 	require.NoError(t, err)
-	return dbPath
+}
+
+func processProviderForgeContext(t *testing.T, conversationID string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"conversation_id": conversationID,
+		"messages": []map[string]any{
+			{
+				"message": map[string]any{
+					"text": map[string]any{
+						"role":      "User",
+						"content":   "Use the provider parser.",
+						"model":     "gpt-5.4",
+						"timestamp": "2026-06-01T10:20:00Z",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     map[string]any{"actual": 10},
+					"completion_tokens": map[string]any{"actual": 0},
+					"cached_tokens":     map[string]any{"actual": 2},
+				},
+			},
+			{
+				"message": map[string]any{
+					"text": map[string]any{
+						"role":      "Assistant",
+						"content":   "Provider parse complete.",
+						"model":     "gpt-5.4",
+						"timestamp": "2026-06-01T10:21:00Z",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     map[string]any{"actual": 15},
+					"completion_tokens": map[string]any{"actual": 8},
+					"cached_tokens":     map[string]any{"actual": 2},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	return string(raw)
 }
 
 func openProcessProviderPiebaldDB(t *testing.T, path string) *sql.DB {

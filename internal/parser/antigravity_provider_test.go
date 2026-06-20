@@ -523,6 +523,33 @@ func TestAntigravityCLIProviderFingerprintParseAndRetry(t *testing.T) {
 	assert.NotEmpty(t, result.Result.Messages)
 }
 
+func TestAntigravityCLIProviderFindSourceRequiresFreshStoredPath(t *testing.T) {
+	root := t.TempDir()
+	id := "33333333-4444-5555-6666-777777777777"
+	implicitPath := filepath.Join(root, "implicit", id+".pb")
+	writeAntigravityCLIProviderFixture(t, root, id)
+	provider, ok := NewProvider(AgentAntigravityCLI, ProviderConfig{
+		Roots: []string{root},
+	})
+	require.True(t, ok)
+	require.NoError(t, os.Remove(implicitPath))
+
+	source, found, err := provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath:     implicitPath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Empty(t, source)
+
+	source, found, err = provider.FindSource(context.Background(), FindSourceRequest{
+		StoredFilePath: implicitPath,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, implicitPath, source.DisplayPath)
+}
+
 func TestAntigravityProviderFingerprintTracksSideInputs(t *testing.T) {
 	root := t.TempDir()
 	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"

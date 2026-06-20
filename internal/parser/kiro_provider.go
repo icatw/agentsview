@@ -499,6 +499,9 @@ func (s kiroSourceSet) sourceRef(
 		if !kiroDBUnderRoot(root, dbPath, !allowMissing) {
 			return SourceRef{}, false
 		}
+		if !allowMissing && !KiroSQLiteSessionExists(dbPath, sessionID) {
+			return SourceRef{}, false
+		}
 		return s.newSourceRef(root, path, dbPath, sessionID, kiroSourceSQLiteSession), true
 	}
 	if kiroDBUnderRoot(root, path, !allowMissing) {
