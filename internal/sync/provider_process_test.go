@@ -97,6 +97,82 @@ func TestProcessFileProviderAuthoritativeHonorsDiscoveredProject(t *testing.T) {
 	assert.Equal(t, "stored_project", res.results[0].Session.Project)
 }
 
+func TestProcessFileProviderAuthoritativeUsesIncrementalParse(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-incremental"
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", sessionID+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"hello",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+		)),
+		0o644,
+	))
+
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+	first := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+	require.NoError(t, first.err)
+	require.Len(t, first.results, 1)
+	written, _, failed := engine.writeBatch(
+		[]pendingWrite{{
+			sess: first.results[0].Session,
+			msgs: first.results[0].Messages,
+		}},
+		syncWriteDefault,
+		false,
+	)
+	require.Equal(t, 0, failed)
+	require.Equal(t, 1, written)
+
+	f, err := os.OpenFile(sourcePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.WriteString(testjsonl.ClaudeAssistantJSON(
+		"world",
+		"2026-06-01T10:01:00Z",
+	) + "\n")
+	require.NoError(t, f.Close())
+	require.NoError(t, err)
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
+	})
+
+	require.NoError(t, res.err)
+	require.NotNil(t, res.incremental)
+	assert.Empty(t, res.results)
+	assert.Equal(t, sessionID, res.incremental.sessionID)
+	assert.Len(t, res.incremental.msgs, 1)
+	assert.Equal(t, "world", res.incremental.msgs[0].Content)
+}
+
 func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
 	root := t.TempDir()
 	sessionID := "provider-classify-source-ref"

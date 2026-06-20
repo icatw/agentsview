@@ -4715,6 +4715,14 @@ func (e *Engine) processProviderFile(
 			cacheKey:  cacheKey,
 		}, true
 	}
+	if res, ok := e.tryProviderIncremental(
+		ctx, provider, source, fingerprint, file,
+	); ok {
+		res.cacheSkip = cacheSkip
+		res.mtime = fingerprint.MTimeNS
+		res.cacheKey = cacheKey
+		return res, true
+	}
 
 	outcome, err := provider.Parse(ctx, parser.ParseRequest{
 		Source:      source,
@@ -4833,6 +4841,128 @@ func providerOutcomeAllowsCleanSkipCache(outcome parser.ParseOutcome) bool {
 		}
 	}
 	return true
+}
+
+func (e *Engine) tryProviderIncremental(
+	ctx context.Context,
+	provider parser.Provider,
+	source parser.SourceRef,
+	fingerprint parser.SourceFingerprint,
+	file parser.DiscoveredFile,
+) (processResult, bool) {
+	if e.forceParse || file.ForceParse || fingerprint.Size <= 0 {
+		return processResult{}, false
+	}
+	lookupPath := file.Path
+	if e.pathRewriter != nil {
+		lookupPath = e.pathRewriter(file.Path)
+	}
+	inc, ok := e.db.GetSessionForIncremental(lookupPath)
+	if !ok || inc.FileSize <= 0 {
+		return processResult{}, false
+	}
+	if e.db.GetSessionDataVersion(inc.ID) < db.CurrentDataVersion() {
+		return processResult{}, false
+	}
+	if file.Agent == parser.AgentClaude &&
+		inc.FirstMessage == "" && inc.UserMsgCount > 0 {
+		return processResult{}, false
+	}
+	maxOrd := e.db.MaxOrdinal(inc.ID)
+	if maxOrd < 0 {
+		return processResult{}, false
+	}
+
+	outcome, status, err := provider.ParseIncremental(ctx, parser.IncrementalRequest{
+		Source:       source,
+		Fingerprint:  fingerprint,
+		SessionID:    inc.ID,
+		Offset:       inc.FileSize,
+		StartOrdinal: maxOrd + 1,
+		Machine:      e.machine,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return processResult{err: err}, true
+		}
+		log.Printf(
+			"provider incremental %s %s: %v (full parse)",
+			file.Agent, file.Path, err,
+		)
+		return processResult{}, false
+	}
+
+	switch status {
+	case parser.IncrementalUnsupported:
+		return processResult{}, false
+	case parser.IncrementalNeedsFullParse:
+		return processResult{forceReplace: outcome.ForceReplace}, false
+	case parser.IncrementalNoNewData:
+		return processResult{skip: true}, true
+	case parser.IncrementalApplied:
+	default:
+		return processResult{}, false
+	}
+
+	if outcome.ForceReplace {
+		return processResult{forceReplace: true}, false
+	}
+	if len(outcome.Messages) == 0 && outcome.ConsumedBytes == 0 {
+		return processResult{skip: true}, true
+	}
+	if file.Agent == parser.AgentClaude && len(outcome.Messages) > 0 {
+		first := outcome.Messages[0]
+		if first.Role == parser.RoleAssistant &&
+			first.ClaudeMessageID != "" &&
+			e.db.LastClaudeMessageID(inc.ID) == first.ClaudeMessageID {
+			log.Printf(
+				"provider incremental %s %s: appended chunk shares"+
+					" message.id with stored tail, full parse",
+				file.Agent, file.Path,
+			)
+			return processResult{forceReplace: true}, false
+		}
+	}
+
+	messageCount := outcome.MessageCount
+	if messageCount == 0 {
+		messageCount = len(outcome.Messages)
+	}
+	userMessageCount := outcome.UserMessageCount
+	if userMessageCount == 0 {
+		userMessageCount = countUserMsgs(outcome.Messages)
+	}
+
+	totalOut := inc.TotalOutputTokens
+	peakCtx := inc.PeakContextTokens
+	hasTotalOut := inc.HasTotalOutputTokens
+	hasPeakCtx := inc.HasPeakContextTokens
+	if outcome.HasTotalOutputTokens {
+		totalOut += outcome.TotalOutputTokens
+		hasTotalOut = true
+	}
+	if outcome.HasPeakContextTokens {
+		if !hasPeakCtx || outcome.PeakContextTokens > peakCtx {
+			peakCtx = outcome.PeakContextTokens
+		}
+		hasPeakCtx = true
+	}
+
+	return processResult{
+		incremental: &incrementalUpdate{
+			sessionID:            inc.ID,
+			msgs:                 outcome.Messages,
+			endedAt:              outcome.EndedAt,
+			msgCount:             inc.MsgCount + messageCount,
+			userMsgCount:         inc.UserMsgCount + userMessageCount,
+			fileSize:             inc.FileSize + outcome.ConsumedBytes,
+			fileMtime:            fingerprint.MTimeNS,
+			totalOutputTokens:    totalOut,
+			peakContextTokens:    peakCtx,
+			hasTotalOutputTokens: hasTotalOut,
+			hasPeakContextTokens: hasPeakCtx,
+		},
+	}, true
 }
 
 func (e *Engine) providerSourceForDiscoveredFile(
