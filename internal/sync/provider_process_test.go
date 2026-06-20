@@ -219,9 +219,21 @@ func TestProcessFileProviderAuthoritativeIncrementalFallbackForceReplaces(t *tes
 		},
 		Machine: "devbox",
 	})
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
 	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  sourcePath,
-		Agent: parser.AgentClaude,
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
 	})
 	require.NoError(t, initial.err)
 	require.Len(t, initial.results, 1)
@@ -262,12 +274,12 @@ func TestProcessFileProviderAuthoritativeIncrementalFallbackForceReplaces(t *tes
 	require.NoError(t, f.Close())
 	require.NoError(t, err)
 
-	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+	provider, ok = parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
 		Roots:   []string{root},
 		Machine: "devbox",
 	})
 	require.True(t, ok)
-	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+	source, found, err = provider.FindSource(context.Background(), parser.FindSourceRequest{
 		RawSessionID: sessionID,
 	})
 	require.NoError(t, err)
@@ -313,9 +325,21 @@ func TestProcessFileProviderAuthoritativeSameSizeRewriteForceReplaces(t *testing
 		},
 		Machine: "devbox",
 	})
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
 	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  sourcePath,
-		Agent: parser.AgentClaude,
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
 	})
 	require.NoError(t, initial.err)
 	require.Len(t, initial.results, 1)
@@ -372,12 +396,12 @@ func TestProcessFileProviderAuthoritativeSameSizeRewriteForceReplaces(t *testing
 	now := time.Now().Add(time.Second)
 	require.NoError(t, os.Chtimes(sourcePath, now, now))
 
-	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+	provider, ok = parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
 		Roots:   []string{root},
 		Machine: "devbox",
 	})
 	require.True(t, ok)
-	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+	source, found, err = provider.FindSource(context.Background(), parser.FindSourceRequest{
 		RawSessionID: sessionID,
 	})
 	require.NoError(t, err)
@@ -429,9 +453,21 @@ func TestProcessFileProviderAuthoritativeReplacementForceReplaces(t *testing.T) 
 		},
 		Machine: "devbox",
 	})
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
 	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
-		Path:  sourcePath,
-		Agent: parser.AgentClaude,
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
 	})
 	require.NoError(t, initial.err)
 	require.Len(t, initial.results, 1)
@@ -445,6 +481,13 @@ func TestProcessFileProviderAuthoritativeReplacementForceReplaces(t *testing.T) 
 	)
 	require.Equal(t, 0, failed)
 	require.Equal(t, 1, written)
+	stored, err := database.GetSessionFull(context.Background(), sessionID)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	require.NotNil(t, stored.FileInode)
+	require.NotNil(t, stored.FileDevice)
+	assert.Equal(t, oldInode, *stored.FileInode)
+	assert.Equal(t, oldDevice, *stored.FileDevice)
 
 	replacementPath := filepath.Join(
 		filepath.Dir(sourcePath),
@@ -472,17 +515,6 @@ func TestProcessFileProviderAuthoritativeReplacementForceReplaces(t *testing.T) 
 	if oldInode == newInode && oldDevice == newDevice {
 		t.Skip("replacement kept same file identity")
 	}
-
-	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
-		Roots:   []string{root},
-		Machine: "devbox",
-	})
-	require.True(t, ok)
-	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
-		RawSessionID: sessionID,
-	})
-	require.NoError(t, err)
-	require.True(t, found)
 
 	res := engine.processFile(context.Background(), parser.DiscoveredFile{
 		Path:            sourcePath,
