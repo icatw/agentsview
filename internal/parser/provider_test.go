@@ -261,6 +261,94 @@ func TestLegacyProviderParseReturnsUnsupported(t *testing.T) {
 	assert.Equal(t, ProviderFeatureParse, unsupported.Feature)
 }
 
+func TestProviderMigrationModesCoverRegistry(t *testing.T) {
+	err := ValidateProviderMigrationModes(
+		ProviderFactories(),
+		ProviderMigrationModes(),
+	)
+	require.NoError(t, err)
+}
+
+func TestProviderMigrationModesRejectConcreteProviderLeftLegacyOnly(t *testing.T) {
+	factory := testProviderFactory{
+		def: AgentDef{
+			Type:        AgentCodex,
+			DisplayName: "Codex",
+		},
+	}
+	modes := map[AgentType]ProviderMigrationMode{
+		AgentCodex: ProviderMigrationLegacyOnly,
+	}
+
+	err := ValidateProviderMigrationModes([]ProviderFactory{factory}, modes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), string(AgentCodex))
+	assert.Contains(t, err.Error(), string(ProviderMigrationShadowCompare))
+}
+
+func TestProviderMigrationModesRejectConcreteModeForLegacyFactory(t *testing.T) {
+	factory := legacyProviderFactory{
+		def: AgentDef{
+			Type:        AgentCodex,
+			DisplayName: "Codex",
+		},
+	}
+	modes := map[AgentType]ProviderMigrationMode{
+		AgentCodex: ProviderMigrationShadowCompare,
+	}
+
+	err := ValidateProviderMigrationModes([]ProviderFactory{factory}, modes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), string(AgentCodex))
+	assert.Contains(t, err.Error(), string(ProviderMigrationLegacyOnly))
+}
+
+func TestProviderMigrationModesRestrictImportOnlyMode(t *testing.T) {
+	factory := testProviderFactory{
+		def: AgentDef{
+			Type:        AgentCodex,
+			DisplayName: "Codex",
+		},
+	}
+	modes := map[AgentType]ProviderMigrationMode{
+		AgentCodex: ProviderMigrationImportOnly,
+	}
+
+	err := ValidateProviderMigrationModes([]ProviderFactory{factory}, modes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), string(AgentCodex))
+	assert.Contains(t, err.Error(), string(ProviderMigrationImportOnly))
+}
+
+type testProviderFactory struct {
+	def AgentDef
+}
+
+func (f testProviderFactory) Definition() AgentDef {
+	return cloneAgentDef(f.def)
+}
+
+func (f testProviderFactory) Capabilities() Capabilities {
+	return Capabilities{}
+}
+
+func (f testProviderFactory) NewProvider(cfg ProviderConfig) Provider {
+	return &testProvider{
+		ProviderBase: ProviderBase{
+			Def:    cloneAgentDef(f.def),
+			Config: cfg.Clone(),
+		},
+	}
+}
+
+type testProvider struct {
+	ProviderBase
+}
+
+func (p *testProvider) Parse(context.Context, ParseRequest) (ParseOutcome, error) {
+	return ParseOutcome{}, nil
+}
+
 func assertAgentDefMetadataEqual(t *testing.T, want, got AgentDef) {
 	t.Helper()
 
