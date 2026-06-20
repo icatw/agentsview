@@ -2,7 +2,10 @@ package parser
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"hash"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,17 +130,34 @@ func (s geminiSourceSet) Discover(ctx context.Context) ([]SourceRef, error) {
 	var sources []SourceRef
 	seen := make(map[string]struct{})
 	for _, root := range s.roots {
-		if err := ctx.Err(); err != nil {
+		rootSources, err := s.discoverRoot(ctx, root)
+		if err != nil {
 			return nil, err
 		}
-		for _, file := range DiscoverGeminiSessions(root) {
-			source, ok := s.sourceRef(root, file.Path)
-			if !ok {
-				continue
-			}
-			source.ProjectHint = file.Project
+		for _, source := range rootSources {
 			addJSONLSource(source, &sources, seen)
 		}
+	}
+	sortJSONLSources(sources)
+	return sources, nil
+}
+
+func (s geminiSourceSet) discoverRoot(
+	ctx context.Context,
+	root string,
+) ([]SourceRef, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sources := make([]SourceRef, 0)
+	seen := make(map[string]struct{})
+	for _, file := range DiscoverGeminiSessions(root) {
+		source, ok := s.sourceRef(root, file.Path)
+		if !ok {
+			continue
+		}
+		source.ProjectHint = file.Project
+		addJSONLSource(source, &sources, seen)
 	}
 	sortJSONLSources(sources)
 	return sources, nil
@@ -153,6 +173,12 @@ func (s geminiSourceSet) WatchPlan(context.Context) (WatchPlan, error) {
 			IncludeGlobs: []string{"session-*.json", "session-*.jsonl"},
 			DebounceKey:  string(AgentGemini) + ":tmp:" + tmp,
 		})
+		roots = append(roots, WatchRoot{
+			Path:         root,
+			Recursive:    false,
+			IncludeGlobs: []string{"projects.json", "trustedFolders.json"},
+			DebounceKey:  string(AgentGemini) + ":projects:" + root,
+		})
 	}
 	return WatchPlan{Roots: roots}, nil
 }
@@ -165,6 +191,9 @@ func (s geminiSourceSet) SourcesForChangedPath(
 		return nil, err
 	}
 	for _, root := range s.roots {
+		if geminiProjectMetadataPath(root, req.Path) {
+			return s.discoverRoot(ctx, root)
+		}
 		source, ok := s.sourceRef(root, req.Path)
 		if ok {
 			return []SourceRef{source}, nil
@@ -218,7 +247,7 @@ func (s geminiSourceSet) Fingerprint(
 	if err := ctx.Err(); err != nil {
 		return SourceFingerprint{}, err
 	}
-	path, ok := s.pathFromSource(source)
+	root, path, ok := s.rootPathFromSource(source)
 	if !ok {
 		return SourceFingerprint{}, fmt.Errorf("gemini source path unavailable")
 	}
@@ -229,36 +258,55 @@ func (s geminiSourceSet) Fingerprint(
 	if info.IsDir() {
 		return SourceFingerprint{}, fmt.Errorf("stat %s: source is a directory", path)
 	}
-	hash, err := hashJSONLSourceFile(path)
-	if err != nil {
-		return SourceFingerprint{}, err
-	}
-	return SourceFingerprint{
+	fingerprint := SourceFingerprint{
 		Key:     firstNonEmptyJSONLString(source.FingerprintKey, source.Key, path),
 		Size:    info.Size(),
 		MTimeNS: info.ModTime().UnixNano(),
-		Hash:    hash,
-	}, nil
+	}
+	h := sha256.New()
+	if err := addGeminiFingerprintPart(h, "session", path, info); err != nil {
+		return SourceFingerprint{}, err
+	}
+	for _, metadataPath := range geminiProjectMetadataPaths(root) {
+		metadataInfo, err := os.Stat(metadataPath)
+		if err != nil || metadataInfo.IsDir() {
+			continue
+		}
+		fingerprint.Size += metadataInfo.Size()
+		if mtime := metadataInfo.ModTime().UnixNano(); mtime > fingerprint.MTimeNS {
+			fingerprint.MTimeNS = mtime
+		}
+		if err := addGeminiFingerprintPart(h, "project", metadataPath, metadataInfo); err != nil {
+			return SourceFingerprint{}, err
+		}
+	}
+	fingerprint.Hash = fmt.Sprintf("%x", h.Sum(nil))
+	return fingerprint, nil
 }
 
 func (s geminiSourceSet) pathFromSource(source SourceRef) (string, bool) {
+	_, path, ok := s.rootPathFromSource(source)
+	return path, ok
+}
+
+func (s geminiSourceSet) rootPathFromSource(source SourceRef) (string, string, bool) {
 	switch src := source.Opaque.(type) {
 	case geminiSource:
-		return src.Path, src.Path != ""
+		return src.Root, src.Path, src.Path != ""
 	case *geminiSource:
 		if src != nil && src.Path != "" {
-			return src.Path, true
+			return src.Root, src.Path, true
 		}
 	}
 	for _, candidate := range []string{source.DisplayPath, source.FingerprintKey, source.Key} {
 		for _, root := range s.roots {
 			if ref, ok := s.sourceRef(root, candidate); ok {
 				src := ref.Opaque.(geminiSource)
-				return src.Path, true
+				return src.Root, src.Path, true
 			}
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func (s geminiSourceSet) sourceRef(root, path string) (SourceRef, bool) {
@@ -294,6 +342,51 @@ func (s geminiSourceSet) sourceRefForPath(
 			Path: path,
 		},
 	}, true
+}
+
+func geminiProjectMetadataPaths(root string) []string {
+	return []string{
+		filepath.Join(root, "projects.json"),
+		filepath.Join(root, "trustedFolders.json"),
+	}
+}
+
+func geminiProjectMetadataPath(root, path string) bool {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	rel, ok := relUnder(root, path)
+	if !ok {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel == "projects.json" || rel == "trustedFolders.json"
+}
+
+func addGeminiFingerprintPart(
+	h hash.Hash,
+	label string,
+	path string,
+	info os.FileInfo,
+) error {
+	if _, err := fmt.Fprintf(
+		h,
+		"%s\x00%s\x00%d\x00%d\x00",
+		label,
+		path,
+		info.Size(),
+		info.ModTime().UnixNano(),
+	); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("hash %s: %w", path, err)
+	}
+	return nil
 }
 
 func geminiProviderCapabilities() Capabilities {

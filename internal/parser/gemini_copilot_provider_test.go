@@ -60,10 +60,13 @@ func TestGeminiProviderSourceMethods(t *testing.T) {
 
 	plan, err := provider.WatchPlan(context.Background())
 	require.NoError(t, err)
-	require.Len(t, plan.Roots, 1)
+	require.Len(t, plan.Roots, 2)
 	assert.Equal(t, filepath.Join(root, "tmp"), plan.Roots[0].Path)
 	assert.True(t, plan.Roots[0].Recursive)
 	assert.Equal(t, []string{"session-*.json", "session-*.jsonl"}, plan.Roots[0].IncludeGlobs)
+	assert.Equal(t, root, plan.Roots[1].Path)
+	assert.False(t, plan.Roots[1].Recursive)
+	assert.Equal(t, []string{"projects.json", "trustedFolders.json"}, plan.Roots[1].IncludeGlobs)
 
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
@@ -99,6 +102,60 @@ func TestGeminiProviderSourceMethods(t *testing.T) {
 	fingerprint, err := provider.Fingerprint(context.Background(), found)
 	require.Error(t, err)
 	require.Empty(t, fingerprint)
+}
+
+func TestGeminiProviderProjectMetadataChangesClassifyAndFingerprint(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "gemini-project-metadata"
+	projectsPath := filepath.Join(root, "projects.json")
+	writeSourceFile(t, projectsPath, `{"projects":{"/Users/alice/code/one":"alias"}}`)
+	sourcePath := filepath.Join(
+		root,
+		"tmp",
+		"alias",
+		geminiChatsDir,
+		"session-2026-06-19T12-00-gemini-project-metadata.json",
+	)
+	writeSourceFile(t, sourcePath, testjsonl.GeminiSessionJSON(
+		sessionID,
+		"alias",
+		tsEarly,
+		tsEarlyS5,
+		[]map[string]any{
+			testjsonl.GeminiUserMsg("u1", tsEarly, "hello gemini"),
+			testjsonl.GeminiAssistantMsg("a1", tsEarlyS5, "hi", nil),
+		},
+	))
+
+	provider, ok := NewProvider(AgentGemini, ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+
+	found, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID: "host~gemini:" + sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "one", found.ProjectHint)
+
+	fingerprintOne, err := provider.Fingerprint(context.Background(), found)
+	require.NoError(t, err)
+
+	writeSourceFile(t, projectsPath, `{"projects":{"/Users/alice/code/two":"alias"}}`)
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: projectsPath, EventKind: "write", WatchRoot: root},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, sourcePath, changed[0].DisplayPath)
+	assert.Equal(t, "two", changed[0].ProjectHint)
+
+	fingerprintTwo, err := provider.Fingerprint(context.Background(), changed[0])
+	require.NoError(t, err)
+	assert.NotEqual(t, fingerprintOne.Hash, fingerprintTwo.Hash)
 }
 
 func TestGeminiProviderParse(t *testing.T) {
