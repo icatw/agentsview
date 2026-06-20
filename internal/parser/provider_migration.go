@@ -53,10 +53,10 @@ var providerMigrationModes = map[AgentType]ProviderMigrationMode{
 	AgentAntigravity:    ProviderMigrationLegacyOnly,
 	AgentAntigravityCLI: ProviderMigrationLegacyOnly,
 	AgentVibe:           ProviderMigrationShadowCompare,
-	AgentZed:            ProviderMigrationLegacyOnly,
+	AgentZed:            ProviderMigrationShadowCompare,
 	AgentQwenPaw:        ProviderMigrationShadowCompare,
 	AgentGptme:          ProviderMigrationShadowCompare,
-	AgentShelley:        ProviderMigrationLegacyOnly,
+	AgentShelley:        ProviderMigrationShadowCompare,
 }
 
 // ProviderMigrationModes returns the current provider migration manifest.
