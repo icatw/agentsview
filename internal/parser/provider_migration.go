@@ -45,7 +45,7 @@ var providerMigrationModes = map[AgentType]ProviderMigrationMode{
 	AgentKiroIDE:        ProviderMigrationLegacyOnly,
 	AgentCortex:         ProviderMigrationLegacyOnly,
 	AgentHermes:         ProviderMigrationLegacyOnly,
-	AgentWorkBuddy:      ProviderMigrationLegacyOnly,
+	AgentWorkBuddy:      ProviderMigrationShadowCompare,
 	AgentForge:          ProviderMigrationLegacyOnly,
 	AgentPiebald:        ProviderMigrationLegacyOnly,
 	AgentWarp:           ProviderMigrationLegacyOnly,
