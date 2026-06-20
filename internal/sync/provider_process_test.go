@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,7 +14,99 @@ import (
 
 	"go.kenn.io/agentsview/internal/dbtest"
 	"go.kenn.io/agentsview/internal/parser"
+	"go.kenn.io/agentsview/internal/testjsonl"
 )
+
+func TestProcessFileProviderAuthoritativeUsesProviderSourceRef(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-source-ref"
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, sessionID,
+	)
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:           sourcePath,
+		Agent:          parser.AgentClaude,
+		ProviderSource: &source,
+	})
+
+	require.NoError(t, res.err)
+	require.Len(t, res.results, 1)
+	assert.Equal(t, sessionID, res.results[0].Session.ID)
+	assert.Equal(t, parser.AgentClaude, res.results[0].Session.Agent)
+	assert.Equal(t, "devbox", res.results[0].Session.Machine)
+	assert.Equal(t, sourcePath, res.results[0].Session.File.Path)
+	assert.Equal(t, res.results[0].Session.File.Mtime, res.mtime)
+	assert.Len(t, res.results[0].Messages, 2)
+}
+
+func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-classify-source-ref"
+	sourcePath := writeProcessProviderClaudeSession(
+		t, root, sessionID,
+	)
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+
+	files := engine.classifyProviderChangedPath(sourcePath)
+
+	require.Len(t, files, 1)
+	require.NotNil(t, files[0].ProviderSource)
+	assert.Equal(t, sourcePath, files[0].Path)
+	assert.Equal(t, sourcePath, files[0].ProviderSource.DisplayPath)
+}
+
+func writeProcessProviderClaudeSession(
+	t *testing.T,
+	root string,
+	sessionID string,
+) string {
+	t.Helper()
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", sessionID+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"Use the provider source ref.",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+			testjsonl.ClaudeAssistantJSON(
+				[]map[string]string{{
+					"type": "text",
+					"text": "Provider source ref parsed.",
+				}},
+				"2026-06-01T10:01:00Z",
+			),
+		)),
+		0o644,
+	))
+	return sourcePath
+}
 
 func TestProcessFileProviderAuthoritativeForgeVirtualSource(t *testing.T) {
 	root := t.TempDir()

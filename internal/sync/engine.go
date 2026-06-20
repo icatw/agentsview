@@ -4508,9 +4508,6 @@ func (e *Engine) processProviderFile(
 	if mode != parser.ProviderMigrationProviderAuthoritative && !usesProvider {
 		return processResult{}, false
 	}
-	if file.ProviderSource != nil && !file.ProviderProcess && !usesProvider {
-		return processResult{}, false
-	}
 
 	factory, ok := e.providerFactories[file.Agent]
 	if !ok {
