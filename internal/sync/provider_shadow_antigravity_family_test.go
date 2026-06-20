@@ -94,6 +94,8 @@ func TestObserveProviderSourceMatchesAntigravityCLILegacyParser(t *testing.T) {
 	assert.Equal(t, []string{legacySession.ID}, observation.Planned.DataVersionSessionIDs())
 	if legacyStatus.NeedsRetry {
 		assert.Equal(t, []string{legacySession.ID}, observation.Planned.RetrySessionIDs())
+	} else {
+		assert.Empty(t, observation.Planned.RetrySessionIDs())
 	}
 	assert.Empty(t, observation.Planned.Diagnostics)
 }
