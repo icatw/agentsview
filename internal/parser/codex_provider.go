@@ -111,65 +111,12 @@ func (p *codexProvider) Parse(
 
 func (p *codexProvider) ParseIncremental(
 	ctx context.Context,
-	req IncrementalRequest,
+	_ IncrementalRequest,
 ) (IncrementalOutcome, IncrementalStatus, error) {
 	if err := ctx.Err(); err != nil {
 		return IncrementalOutcome{}, IncrementalUnsupported, err
 	}
-	path, ok := p.sources.pathFromSource(req.Source)
-	if !ok {
-		return IncrementalOutcome{}, IncrementalUnsupported,
-			fmt.Errorf("codex source path unavailable")
-	}
-	if req.Fingerprint.MTimeNS > 0 {
-		info, err := os.Stat(path)
-		if err != nil {
-			return IncrementalOutcome{}, IncrementalNeedsFullParse, err
-		}
-		if req.Fingerprint.MTimeNS > info.ModTime().UnixNano() {
-			return IncrementalOutcome{ForceReplace: true},
-				IncrementalNeedsFullParse, nil
-		}
-	}
-	if req.Fingerprint.Size > 0 && req.Fingerprint.Size <= req.Offset {
-		return IncrementalOutcome{}, IncrementalNoNewData, nil
-	}
-	newMsgs, endedAt, consumed, err := ParseCodexSessionFrom(
-		path,
-		req.Offset,
-		req.StartOrdinal,
-		false,
-	)
-	if err != nil {
-		if IsIncrementalFullParseFallback(err) {
-			return IncrementalOutcome{ForceReplace: true},
-				IncrementalNeedsFullParse, nil
-		}
-		return IncrementalOutcome{}, IncrementalNeedsFullParse, err
-	}
-	if len(newMsgs) == 0 {
-		if consumed > 0 {
-			return IncrementalOutcome{
-				SessionID:     req.SessionID,
-				EndedAt:       endedAt,
-				ConsumedBytes: consumed,
-			}, IncrementalApplied, nil
-		}
-		return IncrementalOutcome{}, IncrementalNoNewData, nil
-	}
-	totalOut, peakCtx, hasTotalOut, hasPeakCtx := codexProviderTokenTotals(newMsgs)
-	return IncrementalOutcome{
-		SessionID:            req.SessionID,
-		Messages:             newMsgs,
-		EndedAt:              endedAt,
-		ConsumedBytes:        consumed,
-		MessageCount:         len(newMsgs),
-		UserMessageCount:     codexProviderUserMessageCount(newMsgs),
-		TotalOutputTokens:    totalOut,
-		PeakContextTokens:    peakCtx,
-		HasTotalOutputTokens: hasTotalOut,
-		HasPeakContextTokens: hasPeakCtx,
-	}, IncrementalApplied, nil
+	return IncrementalOutcome{}, IncrementalUnsupported, nil
 }
 
 type codexSource struct {
@@ -263,6 +210,10 @@ func (s codexSourceSet) SourcesForChangedPath(
 	for _, root := range s.roots {
 		source, ok := s.sourceRef(root, req.Path, true)
 		if ok {
+			source, _, err := s.canonicalSource(ctx, source)
+			if err != nil {
+				return nil, err
+			}
 			return []SourceRef{source}, nil
 		}
 		if !jsonlMissingPathFallbackAllowed(req) {
@@ -270,6 +221,10 @@ func (s codexSourceSet) SourcesForChangedPath(
 		}
 		source, ok = s.sourceRef(root, req.Path, false)
 		if ok {
+			source, _, err := s.canonicalSource(ctx, source)
+			if err != nil {
+				return nil, err
+			}
 			return []SourceRef{source}, nil
 		}
 	}
@@ -289,7 +244,7 @@ func (s codexSourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path, true); ok {
-				return source, true, nil
+				return s.canonicalSource(ctx, source)
 			}
 		}
 	}
@@ -302,7 +257,7 @@ func (s codexSourceSet) FindSource(
 			continue
 		}
 		if source, ok := s.sourceRef(root, path, true); ok {
-			return source, true, nil
+			return s.canonicalSource(ctx, source)
 		}
 	}
 	return SourceRef{}, false, nil
@@ -403,6 +358,34 @@ func (s codexSourceSet) sourceRef(
 	}, true
 }
 
+func (s codexSourceSet) canonicalSource(
+	ctx context.Context,
+	source SourceRef,
+) (SourceRef, bool, error) {
+	src, ok := source.Opaque.(codexSource)
+	if !ok || src.UUID == "" {
+		return source, true, nil
+	}
+	best := source
+	for _, root := range s.roots {
+		if err := ctx.Err(); err != nil {
+			return SourceRef{}, false, err
+		}
+		path := FindCodexSourceFile(root, src.UUID)
+		if path == "" {
+			continue
+		}
+		candidate, ok := s.sourceRef(root, path, true)
+		if !ok {
+			continue
+		}
+		if preferCodexSource(candidate, best) {
+			best = candidate
+		}
+	}
+	return best, true, nil
+}
+
 func codexSourceKey(uuid string) string {
 	return string(AgentCodex) + ":" + uuid
 }
@@ -416,33 +399,6 @@ func preferCodexSource(candidate, current SourceRef) bool {
 	return candidate.DisplayPath < current.DisplayPath
 }
 
-func codexProviderUserMessageCount(msgs []ParsedMessage) int {
-	count := 0
-	for _, msg := range msgs {
-		if msg.Role == RoleUser && !msg.IsSystem && len(msg.ToolResults) == 0 {
-			count++
-		}
-	}
-	return count
-}
-
-func codexProviderTokenTotals(
-	msgs []ParsedMessage,
-) (totalOut int, peakCtx int, hasTotalOut bool, hasPeakCtx bool) {
-	for _, msg := range msgs {
-		msgHasCtx, msgHasOut := msg.TokenPresence()
-		if msgHasOut {
-			totalOut += msg.OutputTokens
-			hasTotalOut = true
-		}
-		if msgHasCtx && (!hasPeakCtx || msg.ContextTokens > peakCtx) {
-			peakCtx = msg.ContextTokens
-			hasPeakCtx = true
-		}
-	}
-	return totalOut, peakCtx, hasTotalOut, hasPeakCtx
-}
-
 func codexProviderCapabilities() Capabilities {
 	return Capabilities{
 		Source: SourceCapabilities{
@@ -451,7 +407,7 @@ func codexProviderCapabilities() Capabilities {
 			ClassifyChangedPath:  CapabilitySupported,
 			FindSource:           CapabilitySupported,
 			CompositeFingerprint: CapabilitySupported,
-			IncrementalAppend:    CapabilitySupported,
+			IncrementalAppend:    CapabilityNotApplicable,
 			MultiSessionSource:   CapabilityNotApplicable,
 			PerSessionErrors:     CapabilityNotApplicable,
 			ExcludedSessions:     CapabilityNotApplicable,
