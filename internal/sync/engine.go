@@ -6385,6 +6385,9 @@ func (e *Engine) processCortex(
 func (e *Engine) processHermes(
 	file parser.DiscoveredFile, info os.FileInfo,
 ) processResult {
+	if filepath.Base(file.Path) == "state.db" {
+		info = hermesArchiveEffectiveInfo(file.Path, info)
+	}
 	if e.shouldSkipByPath(file.Path, info) {
 		return processResult{skip: true}
 	}
@@ -6419,6 +6422,37 @@ func (e *Engine) processHermes(
 			{Session: *sess, Messages: msgs},
 		},
 	}
+}
+
+func hermesArchiveEffectiveInfo(path string, info os.FileInfo) os.FileInfo {
+	_, sessionsDir, ok := hermesArchiveSourcePaths(path)
+	if !ok {
+		return info
+	}
+	size := info.Size()
+	mtime := info.ModTime().UnixNano()
+	for _, file := range parser.DiscoverHermesSessions(sessionsDir) {
+		fileInfo, err := os.Stat(file.Path)
+		if err != nil || fileInfo == nil || fileInfo.IsDir() {
+			continue
+		}
+		size += fileInfo.Size()
+		if fileMtime := fileInfo.ModTime().UnixNano(); fileMtime > mtime {
+			mtime = fileMtime
+		}
+	}
+	return fakeSnapshotInfo{fSize: size, fMtime: mtime}
+}
+
+func hermesArchiveSourcePaths(path string) (stateDB, sessionsDir string, ok bool) {
+	path = filepath.Clean(path)
+	switch filepath.Base(path) {
+	case "state.db":
+		return path, filepath.Join(filepath.Dir(path), "sessions"), true
+	case "sessions":
+		return filepath.Join(filepath.Dir(path), "state.db"), path, true
+	}
+	return "", "", false
 }
 
 func (e *Engine) processWorkBuddy(

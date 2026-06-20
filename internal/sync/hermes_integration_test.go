@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -36,6 +37,43 @@ func TestSyncPathsHermesStateDBEventRefreshesArchive(t *testing.T) {
 		assert.Equal(t, "hermes-discord", sess.Project)
 		require.NotNil(t, sess.DisplayName)
 		assert.Equal(t, "Child Session", *sess.DisplayName)
+	})
+}
+
+func TestSyncPathsHermesArchiveTranscriptEventRefreshesArchive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	root := t.TempDir()
+	stateDB := writeHermesSyncStateDB(t, root)
+	database := dbtest.OpenTestDB(t)
+	engine := sync.NewEngine(database, sync.EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentHermes: {filepath.Join(root, "sessions")},
+		},
+		Machine: "local",
+	})
+	engine.SyncPaths([]string{stateDB})
+	assertSessionState(t, database, "hermes:child", nil)
+
+	transcriptPath := filepath.Join(root, "sessions", "extra.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcriptPath), 0o755))
+	require.NoError(t, os.WriteFile(
+		transcriptPath,
+		[]byte(
+			`{"role":"session_meta","platform":"cli","timestamp":"2026-05-14T10:00:00.000000"}`+"\n"+
+				`{"role":"user","content":"new transcript","timestamp":"2026-05-14T10:01:00.000000"}`+"\n"+
+				`{"role":"assistant","content":"Done.","timestamp":"2026-05-14T10:02:00.000000"}`+"\n",
+		),
+		0o644,
+	))
+
+	engine.SyncPaths([]string{transcriptPath})
+
+	assertSessionState(t, database, "hermes:extra", func(sess *db.Session) {
+		require.NotNil(t, sess.FirstMessage)
+		assert.Equal(t, "new transcript", *sess.FirstMessage)
 	})
 }
 
