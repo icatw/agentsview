@@ -2057,6 +2057,55 @@ func TestEngine_ClassifyPathsOpenCodeRemovedMessageFile(
 	assert.Equal(t, sessionPath, files[0].Path)
 }
 
+func TestEngine_ClassifyPathsOpenCodeFamilyRemovedSessionFile(
+	t *testing.T,
+) {
+	for _, tc := range []struct {
+		name          string
+		agent         parser.AgentType
+		sessionSubdir string
+	}{
+		{name: "opencode", agent: parser.AgentOpenCode, sessionSubdir: "session"},
+		{name: "kilo", agent: parser.AgentKilo, sessionSubdir: "session"},
+		{name: "mimocode", agent: parser.AgentMiMoCode, sessionSubdir: "session_diff"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDB(t)
+			root := t.TempDir()
+			engine := NewEngine(db, EngineConfig{
+				AgentDirs: map[parser.AgentType][]string{
+					tc.agent: {root},
+				},
+				Machine: "local",
+			})
+
+			sessionPath := filepath.Join(
+				root, "storage", tc.sessionSubdir, "global",
+				"ses_removed.json",
+			)
+			require.NoError(
+				t, os.MkdirAll(filepath.Dir(sessionPath), 0o755),
+				"MkdirAll(%q)", sessionPath,
+			)
+			require.NoError(
+				t,
+				os.WriteFile(
+					sessionPath,
+					[]byte(`{"id":"ses_removed","directory":"/tmp/proj","time":{"created":1,"updated":2}}`),
+					0o644,
+				),
+				"WriteFile(%q)", sessionPath,
+			)
+			require.NoError(t, os.Remove(sessionPath), "Remove(%q)", sessionPath)
+
+			files := engine.classifyPaths([]string{sessionPath})
+			require.Len(t, files, 1)
+			assert.Equal(t, sessionPath, files[0].Path)
+			assert.Equal(t, tc.agent, files[0].Agent)
+		})
+	}
+}
+
 func TestEngine_ClassifyPathsOpenCodeRemovedPartDir(
 	t *testing.T,
 ) {

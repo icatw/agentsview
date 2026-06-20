@@ -2000,6 +2000,15 @@ func (e *Engine) classifyOpenCodeFormatPath(
 				Path:  path,
 				Agent: agent,
 			}, true
+		case !pathExists &&
+			len(parts) == 4 &&
+			parts[0] == "storage" &&
+			parts[1] == sessionSubdir &&
+			strings.HasSuffix(parts[3], ".json"):
+			return parser.DiscoveredFile{
+				Path:  path,
+				Agent: agent,
+			}, true
 		case len(parts) == 4 &&
 			parts[0] == "storage" &&
 			parts[1] == "message" &&
