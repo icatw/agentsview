@@ -4715,13 +4715,14 @@ func (e *Engine) processProviderFile(
 			cacheKey:  cacheKey,
 		}, true
 	}
-	if res, ok := e.tryProviderIncremental(
+	incrementalFallback, incrementalHandled := e.tryProviderIncremental(
 		ctx, provider, source, fingerprint, file,
-	); ok {
-		res.cacheSkip = cacheSkip
-		res.mtime = fingerprint.MTimeNS
-		res.cacheKey = cacheKey
-		return res, true
+	)
+	if incrementalHandled {
+		incrementalFallback.cacheSkip = cacheSkip
+		incrementalFallback.mtime = fingerprint.MTimeNS
+		incrementalFallback.cacheKey = cacheKey
+		return incrementalFallback, true
 	}
 
 	outcome, err := provider.Parse(ctx, parser.ParseRequest{
@@ -4778,6 +4779,7 @@ func (e *Engine) processProviderFile(
 		}
 	}
 	forceReplace := outcome.ForceReplace ||
+		incrementalFallback.forceReplace ||
 		(file.ForceParse &&
 			providerDeletedPhysicalSQLiteSource(file.Agent, file.Path) &&
 			!parser.IsRegularFile(file.Path))
@@ -4863,6 +4865,9 @@ func (e *Engine) tryProviderIncremental(
 	}
 	if e.db.GetSessionDataVersion(inc.ID) < db.CurrentDataVersion() {
 		return processResult{}, false
+	}
+	if e.providerIncrementalFreshnessChanged(ctx, inc, fingerprint) {
+		return processResult{forceReplace: true}, false
 	}
 	if file.Agent == parser.AgentClaude &&
 		inc.FirstMessage == "" && inc.UserMsgCount > 0 {
@@ -4963,6 +4968,27 @@ func (e *Engine) tryProviderIncremental(
 			hasPeakContextTokens: hasPeakCtx,
 		},
 	}, true
+}
+
+func (e *Engine) providerIncrementalFreshnessChanged(
+	ctx context.Context,
+	inc *db.IncrementalInfo,
+	fingerprint parser.SourceFingerprint,
+) bool {
+	if fingerprint.Size != inc.FileSize {
+		return false
+	}
+	if fingerprint.MTimeNS != inc.FileMtime {
+		return true
+	}
+	if fingerprint.Hash == "" {
+		return false
+	}
+	stored, err := e.db.GetSessionFull(ctx, inc.ID)
+	if err != nil || stored == nil || stored.FileHash == nil || *stored.FileHash == "" {
+		return false
+	}
+	return *stored.FileHash != fingerprint.Hash
 }
 
 func (e *Engine) providerSourceForDiscoveredFile(

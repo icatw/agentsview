@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
@@ -171,6 +173,230 @@ func TestProcessFileProviderAuthoritativeUsesIncrementalParse(t *testing.T) {
 	assert.Equal(t, sessionID, res.incremental.sessionID)
 	assert.Len(t, res.incremental.msgs, 1)
 	assert.Equal(t, "world", res.incremental.msgs[0].Content)
+}
+
+func TestProcessFileProviderAuthoritativeIncrementalFallbackForceReplaces(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-incremental-fallback"
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", sessionID+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	first, err := json.Marshal(map[string]any{
+		"type":      "assistant",
+		"timestamp": "2026-06-01T10:01:00Z",
+		"uuid":      "a1",
+		"message": map[string]any{
+			"id":    "msg_split",
+			"model": "claude-sonnet-4-20250514",
+			"usage": map[string]any{
+				"input_tokens":  10,
+				"output_tokens": 1,
+			},
+			"content": []map[string]any{{
+				"type": "text",
+				"text": "Hello",
+			}},
+			"stop_reason": "tool_use",
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(
+		sourcePath,
+		[]byte(testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"hello",
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+			string(first),
+		)),
+		0o644,
+	))
+
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+	require.NoError(t, initial.err)
+	require.Len(t, initial.results, 1)
+	written, _, failed := engine.writeBatch(
+		[]pendingWrite{{
+			sess: initial.results[0].Session,
+			msgs: initial.results[0].Messages,
+		}},
+		syncWriteDefault,
+		false,
+	)
+	require.Equal(t, 0, failed)
+	require.Equal(t, 1, written)
+
+	second, err := json.Marshal(map[string]any{
+		"type":       "assistant",
+		"timestamp":  "2026-06-01T10:02:00Z",
+		"uuid":       "a2",
+		"parentUuid": "a1",
+		"message": map[string]any{
+			"id":    "msg_split",
+			"model": "claude-sonnet-4-20250514",
+			"usage": map[string]any{
+				"input_tokens":  10,
+				"output_tokens": 2,
+			},
+			"content": []map[string]any{{
+				"type": "text",
+				"text": "Hello world",
+			}},
+			"stop_reason": "end_turn",
+		},
+	})
+	require.NoError(t, err)
+	f, err := os.OpenFile(sourcePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.WriteString(string(second) + "\n")
+	require.NoError(t, f.Close())
+	require.NoError(t, err)
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
+	})
+
+	require.NoError(t, res.err)
+	assert.Nil(t, res.incremental)
+	require.Len(t, res.results, 1)
+	assert.True(t, res.forceReplace)
+	assert.Len(t, res.results[0].Messages, 2)
+	assert.Equal(t, "Hello world", res.results[0].Messages[1].Content)
+}
+
+func TestProcessFileProviderAuthoritativeSameSizeRewriteForceReplaces(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "provider-same-size-rewrite"
+	sourcePath := filepath.Join(root, "-Users-dev-code-demo", sessionID+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+	original := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON(
+			"first",
+			"2026-06-01T10:00:00Z",
+			"/Users/dev/code/demo",
+		),
+		testjsonl.ClaudeAssistantJSON(
+			"stale assistant",
+			"2026-06-01T10:01:00Z",
+		),
+	)
+	require.NoError(t, os.WriteFile(sourcePath, []byte(original), 0o644))
+
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+	})
+	initial := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+	require.NoError(t, initial.err)
+	require.Len(t, initial.results, 1)
+	written, _, failed := engine.writeBatch(
+		[]pendingWrite{{
+			sess: initial.results[0].Session,
+			msgs: initial.results[0].Messages,
+		}},
+		syncWriteDefault,
+		false,
+	)
+	require.Equal(t, 0, failed)
+	require.Equal(t, 1, written)
+	inc, ok := database.GetSessionForIncremental(sourcePath)
+	require.True(t, ok)
+	stored, err := database.GetSessionFull(context.Background(), sessionID)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	require.NotNil(t, stored.FileHash)
+	unchangedFingerprint := parser.SourceFingerprint{
+		Size:    inc.FileSize,
+		MTimeNS: inc.FileMtime,
+		Hash:    *stored.FileHash,
+	}
+	assert.False(t,
+		engine.providerIncrementalFreshnessChanged(
+			context.Background(), inc, unchangedFingerprint,
+		),
+	)
+	changedHashFingerprint := unchangedFingerprint
+	changedHashFingerprint.Hash += "-changed"
+	assert.True(t,
+		engine.providerIncrementalFreshnessChanged(
+			context.Background(), inc, changedHashFingerprint,
+		),
+	)
+
+	replacement := ""
+	for padding := range 4096 {
+		candidate := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON(
+				"replacement"+strings.Repeat("x", padding),
+				"2026-06-01T10:00:00Z",
+				"/Users/dev/code/demo",
+			),
+		)
+		if len(candidate) == len(original) {
+			replacement = candidate
+			break
+		}
+	}
+	require.NotEmpty(t, replacement)
+	require.NoError(t, os.WriteFile(sourcePath, []byte(replacement), 0o644))
+	now := time.Now().Add(time.Second)
+	require.NoError(t, os.Chtimes(sourcePath, now, now))
+
+	provider, ok := parser.NewProvider(parser.AgentClaude, parser.ProviderConfig{
+		Roots:   []string{root},
+		Machine: "devbox",
+	})
+	require.True(t, ok)
+	source, found, err := provider.FindSource(context.Background(), parser.FindSourceRequest{
+		RawSessionID: sessionID,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	res := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:            sourcePath,
+		Agent:           parser.AgentClaude,
+		ProviderSource:  &source,
+		ProviderProcess: true,
+	})
+
+	require.NoError(t, res.err)
+	assert.False(t, res.skip)
+	assert.Nil(t, res.incremental)
+	require.Len(t, res.results, 1)
+	assert.True(t, res.forceReplace)
+	assert.Len(t, res.results[0].Messages, 1)
+	assert.Contains(t, res.results[0].Messages[0].Content, "replacement")
 }
 
 func TestClassifyProviderChangedPathCarriesProviderSourceRef(t *testing.T) {
