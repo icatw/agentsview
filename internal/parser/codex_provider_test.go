@@ -202,6 +202,106 @@ func TestCodexProviderParseIncrementalFallback(t *testing.T) {
 	assert.True(t, outcome.ForceReplace)
 }
 
+func TestCodexProviderParseIncrementalIndexOnlyChangeNeedsFullParse(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "sessions")
+	uuid := "019eb791-cf7d-75c1-8439-9ed74c1229e4"
+	sourcePath := writeCodexProviderSession(t, root, uuid, "Rename me")
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+	indexPath := filepath.Join(base, CodexSessionIndexFilename)
+	require.NoError(t, os.WriteFile(indexPath, []byte(
+		`{"id":"`+uuid+`","thread_name":"Renamed","updated_at":"2026-06-11T17:34:20Z"}`+"\n",
+	), 0o644))
+	newer := time.Now().Add(time.Hour)
+	require.NoError(t, os.Chtimes(indexPath, newer, newer))
+
+	provider, ok := NewProvider(AgentCodex, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		FullSessionID: "codex:" + uuid,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	fingerprint, err := provider.Fingerprint(context.Background(), source)
+	require.NoError(t, err)
+	require.Greater(t, fingerprint.MTimeNS, info.ModTime().UnixNano())
+
+	outcome, status, err := provider.ParseIncremental(
+		context.Background(),
+		IncrementalRequest{
+			Source:       source,
+			Fingerprint:  fingerprint,
+			SessionID:    "codex:" + uuid,
+			Offset:       info.Size(),
+			StartOrdinal: 1,
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, IncrementalNeedsFullParse, status)
+	assert.True(t, outcome.ForceReplace)
+}
+
+func TestCodexProviderDiscoverDedupesLiveAndArchivedByUUID(t *testing.T) {
+	base := t.TempDir()
+	liveRoot := filepath.Join(base, "sessions")
+	archivedRoot := filepath.Join(base, "archived_sessions")
+	uuid := "019eb791-cf7d-75c1-8439-9ed74c1229e5"
+	livePath := writeCodexProviderSession(t, liveRoot, uuid, "live")
+	archivedPath := writeCodexProviderArchivedSession(
+		t, archivedRoot, uuid, "archived",
+	)
+
+	provider, ok := NewProvider(AgentCodex, ProviderConfig{
+		Roots: []string{archivedRoot, liveRoot},
+	})
+	require.True(t, ok)
+	discovered, err := provider.Discover(context.Background())
+	require.NoError(t, err)
+	require.Len(t, discovered, 1)
+	assert.Equal(t, livePath, discovered[0].DisplayPath)
+	assert.NotEqual(t, archivedPath, discovered[0].DisplayPath)
+}
+
+func TestCodexProviderChangedPathClassifiesRemovedTranscript(t *testing.T) {
+	root := t.TempDir()
+	uuid := "019eb791-cf7d-75c1-8439-9ed74c1229e6"
+	sourcePath := writeCodexProviderSession(t, root, uuid, "remove")
+	provider, ok := NewProvider(AgentCodex, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	require.NoError(t, os.Remove(sourcePath))
+
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: sourcePath, EventKind: "remove"},
+	)
+	require.NoError(t, err)
+	require.Len(t, changed, 1)
+	assert.Equal(t, sourcePath, changed[0].DisplayPath)
+}
+
+func TestCodexProviderIndexPathClassifiesAllSiblingSources(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "sessions")
+	firstUUID := "019eb791-cf7d-75c1-8439-9ed74c1229e7"
+	secondUUID := "019eb791-cf7d-75c1-8439-9ed74c1229e8"
+	firstPath := writeCodexProviderSession(t, root, firstUUID, "first")
+	secondPath := writeCodexProviderSession(t, root, secondUUID, "second")
+	indexPath := filepath.Join(base, CodexSessionIndexFilename)
+	require.NoError(t, os.WriteFile(indexPath, []byte(
+		`{"id":"`+firstUUID+`","thread_name":"Only first remains","updated_at":"2026-06-11T17:34:20Z"}`+"\n",
+	), 0o644))
+
+	provider, ok := NewProvider(AgentCodex, ProviderConfig{Roots: []string{root}})
+	require.True(t, ok)
+	changed, err := provider.SourcesForChangedPath(
+		context.Background(),
+		ChangedPathRequest{Path: indexPath, EventKind: "write"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{firstPath, secondPath}, sourceDisplayPaths(changed))
+}
+
 func writeCodexProviderSession(
 	t *testing.T,
 	root, uuid, prompt string,
@@ -212,6 +312,21 @@ func writeCodexProviderSession(
 		testjsonl.CodexMsgJSON("user", prompt, tsEarlyS1),
 	)
 	return writeCodexProviderSessionContent(t, root, uuid, content)
+}
+
+func writeCodexProviderArchivedSession(
+	t *testing.T,
+	root, uuid, prompt string,
+) string {
+	t.Helper()
+	content := testjsonl.JoinJSONL(
+		testjsonl.CodexSessionMetaJSON(uuid, "/home/user/code/archive", "codex_cli_rs", tsEarly),
+		testjsonl.CodexMsgJSON("user", prompt, tsEarlyS1),
+	)
+	path := filepath.Join(root, "rollout-2026-06-11T12-44-06-"+uuid+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	return path
 }
 
 func writeCodexProviderSessionContent(

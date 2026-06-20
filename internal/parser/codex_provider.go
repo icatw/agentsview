@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 )
 
 var _ Provider = (*codexProvider)(nil)
@@ -122,6 +121,16 @@ func (p *codexProvider) ParseIncremental(
 		return IncrementalOutcome{}, IncrementalUnsupported,
 			fmt.Errorf("codex source path unavailable")
 	}
+	if req.Fingerprint.MTimeNS > 0 {
+		info, err := os.Stat(path)
+		if err != nil {
+			return IncrementalOutcome{}, IncrementalNeedsFullParse, err
+		}
+		if req.Fingerprint.MTimeNS > info.ModTime().UnixNano() {
+			return IncrementalOutcome{ForceReplace: true},
+				IncrementalNeedsFullParse, nil
+		}
+	}
 	if req.Fingerprint.Size > 0 && req.Fingerprint.Size <= req.Offset {
 		return IncrementalOutcome{}, IncrementalNoNewData, nil
 	}
@@ -164,8 +173,10 @@ func (p *codexProvider) ParseIncremental(
 }
 
 type codexSource struct {
-	Root string
-	Path string
+	Root   string
+	Path   string
+	UUID   string
+	Layout CodexLayout
 }
 
 type codexSourceSet struct {
@@ -177,19 +188,36 @@ func newCodexSourceSet(roots []string) codexSourceSet {
 }
 
 func (s codexSourceSet) Discover(ctx context.Context) ([]SourceRef, error) {
+	return s.discover(ctx, func(string) bool { return true })
+}
+
+func (s codexSourceSet) discover(
+	ctx context.Context,
+	includeRoot func(string) bool,
+) ([]SourceRef, error) {
 	var sources []SourceRef
-	seen := make(map[string]struct{})
+	byKey := make(map[string]SourceRef)
 	for _, root := range s.roots {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if !includeRoot(root) {
+			continue
+		}
 		for _, file := range DiscoverCodexSessions(root) {
-			source, ok := s.sourceRef(root, file.Path)
+			source, ok := s.sourceRef(root, file.Path, true)
 			if !ok {
 				continue
 			}
-			addJSONLSource(source, &sources, seen)
+			if current, ok := byKey[source.Key]; ok &&
+				!preferCodexSource(source, current) {
+				continue
+			}
+			byKey[source.Key] = source
 		}
+	}
+	for _, source := range byKey {
+		sources = append(sources, source)
 	}
 	sortJSONLSources(sources)
 	return sources, nil
@@ -233,7 +261,14 @@ func (s codexSourceSet) SourcesForChangedPath(
 		return s.sourcesForIndexPath(ctx, req.Path)
 	}
 	for _, root := range s.roots {
-		source, ok := s.sourceRef(root, req.Path)
+		source, ok := s.sourceRef(root, req.Path, true)
+		if ok {
+			return []SourceRef{source}, nil
+		}
+		if !jsonlMissingPathFallbackAllowed(req) {
+			continue
+		}
+		source, ok = s.sourceRef(root, req.Path, false)
 		if ok {
 			return []SourceRef{source}, nil
 		}
@@ -253,7 +288,7 @@ func (s codexSourceSet) FindSource(
 			continue
 		}
 		for _, root := range s.roots {
-			if source, ok := s.sourceRef(root, path); ok {
+			if source, ok := s.sourceRef(root, path, true); ok {
 				return source, true, nil
 			}
 		}
@@ -266,7 +301,7 @@ func (s codexSourceSet) FindSource(
 		if path == "" {
 			continue
 		}
-		if source, ok := s.sourceRef(root, path); ok {
+		if source, ok := s.sourceRef(root, path, true); ok {
 			return source, true, nil
 		}
 	}
@@ -318,7 +353,7 @@ func (s codexSourceSet) pathFromSource(source SourceRef) (string, bool) {
 		source.Key,
 	} {
 		for _, root := range s.roots {
-			if ref, ok := s.sourceRef(root, candidate); ok {
+			if ref, ok := s.sourceRef(root, candidate, true); ok {
 				src := ref.Opaque.(codexSource)
 				return src.Path, true
 			}
@@ -334,57 +369,51 @@ func (s codexSourceSet) sourcesForIndexPath(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	titles := CodexSessionIndexTitles(indexPath)
-	if len(titles) == 0 {
-		return nil, nil
-	}
 	indexDir := filepath.Dir(indexPath)
-	var sources []SourceRef
-	seen := make(map[string]struct{})
-	ids := make([]string, 0, len(titles))
-	for id := range titles {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, root := range s.roots {
-		if filepath.Dir(root) != indexDir {
-			continue
-		}
-		for _, id := range ids {
-			path := FindCodexSourceFile(root, id)
-			if path == "" {
-				continue
-			}
-			source, ok := s.sourceRef(root, path)
-			if !ok {
-				continue
-			}
-			addJSONLSource(source, &sources, seen)
-		}
-	}
-	sortJSONLSources(sources)
-	return sources, nil
+	return s.discover(ctx, func(root string) bool {
+		return filepath.Dir(root) == indexDir
+	})
 }
 
-func (s codexSourceSet) sourceRef(root, path string) (SourceRef, bool) {
+func (s codexSourceSet) sourceRef(
+	root string,
+	path string,
+	requireRegular bool,
+) (SourceRef, bool) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
-	if _, _, ok := CodexSessionPathInfo(root, path); !ok {
+	layout, uuid, ok := CodexSessionPathInfo(root, path)
+	if !ok || uuid == "" {
 		return SourceRef{}, false
 	}
-	if !IsRegularFile(path) {
+	if requireRegular && !IsRegularFile(path) {
 		return SourceRef{}, false
 	}
 	return SourceRef{
 		Provider:       AgentCodex,
-		Key:            path,
+		Key:            codexSourceKey(uuid),
 		DisplayPath:    path,
 		FingerprintKey: path,
 		Opaque: codexSource{
-			Root: root,
-			Path: path,
+			Root:   root,
+			Path:   path,
+			UUID:   uuid,
+			Layout: layout,
 		},
 	}, true
+}
+
+func codexSourceKey(uuid string) string {
+	return string(AgentCodex) + ":" + uuid
+}
+
+func preferCodexSource(candidate, current SourceRef) bool {
+	cand := candidate.Opaque.(codexSource)
+	curr := current.Opaque.(codexSource)
+	if cand.Layout != curr.Layout {
+		return cand.Layout == CodexLayoutDated
+	}
+	return candidate.DisplayPath < current.DisplayPath
 }
 
 func codexProviderUserMessageCount(msgs []ParsedMessage) int {
