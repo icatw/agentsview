@@ -1030,6 +1030,22 @@ provider-only retry-reason text, SSE scopes, and caller-specific skip-reason
 mapping are promotion gates for provider-authoritative mode; they cannot remain
 open at the stack tip where legacy dispatch is removed.
 
+Before any concrete provider changes to `provider-authoritative`, that branch
+must prove the generic hook contract for its source shape:
+
+- `FindSource` honors global and file-scoped force-parse by allowing stale
+  stored source hints when requested.
+- provider not-found in authoritative mode is an explicit error, not an implicit
+  legacy fallback.
+- multi-result sources preserve `ParseResultOutcome.DataVersion` per session, so
+  retry-needed fallback rows do not mark unrelated current rows stale.
+- skip-cache lookup and persistence use the provider fingerprint key selected
+  for the source, with tests for virtual or composite paths where `file.Path`
+  differs from `SourceRef.FingerprintKey`.
+- `ResultSetComplete`, excluded IDs, diagnostics, and source errors have parity
+  tests for the provider's source family before the old legacy dispatch for that
+  provider is removed.
+
 If a provider that moved to shadow-compare proves flaky, its manifest entry can
 return to legacy-only with a reason and an open kata task or review note. The
 tip cleanup cannot proceed while any parse-capable provider is legacy-only or

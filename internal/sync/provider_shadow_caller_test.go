@@ -258,15 +258,177 @@ func TestProcessFileProviderAuthoritativeUsesInjectedProvider(t *testing.T) {
 	assert.Equal(t, []string{"fingerprint", "parse"}, provider.calls)
 }
 
+func TestProcessFileProviderAuthoritativeKeepsRetryStatePerResult(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "multi-provider-owned.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	source := parser.SourceRef{
+		Provider:       parser.AgentClaude,
+		Key:            sourcePath,
+		DisplayPath:    sourcePath,
+		FingerprintKey: sourcePath,
+	}
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+			fingerprint: parser.SourceFingerprint{
+				Key:     sourcePath,
+				Size:    info.Size(),
+				MTimeNS: info.ModTime().UnixNano(),
+			},
+			outcome: parser.ParseOutcome{
+				Results: []parser.ParseResultOutcome{
+					{
+						Result: parser.ParseResult{Session: parser.ParsedSession{
+							ID: "provider-current", Agent: parser.AgentClaude,
+						}},
+						DataVersion: parser.DataVersionCurrent,
+					},
+					{
+						Result: parser.ParseResult{Session: parser.ParsedSession{
+							ID: "provider-retry", Agent: parser.AgentClaude,
+						}},
+						DataVersion: parser.DataVersionNeedsRetry,
+					},
+				},
+				ResultSetComplete: true,
+			},
+		},
+		source: source,
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.NoError(t, result.err)
+	require.Len(t, result.results, 2)
+	assert.False(t, result.needsRetryForSession("provider-current"))
+	assert.True(t, result.needsRetryForSession("provider-retry"))
+}
+
+func TestProcessFileProviderAuthoritativeForceParseAllowsStaleSourceLookup(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "force-provider-owned.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+			fingerprint: parser.SourceFingerprint{
+				Key:     sourcePath,
+				Size:    info.Size(),
+				MTimeNS: info.ModTime().UnixNano(),
+			},
+			outcome: parser.ParseOutcome{ResultSetComplete: true},
+		},
+		source: parser.SourceRef{
+			Provider:       parser.AgentClaude,
+			Key:            sourcePath,
+			DisplayPath:    sourcePath,
+			FingerprintKey: sourcePath,
+		},
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+	engine.forceParse = true
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.NoError(t, result.err)
+	assert.False(t, provider.findRequest.RequireFreshSource)
+	assert.True(t, provider.parseRequest.ForceParse)
+}
+
+func TestProcessFileProviderAuthoritativeNotFoundFails(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "missing-provider-owned.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	found := false
+	provider := &shadowCallerProvider{
+		shadowTestProvider: shadowTestProvider{
+			ProviderBase: parser.ProviderBase{
+				Def: parser.AgentDef{
+					Type:        parser.AgentClaude,
+					DisplayName: "Claude Code",
+				},
+			},
+		},
+		findFound: &found,
+	}
+	engine := NewEngine(dbtest.OpenTestDB(t), EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{parser.AgentClaude: {root}},
+		Machine:   "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			shadowCallerFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+
+	result := engine.processFile(context.Background(), parser.DiscoveredFile{
+		Path:  sourcePath,
+		Agent: parser.AgentClaude,
+	})
+
+	require.Error(t, result.err)
+	assert.Contains(t, result.err.Error(), "provider source not found")
+	assert.Empty(t, provider.calls)
+}
+
 type shadowCallerProvider struct {
 	shadowTestProvider
-	source parser.SourceRef
+	source      parser.SourceRef
+	findRequest parser.FindSourceRequest
+	findFound   *bool
 }
 
 func (p *shadowCallerProvider) FindSource(
-	context.Context,
-	parser.FindSourceRequest,
+	_ context.Context,
+	req parser.FindSourceRequest,
 ) (parser.SourceRef, bool, error) {
+	p.findRequest = req
+	if p.findFound != nil && !*p.findFound {
+		return parser.SourceRef{}, false, nil
+	}
 	return p.source, true, nil
 }
 

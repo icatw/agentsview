@@ -332,7 +332,7 @@ nilaway: ensure-embed-dir nilaway-golangci-build
 	for dir in $$dirs; do \
 		pkg="./$${dir#$$root/}"; \
 		echo "$(CUSTOM_GCL) run --config .golangci.nilaway.yml $$pkg"; \
-		GOMAXPROCS=$${GOMAXPROCS:-1} GOGC=$${GOGC:-20} GOMEMLIMIT=$${GOMEMLIMIT:-1024MiB} \
+		GOMAXPROCS=$${GOMAXPROCS:-1} GOGC=$${GOGC:-10} GOMEMLIMIT=$${GOMEMLIMIT:-512MiB} \
 			$(CUSTOM_GCL) run --config .golangci.nilaway.yml "$$pkg"; \
 	done
 

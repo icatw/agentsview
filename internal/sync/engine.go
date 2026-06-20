@@ -3829,7 +3829,7 @@ func (e *Engine) collectAndBatch(
 					sess:         pr.Session,
 					msgs:         pr.Messages,
 					usageEvents:  pr.UsageEvents,
-					needsRetry:   r.needsRetry,
+					needsRetry:   r.needsRetryForSession(pr.Session.ID),
 					forceReplace: r.forceReplace,
 				})
 			}
@@ -3940,6 +3940,16 @@ type processResult struct {
 	// reuse the existing ordinals, so the default append-only
 	// writeMessages would silently drop the rewrite.
 	forceReplace bool
+	// retrySessionIDs carries provider per-result data-version state.
+	// Legacy parsers use needsRetry as a source-wide fallback.
+	retrySessionIDs map[string]bool
+}
+
+func (r processResult) needsRetryForSession(sessionID string) bool {
+	if r.retrySessionIDs != nil {
+		return r.retrySessionIDs[sessionID]
+	}
+	return r.needsRetry
 }
 
 func (e *Engine) processFile(
@@ -4136,7 +4146,13 @@ func (e *Engine) processProviderFile(
 		return processResult{err: err}, true
 	}
 	if !found {
-		return processResult{}, false
+		return processResult{
+			err: fmt.Errorf(
+				"%s provider source not found for %s",
+				file.Agent,
+				file.Path,
+			),
+		}, true
 	}
 
 	fingerprint, err := provider.Fingerprint(ctx, source)
@@ -4192,8 +4208,10 @@ func (e *Engine) processProviderFile(
 	}
 	for _, result := range outcome.Results {
 		if result.DataVersion == parser.DataVersionNeedsRetry {
-			res.needsRetry = true
-			break
+			if res.retrySessionIDs == nil {
+				res.retrySessionIDs = make(map[string]bool)
+			}
+			res.retrySessionIDs[result.Result.Session.ID] = true
 		}
 	}
 	if e.forceParse || file.ForceParse {
@@ -4228,7 +4246,7 @@ func (e *Engine) providerSourceForDiscoveredFile(
 	return provider.FindSource(ctx, parser.FindSourceRequest{
 		StoredFilePath:     file.Path,
 		FingerprintKey:     file.Path,
-		RequireFreshSource: !file.ForceParse,
+		RequireFreshSource: !e.forceParse && !file.ForceParse,
 	})
 }
 
@@ -8779,7 +8797,7 @@ func (e *Engine) SyncSingleSessionContext(
 				sess:        pr.Session,
 				msgs:        pr.Messages,
 				usageEvents: pr.UsageEvents,
-				needsRetry:  res.needsRetry,
+				needsRetry:  res.needsRetryForSession(pr.Session.ID),
 			},
 		); err != nil &&
 			!isIntentionalSessionSkip(err) &&
