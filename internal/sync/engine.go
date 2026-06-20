@@ -4807,19 +4807,6 @@ func processFileUsesProvider(agent parser.AgentType) bool {
 	}
 }
 
-func (e *Engine) shouldSkipCachedProviderFile(
-	file parser.DiscoveredFile,
-	fingerprint parser.SourceFingerprint,
-) bool {
-	if e.forceParse || file.ForceParse || fingerprint.MTimeNS == 0 {
-		return false
-	}
-	e.skipMu.RLock()
-	cachedMtime, cached := e.skipCache[file.Path]
-	e.skipMu.RUnlock()
-	return cached && cachedMtime == fingerprint.MTimeNS
-}
-
 func (e *Engine) shouldSkipProviderSource(
 	file parser.DiscoveredFile,
 	source parser.SourceRef,
@@ -4878,27 +4865,6 @@ func providerSkipLookupPath(
 		}
 	}
 	return file.Path
-}
-
-func sourceErrorsToSessionParseErrors(
-	sourceErrs []parser.SourceError,
-) []sessionParseError {
-	if len(sourceErrs) == 0 {
-		return nil
-	}
-	errs := make([]sessionParseError, 0, len(sourceErrs))
-	for _, sourceErr := range sourceErrs {
-		virtualPath := sourceErr.DisplayPath
-		if virtualPath == "" {
-			virtualPath = sourceErr.SourceKey
-		}
-		errs = append(errs, sessionParseError{
-			sessionID:   sourceErr.SessionID,
-			virtualPath: virtualPath,
-			err:         sourceErr.Err,
-		})
-	}
-	return errs
 }
 
 func (e *Engine) shouldCacheSkip(
