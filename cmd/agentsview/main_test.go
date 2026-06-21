@@ -276,7 +276,7 @@ func TestCollectWatchRootsPreservesDirsSharingWatchRoot(t *testing.T) {
 
 	roots, unwatchedDirs := collectWatchRoots(cfg)
 
-	require.Empty(t, unwatchedDirs, "unwatched dirs before watcher setup")
+	assert.ElementsMatch(t, []string{sessionsDir, archivedDir}, unwatchedDirs)
 	require.Len(t, roots, 1, "shared watch root should be represented once")
 	assert.Equal(t, parent, roots[0].root)
 	assert.ElementsMatch(t, []string{sessionsDir, archivedDir}, roots[0].dirs)
@@ -331,6 +331,28 @@ func TestCollectWatchRootsHermesSessionsWatchesStateDBParent(t *testing.T) {
 	assert.Equal(t, sessionsDir, roots[1].root)
 	assert.False(t, roots[1].shallow)
 	assert.Equal(t, []string{sessionsDir}, roots[1].dirs)
+}
+
+func TestCollectWatchRootsHermesPartialProviderPlanPollsMissingSessions(t *testing.T) {
+	root := t.TempDir()
+	stateDB := filepath.Join(root, "state.db")
+	sessionsDir := filepath.Join(root, "sessions")
+	require.NoError(t, os.WriteFile(stateDB, []byte(""), 0o644), "write state db")
+
+	cfg := config.Config{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentHermes: {stateDB},
+		},
+	}
+
+	roots, unwatchedDirs := collectWatchRoots(cfg)
+
+	require.Equal(t, []string{stateDB}, unwatchedDirs)
+	require.Len(t, roots, 1)
+	assert.Equal(t, root, roots[0].root)
+	assert.True(t, roots[0].shallow)
+	assert.Equal(t, []string{stateDB}, roots[0].dirs)
+	assert.NoDirExists(t, sessionsDir)
 }
 
 func TestResyncCoversSignals(t *testing.T) {

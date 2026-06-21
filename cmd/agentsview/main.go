@@ -593,7 +593,8 @@ func collectWatchRoots(cfg config.Config) (roots []watchRoot, unwatchedDirs []st
 			continue
 		}
 		for _, d := range cfg.ResolveDirs(def.Type) {
-			if collectProviderWatchRoots(def, d, addRoot) {
+			if providerWatched, providerUnwatched := collectProviderWatchRoots(def, d, addRoot); providerWatched {
+				unwatchedDirs = append(unwatchedDirs, providerUnwatched...)
 				continue
 			}
 			fallbackUnwatched := collectLegacyWatchRoots(def, d, addRoot)
@@ -607,10 +608,10 @@ func collectProviderWatchRoots(
 	def parser.AgentDef,
 	dir string,
 	addRoot func(dir, root string, shallow bool),
-) bool {
+) (bool, []string) {
 	factory, ok := parser.ProviderFactoryByType(def.Type)
 	if !ok {
-		return false
+		return false, nil
 	}
 	provider := factory.NewProvider(parser.ProviderConfig{
 		Roots: []string{dir},
@@ -620,9 +621,10 @@ func collectProviderWatchRoots(
 		if err != nil && !errors.Is(err, parser.ErrUnsupportedProviderFeature) {
 			log.Printf("%s provider watch plan: %v", def.Type, err)
 		}
-		return false
+		return false, nil
 	}
 	added := false
+	missing := false
 	for _, watchRoot := range plan.Roots {
 		root := filepath.Clean(watchRoot.Path)
 		if root == "" || root == "." {
@@ -631,9 +633,14 @@ func collectProviderWatchRoots(
 		if _, err := os.Stat(root); err == nil {
 			addRoot(dir, root, !watchRoot.Recursive)
 			added = true
+			continue
 		}
+		missing = true
 	}
-	return added
+	if added && missing {
+		return true, []string{dir}
+	}
+	return added, nil
 }
 
 func collectLegacyWatchRoots(
