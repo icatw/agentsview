@@ -282,6 +282,34 @@ func TestCollectWatchRootsPreservesDirsSharingWatchRoot(t *testing.T) {
 	assert.ElementsMatch(t, []string{sessionsDir, archivedDir}, roots[0].dirs)
 }
 
+func TestCollectWatchRootsUsesCodexProviderWatchPlan(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "codex-state")
+	sessionsDir := filepath.Join(parent, "sessions")
+	archivedDir := filepath.Join(parent, "archived_sessions")
+	require.NoError(t, os.MkdirAll(sessionsDir, 0o755), "mkdir sessions")
+	require.NoError(t, os.MkdirAll(archivedDir, 0o755), "mkdir archive")
+
+	cfg := config.Config{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentCodex: {sessionsDir, archivedDir},
+		},
+	}
+
+	roots, unwatchedDirs := collectWatchRoots(cfg)
+
+	require.Empty(t, unwatchedDirs, "unwatched dirs before watcher setup")
+	require.Len(t, roots, 3)
+	assert.Equal(t, sessionsDir, roots[0].root)
+	assert.False(t, roots[0].shallow)
+	assert.Equal(t, []string{sessionsDir}, roots[0].dirs)
+	assert.Equal(t, parent, roots[1].root)
+	assert.True(t, roots[1].shallow)
+	assert.ElementsMatch(t, []string{sessionsDir, archivedDir}, roots[1].dirs)
+	assert.Equal(t, archivedDir, roots[2].root)
+	assert.False(t, roots[2].shallow)
+	assert.Equal(t, []string{archivedDir}, roots[2].dirs)
+}
+
 func TestCollectWatchRootsHermesSessionsWatchesStateDBParent(t *testing.T) {
 	root := t.TempDir()
 	sessionsDir := filepath.Join(root, "sessions")
