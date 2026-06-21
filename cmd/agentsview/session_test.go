@@ -723,6 +723,47 @@ func TestSessionExport_RetriesProviderSourceWithoutStaleHints(t *testing.T) {
 	assert.Equal(t, string(body), out)
 }
 
+func TestSessionExport_VisualStudioCopilotFiltersProviderTrace(
+	t *testing.T,
+) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
+	visualStudioRoot := t.TempDir()
+	t.Setenv("VISUALSTUDIO_COPILOT_DIR", visualStudioRoot)
+
+	conversationID := "4a8f63f6-7626-4416-a874-fc7bd2c3f005"
+	otherConversationID := "5b9f63f6-7626-4416-a874-fc7bd2c3f006"
+	tracePath := filepath.Join(
+		visualStudioRoot,
+		"20260612T194439_257709a3_VSGitHubCopilot_traces.jsonl",
+	)
+	targetLine := visualStudioCopilotTraceLine(
+		conversationID, "target prompt",
+	)
+	otherLine := visualStudioCopilotTraceLine(
+		otherConversationID, "other secret",
+	)
+	require.NoError(t, os.WriteFile(
+		tracePath,
+		[]byte(targetLine+"\n"+otherLine+"\n"),
+		0o600,
+	))
+
+	sessionID := "visualstudio-copilot:" + conversationID
+	seedSessionWithOpts(t, dataDir, sessionID, "visualstudio",
+		func(s *db.Session) {
+			s.Agent = "visualstudio-copilot"
+			s.FilePath = &tracePath
+		})
+
+	out, err := executeCommand(newRootCommand(),
+		"session", "export", sessionID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "target prompt")
+	assert.NotContains(t, out, "other secret")
+	assert.Equal(t, targetLine+"\n", out)
+}
+
 func TestSessionExport_FailsWhenSourceMissing(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
@@ -746,6 +787,15 @@ func TestSessionExport_FailsWhenNotInLocalArchive(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not in local archive")
 	assert.Contains(t, err.Error(), "unknown-id")
+}
+
+func visualStudioCopilotTraceLine(conversationID, prompt string) string {
+	encodedPrompt, _ := json.Marshal(prompt)
+	return `{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"trace","spanId":"span","name":"chat","startTimeUnixNano":"1","endTimeUnixNano":"2","attributes":[{"key":"gen_ai.conversation.id","value":{"stringValue":"` +
+		conversationID +
+		`"}},{"key":"gen_ai.input.messages","value":{"stringValue":` +
+		string(encodedPrompt) +
+		`}}]}]}]}]}`
 }
 
 // TestSessionExport_RejectsFormatFlag verifies that export refuses

@@ -251,6 +251,45 @@ func TestVisualStudioCopilotProviderSourceMethods(t *testing.T) {
 	assert.Len(t, result.Result.Messages, 1)
 }
 
+func TestVisualStudioCopilotProviderStoredPhysicalPathUsesRawConversation(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	conversationID := "4a8f63f6-7626-4416-a874-fc7bd2c3f005"
+	otherConversationID := "5b9f63f6-7626-4416-a874-fc7bd2c3f006"
+	tracePath := filepath.Join(
+		root,
+		"20260612T194439_257709a3_VSGitHubCopilot_traces.jsonl",
+	)
+	writeSourceFile(t, tracePath, strings.Join([]string{
+		vsCopilotTraceLineJSON(conversationID,
+			"target conversation",
+			"1781293600000000000", "1781293610000000000",
+			map[string]string{"gen_ai.input.messages": "target only"}),
+		vsCopilotTraceLineJSON(otherConversationID,
+			"other conversation",
+			"1781293620000000000", "1781293630000000000",
+			map[string]string{"gen_ai.input.messages": "other secret"}),
+	}, "\n")+"\n")
+
+	provider, ok := NewProvider(AgentVSCopilot, ProviderConfig{
+		Roots: []string{root},
+	})
+	require.True(t, ok)
+
+	source, ok, err := provider.FindSource(context.Background(), FindSourceRequest{
+		RawSessionID:       conversationID,
+		StoredFilePath:     tracePath,
+		FingerprintKey:     tracePath,
+		RequireFreshSource: true,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t,
+		VisualStudioCopilotVirtualPath(tracePath, conversationID),
+		source.DisplayPath)
+}
+
 func TestVisualStudioCopilotProviderClassifiesDeletedTraceAndFansOutPhysicalTrace(
 	t *testing.T,
 ) {

@@ -218,6 +218,19 @@ func (s visualStudioCopilotSourceSet) FindSource(
 		}
 		for _, root := range s.roots {
 			if source, ok := s.sourceRef(root, path); ok {
+				src := source.Opaque.(visualStudioCopilotSource)
+				if req.RawSessionID != "" && src.ConversationID == "" {
+					if !visualStudioCopilotTraceHasConversation(
+						src.TracePath, req.RawSessionID,
+					) {
+						continue
+					}
+					virtualPath := VisualStudioCopilotVirtualPath(
+						src.TracePath, req.RawSessionID,
+					)
+					virtualSource, ok := s.sourceRef(root, virtualPath)
+					return virtualSource, ok, nil
+				}
 				return source, true, nil
 			}
 		}
@@ -235,6 +248,17 @@ func (s visualStudioCopilotSourceSet) FindSource(
 		}
 	}
 	return SourceRef{}, false, nil
+}
+
+func visualStudioCopilotTraceHasConversation(path, rawID string) bool {
+	if !IsValidSessionID(rawID) {
+		return false
+	}
+	return visualStudioCopilotTraceContains(
+		path,
+		`"gen_ai.conversation.id"`,
+		`"stringValue":"`+rawID+`"`,
+	)
 }
 
 func (s visualStudioCopilotSourceSet) Fingerprint(
