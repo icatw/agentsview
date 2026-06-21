@@ -420,6 +420,12 @@ Rules:
 - `Opaque` is never persisted or logged, must be immutable for engine callers,
   and must remain usable when `SourceRef` is queued across goroutines for the
   lifetime of the provider instance.
+- When `FindSource` receives a raw/full session ID for a source file that can
+  contain multiple logical sessions, it must return a `SourceRef` scoped to that
+  logical session. For example, Visual Studio Copilot must return the
+  `<traceFile>#<conversationID>` virtual path instead of the physical trace file
+  so raw export and single-session sync cannot accidentally process unrelated
+  conversations.
 
 Backwards compatibility:
 
