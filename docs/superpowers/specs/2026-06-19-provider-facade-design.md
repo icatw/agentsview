@@ -11,11 +11,11 @@ Claude.ai / ChatGPT are explicitly `import-only`.
 The earlier `legacy-only -> shadow-compare -> provider-authoritative` flow is
 historical guidance for the lower migration branches in the stack. The final tip
 must not reintroduce `ProviderMigrationLegacyOnly`; the literal `"legacy-only"`
-value is rejected as an invalid migration mode. The `shadow-compare` mode
-remains a transitional mode used by lower stack branches and by future staged
-provider migrations before they reach an authoritative stack tip. It is valid as
-a manifest mode, but the tip-level manifest test requires every non-import
-provider to be authoritative.
+value is rejected as an invalid migration mode. `ProviderMigrationShadowCompare`
+still exists so lower stack branches and future staged provider migrations can
+use the same enum, but the current stack tip does not support a live shadow
+runtime path. Tip runtime code requires every parse-capable, non-import provider
+to be authoritative.
 
 `provider-authoritative` currently makes the provider registry, migration
 manifest, and sync-engine `processFile` dispatch authoritative for parse-capable
@@ -38,20 +38,14 @@ means implementing one contract. The facade keeps provider source shape
 internal, while the sync engine consumes normalized source identities,
 fingerprints, and `ParseResult` values.
 
-## Goals
+## Current Tip Invariants
 
-- Migrate every existing provider to the facade, not only future providers.
-- Keep both runtime shapes available at the root of the stack so legacy parsing
-  stays authoritative while provider parsing is shadow-compared provider by
-  provider.
-- Make every provider PR an actual migration step: adding a provider
-  implementation must also opt that provider into the shared migration manifest
-  and provider-vs-legacy parity tests.
 - Keep `ParsedSession`, `ParsedMessage`, `ParsedToolCall`, `ParsedToolResult`,
   `ParsedUsageEvent`, and `ParseResult` as the normalized output contract.
-- Remove the provider-by-provider `sync.Engine.processFile` dispatch switch only
-  at the tip of the stack, after every parse-capable provider has passed the
-  shadow comparison path.
+- Keep every parse-capable provider except explicit import-only providers in
+  `provider-authoritative` mode.
+- Keep `sync.Engine.processFile` provider-owned; the provider-by-provider legacy
+  dispatch switch and runtime shadow hook must not be restored at the tip.
 - Make source discovery, source lookup, watch planning, fingerprinting, parsing,
   and optional incremental parsing provider-owned.
 - Provide reusable provider helpers for common source layouts, especially JSONL
@@ -60,6 +54,22 @@ fingerprints, and `ParseResult` values.
   struct.
 - Preserve current SQLite schema, parse-diff semantics, skip-cache behavior, and
   parser output parity.
+
+## Historical Migration Goals
+
+These goals describe how the stacked PRs got to the tip and remain useful when a
+future provider migration starts on a lower branch:
+
+- Migrate every existing provider to the facade, not only future providers.
+- Keep both runtime shapes available at the root of the stack so legacy parsing
+  stays authoritative while provider parsing is shadow-compared provider by
+  provider.
+- Make every provider PR an actual migration step: adding a provider
+  implementation must also opt that provider into the shared migration manifest
+  and provider-vs-legacy parity tests.
+- Remove the provider-by-provider `sync.Engine.processFile` dispatch switch only
+  at the tip of the stack, after every parse-capable provider has passed the
+  shadow comparison path.
 
 ## Non-Goals
 
@@ -88,7 +98,7 @@ The provider facade must respect these constraints:
   marshal methods from one enum definition.
 - All existing providers migrate to the new layer before the old sync dispatch
   is considered removed.
-- During the stacked migration, legacy dispatch remains the writer. Provider
+- On lower migration branches, legacy dispatch remains the writer. Provider
   dispatch is run through the same root-level harness for opted-in providers and
   compared against legacy output, but it must not mutate persisted session state
   until the stack tip switches authority.
@@ -303,7 +313,7 @@ func (p *CodexProvider) Parse(
 	ctx context.Context,
 	req ParseRequest,
 ) (ParseOutcome, error) {
-	sourcePath, ok := p.sources.Path(req.Source)
+	sourcePath, ok := p.sources.pathFromSource(req.Source)
 	if !ok {
 		return ParseOutcome{}, fmt.Errorf(
 			"codex source missing file path: %s",
@@ -950,14 +960,17 @@ owned and resolved through provider methods rather than hard-coded in sync.
 
 ## Sync Engine Flow
 
-The root of the migration stack supports both execution shapes:
+Historically, the root of the migration stack supported both execution shapes:
 
 - the legacy `DiscoveredFile` and `processFile` shape, which remains
   authoritative on lower migration branches;
 - the provider `SourceRef` shape, which can process the same logical source
   without writing session state while a lower branch is in shadow-compare mode.
 
-The root-level migration harness owns the comparison. It exposes an explicit
+On the current stack tip, the legacy runtime path and shadow recorder have been
+removed from `processFile`; this section documents lower-stack migration
+semantics and the completed provider-authoritative target. The root-level
+migration harness owns the comparison on lower branches. It exposes an explicit
 provider runtime manifest keyed by `parser.AgentType`. Family helpers may build
 entries for related providers, but tests must expand the family to every
 concrete `AgentType`; a family-level entry is not enough to mark an individual
@@ -968,16 +981,16 @@ parse-capable provider migrated.
   concrete provider may move back to this mode only as a documented rollback
   with an open follow-up task. The stack tip removes this mode for parse-capable
   providers and rejects it as invalid.
-- shadow-compare: transitional lower-stack mode where legacy runs and writes;
-  provider runs through the new generic path and produces normalized in-memory
-  planned effects. Tests compare those effects against the legacy outcome.
-  Runtime mismatches are developer diagnostics only; they must not persist
-  user-visible parse diagnostics or change SSE-visible state.
+- shadow-compare: historical transitional lower-stack mode where legacy runs and
+  writes; provider runs through the new generic path and produces normalized
+  in-memory planned effects. Tests compare those effects against the legacy
+  outcome. Runtime mismatches are developer diagnostics only; they must not
+  persist user-visible parse diagnostics or change SSE-visible state. This mode
+  is not a live runtime option on the current stack tip.
 - provider-authoritative: the provider registry and migration manifest are
-  authoritative for provider construction. In the completed sync migration,
-  provider dispatch also writes, returns the caller result, and the old
-  provider-specific legacy path is absent. This is reserved for the stack-tip
-  cleanup after every parse-capable provider has passed shadow comparison.
+  authoritative for provider construction. On the current stack tip, provider
+  dispatch also writes, returns the caller result, and the old provider-specific
+  legacy path is absent.
 - import-only: the provider exists for non-filesystem import/export metadata and
   is intentionally excluded from parse shadow comparison.
 
@@ -1034,7 +1047,12 @@ providers expose virtual paths or logical sessions inside a shared source.
 `FindSourceRequest.RawSessionID` is lookup input only; returned parse outcomes,
 source errors, and exclusions still use persisted full session IDs.
 
-### Transitional Shadow Comparison
+### Historical Transitional Shadow Comparison
+
+This section documents the lower-stack migration harness. It is not a supported
+runtime path on the `provider-explicit-registry` stack tip, where provider
+processing is authoritative and the runtime shadow recorder/hook has been
+removed.
 
 The root harness has two comparison surfaces:
 
@@ -1278,8 +1296,10 @@ adds these blocking tasks:
 - `djyy`: move lookup, watch, export, and usage callers into the dual-run
   harness.
 - `cff5`: move parse-diff and diagnostics into the dual-run harness.
-- `n489`: remove stack-tip legacy dispatch and finish dead legacy callback
-  cleanup.
+- `n489`: finish stack-tip legacy cleanup in ordered, reviewable slices:
+  dispatch removal, dead `processX` wrapper deletion, stale shadow-mode
+  documentation/API comment cleanup, old `AgentDef` source callback removal
+  after callers stop using them, and final dead-code validation.
 
 ## Testing
 
