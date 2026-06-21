@@ -313,7 +313,7 @@ func TestSyncEngineKiroSQLiteCurrentStoreShadowsLegacy(t *testing.T) {
 	assertSessionProject(t, env.db, "kiro:overlap-session", "current_kiro")
 
 	runSyncAndAssert(t, env.engine, sync.SyncStats{
-		TotalSessions: 0, Synced: 0, Skipped: 0,
+		TotalSessions: 1, Synced: 0, Skipped: 1,
 	})
 	sess, err := env.db.GetSessionFull(
 		context.Background(), "kiro:overlap-session",
@@ -389,7 +389,7 @@ func TestSyncEngineKiroSQLiteMalformedUpdatePreservesArchive(t *testing.T) {
 		1779012040000,
 	)
 	runSyncAndAssert(t, env.engine, sync.SyncStats{
-		TotalSessions: 0, Synced: 0, Skipped: 0,
+		TotalSessions: 1, Synced: 0, Skipped: 0,
 	})
 	assertSessionMessageCount(t, env.db, "kiro:sqlite-session", 4)
 }

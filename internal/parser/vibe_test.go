@@ -575,8 +575,11 @@ func TestVibeAgentByType(t *testing.T) {
 	assert.Equal(t, "vibe_session_dirs", def.ConfigKey)
 	assert.Equal(t, "vibe:", def.IDPrefix)
 	assert.True(t, def.FileBased)
-	assert.NotNil(t, def.DiscoverFunc)
-	assert.NotNil(t, def.FindSourceFunc)
+	factory, ok := ProviderFactoryByType(AgentVibe)
+	require.True(t, ok, "Vibe provider factory")
+	caps := factory.Capabilities().Source
+	assert.Equal(t, CapabilitySupported, caps.DiscoverSources)
+	assert.Equal(t, CapabilitySupported, caps.FindSource)
 }
 
 func TestVibeAgentByPrefix(t *testing.T) {

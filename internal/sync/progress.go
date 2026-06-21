@@ -48,6 +48,7 @@ type SyncStats struct {
 
 	filesOK             int // unexported: file-level success counter
 	filesDiscovered     int // file-based total, excludes DB-backed agents
+	physicalDiscovered  int // physical file/session sources, excludes virtual DB rows
 	messagesIndexed     int // unexported: progress message counter
 	parserExcludedFiles int // file-level intentional parser exclusions
 	noSessionFiles      int // file-level provider no-session outcomes

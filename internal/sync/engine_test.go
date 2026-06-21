@@ -2307,6 +2307,7 @@ func TestResyncAbortAllowsMixedIntentionalNoWriteProgress(t *testing.T) {
 	stats := SyncStats{
 		TotalSessions:       2,
 		filesOK:             2,
+		physicalDiscovered:  2,
 		parserExcludedFiles: 1,
 		noSessionFiles:      1,
 	}

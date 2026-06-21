@@ -18,14 +18,15 @@ const resolveFilePrefix = "@file"
 // Output format: "agentType:dir\n" per agent, plus "@file:path\n"
 // lines for sibling metadata files such as Codex's session_index.jsonl.
 //
-// Only includes agents where FileBased is true and DiscoverFunc
-// is non-nil. For each agent with an EnvVar, the script checks
+// Only includes file-based agents whose provider can discover sources.
+// For each agent with an EnvVar, the script checks
 // the env var first and falls back to the default dir. Dirs (and
 // files) that don't exist on the remote are skipped.
 func buildResolveScript() string {
 	var b strings.Builder
 	for _, def := range parser.Registry {
-		if !def.FileBased || def.DiscoverFunc == nil {
+		if !def.FileBased ||
+			!parser.ProviderSupportsSourceDiscovery(def.Type) {
 			continue
 		}
 		for _, rel := range def.DefaultDirs {

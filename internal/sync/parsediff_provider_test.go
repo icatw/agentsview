@@ -54,6 +54,42 @@ func TestParseDiffDiscoversProviderSources(t *testing.T) {
 	}
 }
 
+func TestSyncAllDiscoversProviderSources(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "provider-only-sync.jsonl")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("{}\n"), 0o644))
+	info, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+
+	provider := parseDiffProvider{
+		sourcePath: sourcePath,
+		mtime:      info.ModTime(),
+		size:       info.Size(),
+	}
+	database := dbtest.OpenTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		AgentDirs: map[parser.AgentType][]string{
+			parser.AgentClaude: {root},
+		},
+		Machine: "devbox",
+		ProviderFactories: []parser.ProviderFactory{
+			parseDiffProviderFactory{provider: provider},
+		},
+		ProviderMigrationModes: map[parser.AgentType]parser.ProviderMigrationMode{
+			parser.AgentClaude: parser.ProviderMigrationProviderAuthoritative,
+		},
+	})
+
+	stats := engine.SyncAll(context.Background(), nil)
+
+	assert.Equal(t, 1, stats.TotalSessions)
+	assert.Equal(t, 1, stats.Synced)
+	session, err := database.GetSession(context.Background(), "provider-discovered")
+	require.NoError(t, err)
+	require.NotNil(t, session)
+	assert.Equal(t, sourcePath, database.GetSessionFilePath("provider-discovered"))
+}
+
 type parseDiffProviderFactory struct {
 	provider parseDiffProvider
 }

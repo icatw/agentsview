@@ -805,8 +805,8 @@ func (e *Engine) discoverProviderSources(
 			parser.ProviderMigrationProviderAuthoritative {
 			continue
 		}
-		roots := e.agentDirs[def.Type]
-		if !scope.includesAny(roots) {
+		roots := scope.filterDirs(e.agentDirs[def.Type])
+		if len(roots) == 0 {
 			continue
 		}
 		provider := factory.NewProvider(parser.ProviderConfig{
@@ -848,6 +848,67 @@ func (e *Engine) discoverProviderSources(
 		}
 	}
 	return sources
+}
+
+func (e *Engine) discoverProviderFiles(
+	ctx context.Context,
+	scope *rootSyncScope,
+) ([]parser.DiscoveredFile, map[parser.AgentType]int) {
+	files := make([]parser.DiscoveredFile, 0)
+	counts := make(map[parser.AgentType]int)
+	agents := make([]parser.AgentType, 0, len(e.providerFactories))
+	for agent := range e.providerFactories {
+		agents = append(agents, agent)
+	}
+	slices.SortFunc(agents, func(a, b parser.AgentType) int {
+		return strings.Compare(string(a), string(b))
+	})
+
+	for _, agentType := range agents {
+		factory := e.providerFactories[agentType]
+		if factory == nil {
+			continue
+		}
+		def := factory.Definition()
+		if !def.FileBased ||
+			e.providerMigrationModes[def.Type] != parser.ProviderMigrationProviderAuthoritative {
+			continue
+		}
+		roots := scope.filterDirs(e.agentDirs[def.Type])
+		if len(roots) == 0 {
+			continue
+		}
+		provider := factory.NewProvider(parser.ProviderConfig{
+			Roots:   roots,
+			Machine: e.machine,
+		})
+		discovered, err := provider.Discover(ctx)
+		if err != nil {
+			log.Printf("%s provider discovery: %v", def.Type, err)
+			continue
+		}
+		for _, source := range discovered {
+			sourcePath := providerDiscoveredPath(source)
+			if sourcePath == "" {
+				continue
+			}
+			agent := source.Provider
+			if agent == "" {
+				agent = def.Type
+				source.Provider = agent
+			}
+			sourceCopy := source
+			files = append(files, parser.DiscoveredFile{
+				Path:            sourcePath,
+				Agent:           agent,
+				Project:         source.ProjectHint,
+				ProviderSource:  &sourceCopy,
+				ProviderProcess: e.providerProcessEnabled(agent),
+			})
+			counts[agent]++
+		}
+	}
+	return files, counts
 }
 
 func dedupeDiscoveredFiles(
@@ -2794,8 +2855,7 @@ func resyncShouldAbortSwap(
 	oldFileSessions int,
 	trashedCopied int,
 ) bool {
-	emptyDiscovery := stats.filesDiscovered == 0 &&
-		stats.filesOK == 0 &&
+	emptyDiscovery := stats.physicalDiscovered == 0 &&
 		oldFileSessions > 0
 	preservedOnly := stats.Synced == 0 &&
 		stats.TotalSessions > 0 &&
@@ -2997,6 +3057,19 @@ func (s *rootSyncScope) includesAny(dirs []string) bool {
 	return slices.ContainsFunc(dirs, s.includes)
 }
 
+func (s *rootSyncScope) filterDirs(dirs []string) []string {
+	if s == nil {
+		return append([]string(nil), dirs...)
+	}
+	out := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		if s.includes(dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
 func cleanRootPath(path string) string {
 	cleaned := filepath.Clean(path)
 	abs, err := filepath.Abs(cleaned)
@@ -3033,21 +3106,7 @@ func (e *Engine) syncAllLocked(
 
 	t0 := time.Now()
 
-	var all []parser.DiscoveredFile
-	counts := make(map[parser.AgentType]int)
-	for _, def := range parser.Registry {
-		if !def.FileBased || def.DiscoverFunc == nil {
-			continue
-		}
-		for _, d := range e.agentDirs[def.Type] {
-			if !scope.includes(d) {
-				continue
-			}
-			found := def.DiscoverFunc(d)
-			counts[def.Type] += len(found)
-			all = append(all, found...)
-		}
-	}
+	all, counts := e.discoverProviderFiles(ctx, scope)
 
 	if !since.IsZero() {
 		all = e.dedupeClaudeDiscoveredFiles(all)
@@ -3057,7 +3116,7 @@ func (e *Engine) syncAllLocked(
 	all = dedupeDiscoveredFiles(all)
 	all = e.dedupeClaudeDiscoveredFiles(all)
 	all = e.filterShadowedLegacyKiroFiles(all)
-	all = e.attachProviderSources(ctx, scope, all)
+	physicalDiscovered := countPhysicalDiscoveredFiles(all)
 
 	verbose := onProgress == nil
 
@@ -3097,6 +3156,7 @@ func (e *Engine) syncAllLocked(
 	stats := e.collectAndBatch(
 		ctx, results, len(all), progressTotal, onProgress, writeMode,
 	)
+	stats.physicalDiscovered = physicalDiscovered
 	if verbose {
 		log.Printf(
 			"file sync: %d synced, %d skipped in %s",
@@ -3138,7 +3198,8 @@ func (e *Engine) syncAllLocked(
 	// Sync current Kiro CLI sessions (SQLite-backed).
 	tKiro := time.Now()
 	var kiroPending []pendingWrite
-	if scope.includesAny(e.agentDirs[parser.AgentKiro]) {
+	if !e.providerProcessEnabled(parser.AgentKiro) &&
+		scope.includesAny(e.agentDirs[parser.AgentKiro]) {
 		kiroPending = e.syncKiroSQLite(ctx, scope)
 	}
 	if len(kiroPending) > 0 {
@@ -3200,7 +3261,8 @@ func (e *Engine) syncAllLocked(
 	// Uses full replace because these messages can change in place
 	// (streaming updates, tool result pairing). Kilo is a fork of
 	// OpenCode and shares the same SQLite-backed sync.
-	if scope.includesAny(e.agentDirs[parser.AgentOpenCode]) {
+	if !e.providerProcessEnabled(parser.AgentOpenCode) &&
+		scope.includesAny(e.agentDirs[parser.AgentOpenCode]) {
 		if e.syncOpenCodeFormatAgent(
 			ctx, parser.AgentOpenCode, "opencode",
 			writeMode, verbose, scope, &stats, advanceDBProgress,
@@ -3209,7 +3271,8 @@ func (e *Engine) syncAllLocked(
 			return stats
 		}
 	}
-	if scope.includesAny(e.agentDirs[parser.AgentKilo]) {
+	if !e.providerProcessEnabled(parser.AgentKilo) &&
+		scope.includesAny(e.agentDirs[parser.AgentKilo]) {
 		if e.syncOpenCodeFormatAgent(
 			ctx, parser.AgentKilo, "kilo",
 			writeMode, verbose, scope, &stats, advanceDBProgress,
@@ -3218,7 +3281,8 @@ func (e *Engine) syncAllLocked(
 			return stats
 		}
 	}
-	if scope.includesAny(e.agentDirs[parser.AgentMiMoCode]) {
+	if !e.providerProcessEnabled(parser.AgentMiMoCode) &&
+		scope.includesAny(e.agentDirs[parser.AgentMiMoCode]) {
 		if e.syncOpenCodeFormatAgent(
 			ctx, parser.AgentMiMoCode, "mimocode",
 			writeMode, verbose, scope, &stats, advanceDBProgress,
@@ -3617,6 +3681,37 @@ func discoveredFileMtime(
 	return info.ModTime().UnixNano(), nil
 }
 
+func countPhysicalDiscoveredFiles(files []parser.DiscoveredFile) int {
+	total := 0
+	for _, file := range files {
+		if discoveredFileIsVirtualDBSource(file) {
+			continue
+		}
+		total++
+	}
+	return total
+}
+
+func discoveredFileIsVirtualDBSource(file parser.DiscoveredFile) bool {
+	if file.Agent == parser.AgentKiro {
+		if _, _, ok := parser.ParseKiroSQLiteVirtualPath(file.Path); ok {
+			return true
+		}
+	}
+	if isOpenCodeFormatStorageAgent(file.Agent) {
+		return isOpenCodeFormatSQLiteVirtualPath(file.Agent, file.Path)
+	}
+	if file.Agent == parser.AgentZed {
+		_, _, ok := parser.ParseZedSQLiteVirtualPath(file.Path)
+		return ok
+	}
+	if file.Agent == parser.AgentShelley {
+		_, _, ok := parser.ParseShelleyVirtualPath(file.Path)
+		return ok
+	}
+	return false
+}
+
 func (e *Engine) dedupeClaudeDiscoveredFiles(
 	files []parser.DiscoveredFile,
 ) []parser.DiscoveredFile {
@@ -3868,6 +3963,9 @@ func (e *Engine) countOneOpenCodeFormatSessions(
 func (e *Engine) countDBBackedProgressTotal(
 	agent parser.AgentType, scope *rootSyncScope,
 ) int {
+	if e.providerFullSyncDiscovers(agent) {
+		return 0
+	}
 	total := 0
 	for _, dir := range e.agentDirs[agent] {
 		if dir == "" || !scope.includes(dir) {
@@ -5204,6 +5302,17 @@ func (e *Engine) providerProcessEnabled(agent parser.AgentType) bool {
 		parser.ProviderMigrationProviderAuthoritative
 }
 
+func (e *Engine) providerFullSyncDiscovers(agent parser.AgentType) bool {
+	if !e.providerProcessEnabled(agent) {
+		return false
+	}
+	factory := e.providerFactories[agent]
+	if factory == nil {
+		return false
+	}
+	return factory.Definition().FileBased
+}
+
 func (e *Engine) shouldSkipCachedProviderFile(
 	file parser.DiscoveredFile,
 	source parser.SourceRef,
@@ -5264,6 +5373,13 @@ func (e *Engine) shouldSkipCachedProviderFile(
 			return false
 		}
 	}
+	agent := file.Agent
+	if agent == "" {
+		agent = source.Provider
+	}
+	if !e.providerSessionDataVersionCurrent(agent, source) {
+		return false
+	}
 	return cachedMtime == fingerprint.MTimeNS
 }
 
@@ -5306,7 +5422,65 @@ func (e *Engine) shouldSkipProviderSource(
 			return false
 		}
 	}
-	return e.db.GetDataVersionByPath(lookupPath) >= db.CurrentDataVersion()
+	if e.db.GetDataVersionByPath(lookupPath) < db.CurrentDataVersion() {
+		return false
+	}
+	return e.providerSessionDataVersionCurrent(agent, source)
+}
+
+func (e *Engine) providerSessionDataVersionCurrent(
+	agent parser.AgentType,
+	source parser.SourceRef,
+) bool {
+	sessionID, ok := providerSourceSessionID(agent, source)
+	if !ok {
+		return true
+	}
+	return e.db.GetSessionDataVersion(e.idPrefix+sessionID) >=
+		db.CurrentDataVersion()
+}
+
+func providerSourceSessionID(
+	agent parser.AgentType,
+	source parser.SourceRef,
+) (string, bool) {
+	if source.Key != "" && strings.HasPrefix(source.Key, string(agent)+":") {
+		return source.Key, true
+	}
+	def, ok := parser.AgentByType(agent)
+	if !ok {
+		return "", false
+	}
+	for _, path := range []string{
+		source.DisplayPath,
+		source.FingerprintKey,
+		source.Key,
+	} {
+		if path == "" {
+			continue
+		}
+		if agent == parser.AgentKiro {
+			if _, sessionID, ok := parser.ParseKiroSQLiteVirtualPath(path); ok {
+				return def.IDPrefix + sessionID, true
+			}
+		}
+		if isOpenCodeFormatStorageAgent(agent) {
+			if _, sessionID, ok := parseOpenCodeFormatSQLiteVirtualPath(agent, path); ok {
+				return def.IDPrefix + sessionID, true
+			}
+		}
+		if agent == parser.AgentZed {
+			if _, threadID, ok := parser.ParseZedSQLiteVirtualPath(path); ok {
+				return def.IDPrefix + threadID, true
+			}
+		}
+		if agent == parser.AgentShelley {
+			if _, conversationID, ok := parser.ParseShelleyVirtualPath(path); ok {
+				return def.IDPrefix + conversationID, true
+			}
+		}
+	}
+	return "", false
 }
 
 func (e *Engine) shouldSkipCodexProviderSource(

@@ -796,11 +796,9 @@ func TestParseDiffAgentScope(t *testing.T) {
 }
 
 // TestParseDiffCoversKiroSQLite proves that Kiro's shared data.sqlite3
-// store — which DiscoverFunc never emits and which normal sync reaches
-// through a dedicated phase — is actually re-parsed by parse-diff. A
-// regressed force-parse guard or missing synthesized discovery would
-// surface here as the session being skipped/"not discovered" with
-// Examined 0 rather than compared.
+// store is actually re-parsed by parse-diff. A regressed force-parse guard or
+// missing provider discovery would surface here as the session being
+// skipped/"not discovered" with Examined 0 rather than compared.
 func TestParseDiffCoversKiroSQLite(t *testing.T) {
 	env := setupTestEnv(t)
 	ks := createKiroSQLiteDB(t, env.kiroDir)
@@ -953,11 +951,9 @@ func TestParseDiffCoversMixedKiloRoot(t *testing.T) {
 	assert.False(t, report.HasFailures(), "clean mixed kilo run")
 }
 
-// TestParseDiffCoversShelley proves Shelley's shared shelley.db — which
-// DiscoverFunc emits as a single file and which normal sync fans out to
-// one session per conversation — is re-parsed and compared by parse-diff.
-// Examined:1/Identical:1 means the stored conversation was matched and
-// vetted, not bucketed as skipped/"not discovered".
+// TestParseDiffCoversShelley proves Shelley's shared shelley.db is re-parsed
+// and compared by parse-diff. Examined:1/Identical:1 means the stored
+// conversation was matched and vetted, not bucketed as skipped/"not discovered".
 func TestParseDiffCoversShelley(t *testing.T) {
 	env := setupTestEnv(t)
 	dbPath := createShelleyDB(t, env.shelleyDir)

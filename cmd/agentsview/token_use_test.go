@@ -228,9 +228,8 @@ func TestResolveSessionID_CanonicalCodexID_OnDiskNotInDB(t *testing.T) {
 	ctx := context.Background()
 
 	// Canonical "codex:<uuid>" not yet synced but present on
-	// disk must resolve via the canonical disk probe — which
-	// strips the prefix before calling FindSourceFunc (the
-	// underlying finder rejects colon-bearing IDs).
+	// disk must resolve via the canonical disk probe, with the
+	// provider receiving both the full and raw session IDs.
 	codexDir := filepath.Join(t.TempDir(), "codex-sessions")
 	uuid := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 	dayDir := filepath.Join(codexDir, "2026", "04", "17")

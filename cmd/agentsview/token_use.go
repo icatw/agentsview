@@ -46,11 +46,10 @@ const (
 //     multiple suffix matches exist without an exact row, the
 //     most recent wins and an ambiguity warning is emitted.
 //  3. Canonical disk probe: when input begins with a registered
-//     agent prefix, strip the prefix and call that agent's
-//     FindSourceFunc so a truly canonical-but-unsynced ID on disk
-//     still resolves.
-//  4. Raw disk probe: call every file-based agent's FindSourceFunc
-//     with the raw input; the first hit yields "<prefix><input>".
+//     agent prefix, ask that agent's provider to locate the source so
+//     a truly canonical-but-unsynced ID on disk still resolves.
+//  4. Raw disk probe: ask every file-based provider to locate the raw
+//     input; the first hit yields "<prefix><input>".
 //  5. No match anywhere: returned unchanged with known=false.
 //
 // known reports whether resolution found evidence for the ID.
@@ -88,22 +87,20 @@ func resolveRawSessionID(
 	}
 
 	// Canonical disk probe: if the input starts with a known
-	// agent prefix, trust that interpretation first and strip
-	// before calling FindSourceFunc (which rejects IDs with
-	// colons via IsValidSessionID).
+	// agent prefix, trust that interpretation first and let the
+	// provider normalize the raw ID from the full session ID.
 	for _, def := range parser.Registry {
-		if def.IDPrefix == "" || !def.FileBased ||
-			def.FindSourceFunc == nil {
+		if def.IDPrefix == "" || !def.FileBased {
 			continue
 		}
 		if !strings.HasPrefix(input, def.IDPrefix) {
 			continue
 		}
 		bareID := strings.TrimPrefix(input, def.IDPrefix)
-		for _, dir := range agentDirs[def.Type] {
-			if def.FindSourceFunc(dir, bareID) != "" {
-				return input, true
-			}
+		if providerFindSourceExists(
+			ctx, def, agentDirs, input, bareID,
+		) {
+			return input, true
 		}
 	}
 
@@ -113,17 +110,48 @@ func resolveRawSessionID(
 	// colon-bearing raw IDs (Kimi, OpenClaw, Kiro IDE) may
 	// match.
 	for _, def := range parser.Registry {
-		if !def.FileBased || def.FindSourceFunc == nil {
+		if !def.FileBased {
 			continue
 		}
-		for _, dir := range agentDirs[def.Type] {
-			if def.FindSourceFunc(dir, input) != "" {
-				return def.IDPrefix + input, true
-			}
+		if providerFindSourceExists(
+			ctx, def, agentDirs, def.IDPrefix+input, input,
+		) {
+			return def.IDPrefix + input, true
 		}
 	}
 
 	return input, false
+}
+
+func providerFindSourceExists(
+	ctx context.Context,
+	def parser.AgentDef,
+	agentDirs map[parser.AgentType][]string,
+	fullID string,
+	rawID string,
+) bool {
+	if len(agentDirs[def.Type]) == 0 {
+		return false
+	}
+	factory, ok := parser.ProviderFactoryByType(def.Type)
+	if !ok ||
+		factory.Capabilities().Source.FindSource != parser.CapabilitySupported {
+		return false
+	}
+	provider := factory.NewProvider(parser.ProviderConfig{
+		Roots: agentDirs[def.Type],
+	})
+	_, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
+		FullSessionID:      fullID,
+		RawSessionID:       rawID,
+		RequireFreshSource: true,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"warning: %s source lookup failed: %v\n", def.Type, err)
+		return false
+	}
+	return found
 }
 
 // usageExitCode classifies a SessionUsage into an exit code: 2 when

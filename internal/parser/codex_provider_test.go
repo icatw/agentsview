@@ -167,7 +167,7 @@ func TestCodexProviderParseIncrementalLateTokenCountNeedsFullParse(t *testing.T)
 	assert.Empty(t, outcome.Messages)
 }
 
-func TestCodexProviderDiscoverDedupesLiveAndArchivedByUUID(t *testing.T) {
+func TestCodexProviderDiscoverPreservesLiveAndArchivedDuplicates(t *testing.T) {
 	base := t.TempDir()
 	liveRoot := filepath.Join(base, "sessions")
 	archivedRoot := filepath.Join(base, "archived_sessions")
@@ -183,9 +183,10 @@ func TestCodexProviderDiscoverDedupesLiveAndArchivedByUUID(t *testing.T) {
 	require.True(t, ok)
 	discovered, err := provider.Discover(context.Background())
 	require.NoError(t, err)
-	require.Len(t, discovered, 1)
-	assert.Equal(t, livePath, discovered[0].DisplayPath)
-	assert.NotEqual(t, archivedPath, discovered[0].DisplayPath)
+	require.Len(t, discovered, 2)
+	paths := []string{discovered[0].DisplayPath, discovered[1].DisplayPath}
+	assert.Contains(t, paths, livePath)
+	assert.Contains(t, paths, archivedPath)
 }
 
 func TestCodexProviderFindSourcePreservesStoredPathAndCanonicalizesRawID(t *testing.T) {

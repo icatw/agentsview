@@ -18,19 +18,21 @@ func TestBuildResolveScript(t *testing.T) {
 	// Claude has CLAUDE_PROJECTS_DIR env var — must be referenced.
 	assert.Contains(t, script, "CLAUDE_PROJECTS_DIR")
 
-	// Non-file-based agents must not appear.
+	// Agents without file-backed provider discovery must not appear.
 	for _, def := range parser.Registry {
-		if def.FileBased || def.DiscoverFunc != nil {
+		if def.FileBased &&
+			parser.ProviderSupportsSourceDiscovery(def.Type) {
 			continue
 		}
 		marker := "echo \"" + string(def.Type) + ":"
 		assert.NotContains(t, script, marker,
-			"non-file-based agent %s in script", def.Type)
+			"non-discoverable agent %s in script", def.Type)
 	}
 
-	// Every file-based agent with DiscoverFunc must appear.
+	// Every file-based agent with provider discovery must appear.
 	for _, def := range parser.Registry {
-		if !def.FileBased || def.DiscoverFunc == nil {
+		if !def.FileBased ||
+			!parser.ProviderSupportsSourceDiscovery(def.Type) {
 			continue
 		}
 		marker := "echo \"" + string(def.Type) + ":"

@@ -67,31 +67,12 @@ func (e *Engine) ParseDiff(ctx context.Context, opts ParseDiffOptions) (*ParseDi
 		report.Agents = append(report.Agents, string(def.Type))
 	}
 
-	// Discovery mirrors syncAllLocked's provider-aware file phase. Provider
-	// authoritative agents use Provider.Discover so parse-diff exercises the
-	// same SourceRef, fingerprint, and parse path as normal sync. Agents not
-	// yet on that path keep the legacy DiscoverFunc fallback while the stack
-	// is staged.
+	// Discovery mirrors syncAllLocked's provider-owned file phase so parse-diff
+	// exercises the same SourceRef, fingerprint, and parse path as normal sync.
 	files, providerDiscovered, err := e.parseDiffProviderSources(ctx, resolved)
 	if err != nil {
 		return nil, err
 	}
-	for _, def := range resolved {
-		if providerDiscovered[def.Type] {
-			continue
-		}
-		if def.DiscoverFunc == nil {
-			continue
-		}
-		for _, d := range e.agentDirs[def.Type] {
-			files = append(files, def.DiscoverFunc(d)...)
-		}
-	}
-	// DiscoverFunc does not emit the shared-SQLite source for Kiro
-	// (data.sqlite3) or db-mode OpenCode (opencode.db) — normal sync
-	// reaches those through dedicated phases. Synthesize them here so
-	// their sessions are actually re-parsed; processKiro/processOpenCode
-	// fan one db path out to every contained session under forceParse.
 	files = append(files, e.parseDiffDatabaseSources(resolved, providerDiscovered)...)
 	files = dedupeDiscoveredFiles(files)
 	files = e.filterShadowedLegacyKiroFiles(files)
@@ -309,13 +290,12 @@ func resolveParseDiffAgents(
 	return out, nil
 }
 
-// parseDiffDatabaseSources synthesizes DiscoveredFile entries for the
-// shared-SQLite agent stores that DiscoverFunc does not emit: Kiro's
-// data.sqlite3, OpenCode's opencode.db, and Kilo's kilo.db. The
-// corresponding process functions recognize those base filenames and fan
-// one db path out to every contained session, so routing them through the
-// normal worker loop re-parses every CLI Kiro / DB-backed OpenCode /
-// DB-backed Kilo session.
+// parseDiffDatabaseSources is retained for lower-mode overrides where provider
+// discovery has not claimed a shared-SQLite source. Kiro's data.sqlite3,
+// OpenCode's opencode.db, and Kilo's kilo.db process functions recognize those
+// base filenames and fan one db path out to every contained session, so routing
+// them through the normal worker loop re-parses every CLI Kiro / DB-backed
+// OpenCode / DB-backed Kilo session.
 // Without this, those sessions fall to the "not discovered" sweep and
 // an --agent kiro / --agent opencode run would pass while comparing
 // nothing.

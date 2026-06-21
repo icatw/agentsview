@@ -193,7 +193,6 @@ func (s codexSourceSet) discover(
 	includeRoot func(string) bool,
 ) ([]SourceRef, error) {
 	var sources []SourceRef
-	byKey := make(map[string]SourceRef)
 	for _, root := range s.roots {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -209,15 +208,8 @@ func (s codexSourceSet) discover(
 			if !ok {
 				continue
 			}
-			if current, ok := byKey[source.Key]; ok &&
-				!preferCodexSource(source, current) {
-				continue
-			}
-			byKey[source.Key] = source
+			sources = append(sources, source)
 		}
-	}
-	for _, source := range byKey {
-		sources = append(sources, source)
 	}
 	sortJSONLSources(sources)
 	return sources, nil

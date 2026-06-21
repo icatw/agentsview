@@ -162,7 +162,7 @@ func (s visualStudioCopilotSourceSet) Discover(
 			return nil, err
 		}
 		for _, file := range DiscoverVisualStudioCopilotSessions(root) {
-			source, ok := s.sourceRef(root, file.Path)
+			source, ok := s.sourceRefForChangedPath(root, file.Path)
 			if !ok {
 				continue
 			}

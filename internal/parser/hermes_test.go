@@ -1172,8 +1172,11 @@ func TestHermesRegistryEntry(t *testing.T) {
 	assert.Equal(t, "hermes:", found.IDPrefix)
 	assert.True(t, found.FileBased)
 	assert.Contains(t, found.DefaultDirs, ".hermes/sessions")
-	assert.NotNil(t, found.DiscoverFunc)
-	assert.NotNil(t, found.FindSourceFunc)
+	factory, ok := ProviderFactoryByType(AgentHermes)
+	require.True(t, ok, "Hermes provider factory")
+	caps := factory.Capabilities().Source
+	assert.Equal(t, CapabilitySupported, caps.DiscoverSources)
+	assert.Equal(t, CapabilitySupported, caps.FindSource)
 }
 
 // --- File info ---

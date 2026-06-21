@@ -485,17 +485,14 @@ func TestZedRegistryEntry(t *testing.T) {
 	if def.IDPrefix != "zed:" {
 		t.Fatalf("Zed IDPrefix = %q", def.IDPrefix)
 	}
-	if def.DiscoverFunc == nil || def.FindSourceFunc == nil {
-		t.Fatalf("Zed discover/source funcs must be set")
-	}
+	requireProviderSourceCaps(t, AgentZed)
 }
 
 func TestOpenCodeRegistryEntry(t *testing.T) {
 	def, ok := AgentByType(AgentOpenCode)
 	require.True(t, ok, "AgentOpenCode missing from Registry")
 	require.True(t, def.FileBased, "OpenCode FileBased")
-	require.NotNil(t, def.DiscoverFunc, "OpenCode DiscoverFunc")
-	require.NotNil(t, def.FindSourceFunc, "OpenCode FindSourceFunc")
+	requireProviderSourceCaps(t, AgentOpenCode)
 	want := []string{
 		"storage/session",
 		"storage/message",
@@ -509,8 +506,7 @@ func TestCoworkRegistryEntry(t *testing.T) {
 	def, ok := AgentByType(AgentCowork)
 	require.True(t, ok, "AgentCowork missing from Registry")
 	require.True(t, def.FileBased, "Cowork FileBased")
-	require.NotNil(t, def.DiscoverFunc, "Cowork DiscoverFunc")
-	require.NotNil(t, def.FindSourceFunc, "Cowork FindSourceFunc")
+	requireProviderSourceCaps(t, AgentCowork)
 	assert.Equal(t, "COWORK_DIR", def.EnvVar)
 	assert.Equal(t, "cowork_dirs", def.ConfigKey)
 	assert.Equal(t, "cowork:", def.IDPrefix)
@@ -529,8 +525,7 @@ func TestMiMoCodeRegistryEntry(t *testing.T) {
 	def, ok := AgentByType(AgentMiMoCode)
 	require.True(t, ok, "AgentMiMoCode missing from Registry")
 	require.True(t, def.FileBased, "MiMoCode FileBased")
-	require.NotNil(t, def.DiscoverFunc, "MiMoCode DiscoverFunc")
-	require.NotNil(t, def.FindSourceFunc, "MiMoCode FindSourceFunc")
+	requireProviderSourceCaps(t, AgentMiMoCode)
 	assert.Equal(t, "MIMOCODE_DIR", def.EnvVar)
 	assert.Equal(t, "mimocode_dirs", def.ConfigKey)
 	assert.Equal(t, []string{".local/share/mimocode"}, def.DefaultDirs)
@@ -548,8 +543,7 @@ func TestCommandCodeRegistryEntry(t *testing.T) {
 	def, ok := AgentByType(AgentCommandCode)
 	require.True(t, ok, "AgentCommandCode missing from Registry")
 	require.True(t, def.FileBased, "Command Code FileBased")
-	require.NotNil(t, def.DiscoverFunc, "Command Code DiscoverFunc")
-	require.NotNil(t, def.FindSourceFunc, "Command Code FindSourceFunc")
+	requireProviderSourceCaps(t, AgentCommandCode)
 	assert.Equal(t, []string{".commandcode/projects"}, def.DefaultDirs)
 	assert.Equal(t, "commandcode:", def.IDPrefix)
 }
@@ -558,13 +552,24 @@ func TestDeepSeekTUIRegistryEntry(t *testing.T) {
 	def, ok := AgentByType(AgentDeepSeekTUI)
 	require.True(t, ok, "AgentDeepSeekTUI missing from Registry")
 	require.True(t, def.FileBased, "DeepSeek TUI FileBased")
-	require.NotNil(t, def.DiscoverFunc, "DeepSeek TUI DiscoverFunc")
-	require.NotNil(t, def.FindSourceFunc, "DeepSeek TUI FindSourceFunc")
+	requireProviderSourceCaps(t, AgentDeepSeekTUI)
 	assert.Equal(t, "DeepSeek TUI", def.DisplayName)
 	assert.Equal(t, "DEEPSEEK_TUI_SESSIONS_DIR", def.EnvVar)
 	assert.Equal(t, "deepseek_tui_sessions_dirs", def.ConfigKey)
 	assert.Equal(t, []string{".codewhale/sessions", ".deepseek/sessions"}, def.DefaultDirs)
 	assert.Equal(t, "deepseek-tui:", def.IDPrefix)
+}
+
+func requireProviderSourceCaps(t *testing.T, agent AgentType) {
+	t.Helper()
+
+	factory, ok := ProviderFactoryByType(agent)
+	require.True(t, ok, "%s provider factory", agent)
+	caps := factory.Capabilities().Source
+	require.Equal(t, CapabilitySupported, caps.DiscoverSources,
+		"%s provider discovery", agent)
+	require.Equal(t, CapabilitySupported, caps.FindSource,
+		"%s provider source lookup", agent)
 }
 
 func TestResolveOpenCodeSourcePrefersStorage(t *testing.T) {
