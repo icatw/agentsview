@@ -339,6 +339,23 @@ func TestProviderMigrationModesRejectLegacyOnlyMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid provider migration mode")
 }
 
+func TestProviderMigrationModesRequireSourceCapabilities(t *testing.T) {
+	factory := testProviderFactory{
+		def: AgentDef{
+			Type:        AgentCodex,
+			DisplayName: "Codex",
+		},
+	}
+	modes := map[AgentType]ProviderMigrationMode{
+		AgentCodex: ProviderMigrationProviderAuthoritative,
+	}
+
+	err := ValidateProviderMigrationModes([]ProviderFactory{factory}, modes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), string(AgentCodex))
+	assert.Contains(t, err.Error(), "requires provider source discovery")
+}
+
 func TestProviderMigrationModesRestrictImportOnlyMode(t *testing.T) {
 	factory := testProviderFactory{
 		def: AgentDef{

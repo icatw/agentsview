@@ -2315,6 +2315,75 @@ func TestResyncAbortAllowsMixedIntentionalNoWriteProgress(t *testing.T) {
 	assert.False(t, resyncShouldAbortSwap(stats, 2, 0))
 }
 
+func TestResyncAbortAllowsVirtualOnlyProviderProgress(t *testing.T) {
+	stats := SyncStats{
+		TotalSessions: 1,
+		Synced:        1,
+		filesOK:       1,
+	}
+
+	assert.False(t, resyncShouldAbortSwap(stats, 0, 0))
+}
+
+func TestResyncAbortRejectsEmptyPhysicalDiscovery(t *testing.T) {
+	assert.True(t, resyncShouldAbortSwap(SyncStats{}, 1, 0))
+}
+
+func TestCountRootProviderVirtualDBSessions(t *testing.T) {
+	database := openTestDB(t)
+	engine := NewEngine(database, EngineConfig{
+		Machine: "devbox",
+	})
+	startedAt := "2026-06-01T10:00:00Z"
+	zedPath := parser.ZedSQLiteVirtualPath(
+		filepath.Join(t.TempDir(), "threads", "threads.db"),
+		"zed-session",
+	)
+	shelleyPath := parser.ShelleyVirtualPath(
+		filepath.Join(t.TempDir(), shelleyDBFile),
+		"shelley-session",
+	)
+	claudePath := filepath.Join(t.TempDir(), "claude.jsonl")
+	for _, session := range []db.Session{
+		{
+			ID:           "zed:zed-session",
+			Project:      "zed",
+			Machine:      "devbox",
+			Agent:        string(parser.AgentZed),
+			StartedAt:    &startedAt,
+			MessageCount: 1,
+			FilePath:     &zedPath,
+		},
+		{
+			ID:           "shelley:shelley-session",
+			Project:      "shelley",
+			Machine:      "devbox",
+			Agent:        string(parser.AgentShelley),
+			StartedAt:    &startedAt,
+			MessageCount: 1,
+			FilePath:     &shelleyPath,
+		},
+		{
+			ID:           "claude-session",
+			Project:      "claude",
+			Machine:      "devbox",
+			Agent:        string(parser.AgentClaude),
+			StartedAt:    &startedAt,
+			MessageCount: 1,
+			FilePath:     &claudePath,
+		},
+	} {
+		require.NoError(t, database.UpsertSession(session))
+	}
+
+	assert.Equal(t, 1, engine.countRootProviderVirtualDBSessions(
+		database, parser.AgentZed, "%threads.db#%",
+	))
+	assert.Equal(t, 1, engine.countRootProviderVirtualDBSessions(
+		database, parser.AgentShelley, "%"+shelleyDBFile+"#%",
+	))
+}
+
 func TestEngine_ClassifyPathsOpenCodeRemovedPartDir(
 	t *testing.T,
 ) {

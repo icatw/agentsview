@@ -100,6 +100,19 @@ func validateProviderMigrationMode(
 	def := factory.Definition()
 	switch mode {
 	case ProviderMigrationShadowCompare, ProviderMigrationProviderAuthoritative:
+		caps := factory.Capabilities().Source
+		if caps.DiscoverSources != CapabilitySupported {
+			return fmt.Errorf(
+				"%s: %s requires provider source discovery",
+				def.Type, mode,
+			)
+		}
+		if caps.FindSource != CapabilitySupported {
+			return fmt.Errorf(
+				"%s: %s requires provider source lookup",
+				def.Type, mode,
+			)
+		}
 	case ProviderMigrationImportOnly:
 		if !isImportOnlyAgentType(def.Type) {
 			return fmt.Errorf(

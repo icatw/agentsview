@@ -2494,6 +2494,12 @@ func (e *Engine) ResyncAll(
 			origDB, parser.AgentOpenCode,
 		)
 		oldFileSessions -= e.countRootKiroSQLiteSessions(origDB)
+		oldFileSessions -= e.countRootProviderVirtualDBSessions(
+			origDB, parser.AgentZed, "%threads.db#%",
+		)
+		oldFileSessions -= e.countRootProviderVirtualDBSessions(
+			origDB, parser.AgentShelley, "%"+shelleyDBFile+"#%",
+		)
 		oldFileSessions -= e.countRootOpenCodeFormatSessions(
 			origDB, parser.AgentKilo,
 		)
@@ -2923,6 +2929,27 @@ func (e *Engine) countRootKiroSQLiteSessions(
 	`, string(parser.AgentKiro), "%data.sqlite3#%").Scan(&count)
 	if err != nil {
 		log.Printf("count root kiro sqlite sessions: %v", err)
+	}
+	return count
+}
+
+func (e *Engine) countRootProviderVirtualDBSessions(
+	database *db.DB, agent parser.AgentType, pathPattern string,
+) int {
+	if !e.providerFullSyncDiscovers(agent) {
+		return 0
+	}
+	var count int
+	err := database.Reader().QueryRow(`
+		SELECT COUNT(*) FROM sessions
+		WHERE agent = ?
+		  AND file_path LIKE ?
+		  AND message_count > 0
+		  AND relationship_type NOT IN ('subagent', 'fork')
+		  AND deleted_at IS NULL
+	`, string(agent), pathPattern).Scan(&count)
+	if err != nil {
+		log.Printf("count root %s virtual db sessions: %v", agent, err)
 	}
 	return count
 }
