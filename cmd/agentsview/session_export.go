@@ -143,13 +143,9 @@ func sessionExportProviderSourcePath(
 	})
 	_, rawID := parser.StripHostPrefix(sessionID)
 	rawID = strings.TrimPrefix(rawID, def.IDPrefix)
-	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
-		RawSessionID:       rawID,
-		FullSessionID:      sessionID,
-		StoredFilePath:     storedPath,
-		FingerprintKey:     storedPath,
-		RequireFreshSource: true,
-	})
+	source, found, err := sessionExportFindProviderSource(
+		ctx, provider, rawID, sessionID, storedPath,
+	)
 	if err != nil {
 		log.Printf(
 			"%s provider export source lookup for %s: %v",
@@ -161,6 +157,29 @@ func sessionExportProviderSourcePath(
 		return ""
 	}
 	return sessionExportProviderDiscoveredPath(source)
+}
+
+func sessionExportFindProviderSource(
+	ctx context.Context,
+	provider parser.Provider,
+	rawID string,
+	fullID string,
+	storedPath string,
+) (parser.SourceRef, bool, error) {
+	req := parser.FindSourceRequest{
+		RawSessionID:       rawID,
+		FullSessionID:      fullID,
+		StoredFilePath:     storedPath,
+		FingerprintKey:     storedPath,
+		RequireFreshSource: true,
+	}
+	source, found, err := provider.FindSource(ctx, req)
+	if err != nil || found || storedPath == "" {
+		return source, found, err
+	}
+	req.StoredFilePath = ""
+	req.FingerprintKey = ""
+	return provider.FindSource(ctx, req)
 }
 
 func sessionExportProviderDiscoveredPath(source parser.SourceRef) string {

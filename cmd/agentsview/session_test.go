@@ -697,6 +697,32 @@ func TestSessionExport_ResolvesFreshProviderSource(t *testing.T) {
 	assert.Equal(t, body, out)
 }
 
+func TestSessionExport_RetriesProviderSourceWithoutStaleHints(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
+	antigravityRoot := t.TempDir()
+	t.Setenv("ANTIGRAVITY_DIR", antigravityRoot)
+
+	rawID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	sessionID := "antigravity:" + rawID
+	src := filepath.Join(antigravityRoot, "conversations", rawID+".db")
+	body := []byte("fresh antigravity db bytes\n")
+	require.NoError(t, os.MkdirAll(filepath.Dir(src), 0o755))
+	require.NoError(t, os.WriteFile(src, body, 0o600))
+
+	staleRoot := t.TempDir()
+	stalePath := filepath.Join(staleRoot, "conversations", rawID+".db")
+	seedSessionWithOpts(t, dataDir, sessionID, "proj", func(s *db.Session) {
+		s.Agent = "antigravity"
+		s.FilePath = &stalePath
+	})
+
+	out, err := executeCommand(newRootCommand(),
+		"session", "export", sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, string(body), out)
+}
+
 func TestSessionExport_FailsWhenSourceMissing(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
