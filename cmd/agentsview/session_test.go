@@ -764,6 +764,46 @@ func TestSessionExport_VisualStudioCopilotFiltersProviderTrace(
 	assert.Equal(t, targetLine+"\n", out)
 }
 
+func TestSessionExport_VisualStudioCopilotFiltersStoredTraceWithoutProvider(
+	t *testing.T,
+) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
+	t.Setenv("VISUALSTUDIO_COPILOT_DIR", t.TempDir())
+
+	conversationID := "4a8f63f6-7626-4416-a874-fc7bd2c3f005"
+	otherConversationID := "5b9f63f6-7626-4416-a874-fc7bd2c3f006"
+	tracePath := filepath.Join(
+		t.TempDir(),
+		"20260612T194439_257709a3_VSGitHubCopilot_traces.jsonl",
+	)
+	targetLine := visualStudioCopilotTraceLine(
+		conversationID, "target prompt",
+	)
+	otherLine := visualStudioCopilotTraceLine(
+		otherConversationID, "other secret",
+	)
+	require.NoError(t, os.WriteFile(
+		tracePath,
+		[]byte(targetLine+"\n"+otherLine+"\n"),
+		0o600,
+	))
+
+	sessionID := "visualstudio-copilot:" + conversationID
+	seedSessionWithOpts(t, dataDir, sessionID, "visualstudio",
+		func(s *db.Session) {
+			s.Agent = "visualstudio-copilot"
+			s.FilePath = &tracePath
+		})
+
+	out, err := executeCommand(newRootCommand(),
+		"session", "export", sessionID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "target prompt")
+	assert.NotContains(t, out, "other secret")
+	assert.Equal(t, targetLine+"\n", out)
+}
+
 func TestSessionExport_FailsWhenSourceMissing(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)

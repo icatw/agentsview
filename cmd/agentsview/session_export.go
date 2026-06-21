@@ -83,6 +83,19 @@ func newSessionExportCommand() *cobra.Command {
 				}
 				return err
 			}
+			if conversationID, ok :=
+				sessionExportVisualStudioCopilotConversationID(id); ok &&
+				parser.IsVisualStudioCopilotTraceFile(sourcePath) {
+				err := parser.WriteVisualStudioCopilotConversationJSONL(
+					cmd.OutOrStdout(), sourcePath, conversationID,
+				)
+				if errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf(
+						"source file not found: %s", sourcePath,
+					)
+				}
+				return err
+			}
 			path := parser.ResolveSourceFilePath(sourcePath)
 			f, err := os.Open(path)
 			if err != nil {
@@ -98,6 +111,18 @@ func newSessionExportCommand() *cobra.Command {
 			return err
 		},
 	}
+}
+
+func sessionExportVisualStudioCopilotConversationID(
+	sessionID string,
+) (string, bool) {
+	def, ok := parser.AgentByPrefix(sessionID)
+	if !ok || def.Type != parser.AgentVSCopilot {
+		return "", false
+	}
+	_, rawID := parser.StripHostPrefix(sessionID)
+	rawID = strings.TrimPrefix(rawID, def.IDPrefix)
+	return rawID, parser.IsValidSessionID(rawID)
 }
 
 func sessionExportSourcePath(
