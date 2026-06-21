@@ -5,9 +5,9 @@
 > lower `provider-facade-core` branch. Do not execute these steps against the
 > final stack tip: `ProviderMigrationLegacyOnly` has been removed there,
 > concrete parse-capable providers are expected to be `provider-authoritative`,
-> and Claude.ai / ChatGPT are `import-only`. The remaining cleanup work is
-> tracked by kata issue `n489` and the caller migration blockers listed in the
-> provider facade design spec.
+> and Claude.ai / ChatGPT are `import-only`. The stack-tip legacy cleanup in
+> kata issue `n489` is complete; remaining provider-facade tracking lives in the
+> caller and provider-group tasks listed in the provider facade design spec.
 >
 > For new provider migrations after this stack, use the current
 > `internal/parser/provider_migration.go` contract: a lower branch may use

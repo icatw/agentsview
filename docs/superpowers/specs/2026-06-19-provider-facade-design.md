@@ -18,11 +18,11 @@ runtime path. Tip runtime code requires every parse-capable, non-import provider
 to be authoritative.
 
 `provider-authoritative` currently makes the provider registry, migration
-manifest, and sync-engine `processFile` dispatch authoritative for parse-capable
-providers. Kata issue `n489` remains open for the final cleanup of dead legacy
-parser wrappers and the old `AgentDef` source callback surface, but the stack
-tip no longer falls back to the provider-by-provider legacy `processFile`
-switch.
+manifest, sync-engine `processFile` dispatch, full-sync source discovery, and
+source lookup authoritative for parse-capable providers. Kata issue `n489` is
+closed at the stack tip: the dead legacy parser wrappers and old `AgentDef`
+source callback surface have been removed, and the tip no longer falls back to
+the provider-by-provider legacy `processFile` switch.
 
 ## Purpose
 
@@ -1296,11 +1296,9 @@ adds these blocking tasks:
 - `djyy`: move lookup, watch, export, and usage callers into the dual-run
   harness.
 - `cff5`: move parse-diff and diagnostics into the dual-run harness.
-- `n489`: finish the remaining stack-tip legacy cleanup in ordered, reviewable
-  slices: stale shadow-mode documentation/API comment cleanup, old `AgentDef`
-  source callback removal after callers stop using them, and final dead-code
-  validation. The `processFile` dispatch removal and dead `processX` wrapper
-  deletion are complete at the current tip.
+- `n489`: completed stack-tip legacy cleanup. The `processFile` dispatch, dead
+  `processX` wrappers, old `AgentDef` source callbacks, and stale runtime
+  fallback paths are removed at the current tip.
 
 ## Testing
 
