@@ -1296,10 +1296,11 @@ adds these blocking tasks:
 - `djyy`: move lookup, watch, export, and usage callers into the dual-run
   harness.
 - `cff5`: move parse-diff and diagnostics into the dual-run harness.
-- `n489`: finish stack-tip legacy cleanup in ordered, reviewable slices:
-  dispatch removal, dead `processX` wrapper deletion, stale shadow-mode
-  documentation/API comment cleanup, old `AgentDef` source callback removal
-  after callers stop using them, and final dead-code validation.
+- `n489`: finish the remaining stack-tip legacy cleanup in ordered, reviewable
+  slices: stale shadow-mode documentation/API comment cleanup, old `AgentDef`
+  source callback removal after callers stop using them, and final dead-code
+  validation. The `processFile` dispatch removal and dead `processX` wrapper
+  deletion are complete at the current tip.
 
 ## Testing
 
