@@ -4,10 +4,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"go.kenn.io/agentsview/internal/config"
@@ -57,8 +60,10 @@ func newSessionExportCommand() *cobra.Command {
 					"session not in local archive: %s", args[0],
 				)
 			}
-			storedPath := d.GetSessionFilePath(id)
-			if storedPath == "" {
+			sourcePath := sessionExportSourcePath(
+				cmd.Context(), cfg, d, id,
+			)
+			if sourcePath == "" {
 				return fmt.Errorf(
 					"source file not found for session %s", id,
 				)
@@ -67,7 +72,7 @@ func newSessionExportCommand() *cobra.Command {
 			// conversations, so streaming the whole file would disclose
 			// unrelated conversations. Filter to the requested conversation.
 			if tracePath, conversationID, ok :=
-				parser.ParseVisualStudioCopilotVirtualPath(storedPath); ok {
+				parser.ParseVisualStudioCopilotVirtualPath(sourcePath); ok {
 				err := parser.WriteVisualStudioCopilotConversationJSONL(
 					cmd.OutOrStdout(), tracePath, conversationID,
 				)
@@ -78,7 +83,7 @@ func newSessionExportCommand() *cobra.Command {
 				}
 				return err
 			}
-			path := parser.ResolveSourceFilePath(storedPath)
+			path := parser.ResolveSourceFilePath(sourcePath)
 			f, err := os.Open(path)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -93,4 +98,80 @@ func newSessionExportCommand() *cobra.Command {
 			return err
 		},
 	}
+}
+
+func sessionExportSourcePath(
+	ctx context.Context,
+	cfg config.Config,
+	database *db.DB,
+	sessionID string,
+) string {
+	storedPath := database.GetSessionFilePath(sessionID)
+	providerPath := sessionExportProviderSourcePath(
+		ctx, cfg, sessionID, storedPath,
+	)
+	if providerPath != "" {
+		return providerPath
+	}
+	return storedPath
+}
+
+func sessionExportProviderSourcePath(
+	ctx context.Context,
+	cfg config.Config,
+	sessionID string,
+	storedPath string,
+) string {
+	if host, _ := parser.StripHostPrefix(sessionID); host != "" {
+		return ""
+	}
+	def, ok := parser.AgentByPrefix(sessionID)
+	if !ok || !def.FileBased {
+		return ""
+	}
+	factory, ok := parser.ProviderFactoryByType(def.Type)
+	if !ok ||
+		factory.Capabilities().Source.FindSource != parser.CapabilitySupported {
+		return ""
+	}
+	roots := cfg.ResolveDirs(def.Type)
+	if len(roots) == 0 {
+		return ""
+	}
+	provider := factory.NewProvider(parser.ProviderConfig{
+		Roots: roots,
+	})
+	_, rawID := parser.StripHostPrefix(sessionID)
+	rawID = strings.TrimPrefix(rawID, def.IDPrefix)
+	source, found, err := provider.FindSource(ctx, parser.FindSourceRequest{
+		RawSessionID:       rawID,
+		FullSessionID:      sessionID,
+		StoredFilePath:     storedPath,
+		FingerprintKey:     storedPath,
+		RequireFreshSource: true,
+	})
+	if err != nil {
+		log.Printf(
+			"%s provider export source lookup for %s: %v",
+			def.Type, sessionID, err,
+		)
+		return ""
+	}
+	if !found {
+		return ""
+	}
+	return sessionExportProviderDiscoveredPath(source)
+}
+
+func sessionExportProviderDiscoveredPath(source parser.SourceRef) string {
+	for _, path := range []string{
+		source.DisplayPath,
+		source.FingerprintKey,
+		source.Key,
+	} {
+		if path != "" {
+			return path
+		}
+	}
+	return ""
 }

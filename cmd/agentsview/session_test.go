@@ -673,6 +673,30 @@ func TestSessionExport_StreamsFromDisk(t *testing.T) {
 	assert.Equal(t, body, out)
 }
 
+func TestSessionExport_ResolvesFreshProviderSource(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
+	claudeRoot := t.TempDir()
+	t.Setenv("CLAUDE_PROJECTS_DIR", claudeRoot)
+
+	sessionID := "provider-export"
+	src := filepath.Join(
+		claudeRoot, "-Users-dev-code-demo", sessionID+".jsonl",
+	)
+	body := "{\"type\":\"user\",\"message\":{\"content\":\"fresh\"}}\n"
+	require.NoError(t, os.MkdirAll(filepath.Dir(src), 0o755))
+	require.NoError(t, os.WriteFile(src, []byte(body), 0o600))
+
+	stalePath := filepath.Join(t.TempDir(), "stale.jsonl")
+	seedSessionWithOpts(t, dataDir, sessionID, "proj",
+		func(s *db.Session) { s.FilePath = &stalePath })
+
+	out, err := executeCommand(newRootCommand(),
+		"session", "export", sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, body, out)
+}
+
 func TestSessionExport_FailsWhenSourceMissing(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AGENTSVIEW_DATA_DIR", dataDir)
