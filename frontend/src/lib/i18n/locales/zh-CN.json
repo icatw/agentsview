@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "title": "设置",
+    "loading": "正在加载设置...",
+    "language": {
+      "title": "语言",
+      "description": "选择界面语言。",
+      "label": "界面语言",
+      "english": "English",
+      "simplifiedChinese": "简体中文"
+    }
+  }
+}

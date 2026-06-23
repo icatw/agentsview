@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "title": "Settings",
+    "loading": "Loading settings...",
+    "language": {
+      "title": "Language",
+      "description": "Choose the interface language.",
+      "label": "Interface language",
+      "english": "English",
+      "simplifiedChinese": "Simplified Chinese"
+    }
+  }
+}

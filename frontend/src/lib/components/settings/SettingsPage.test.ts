@@ -5,6 +5,7 @@ import { mount, tick, unmount } from "svelte";
 import SettingsPage from "./SettingsPage.svelte";
 import { SettingsService } from "../../api/generated/index";
 import { settings } from "../../stores/settings.svelte.js";
+import { initI18n, LOCALE_STORAGE_KEY } from "../../i18n/index.js";
 
 vi.mock("../../api/runtime.js", async (importOriginal) => {
   const orig =
@@ -38,6 +39,8 @@ const settingsService = SettingsService as unknown as {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
+  initI18n();
   settings.loading = false;
   settings.loaded = false;
   settings.needsAuth = false;
@@ -82,6 +85,42 @@ describe("SettingsPage", () => {
     expect(
       settingsService.getApiV1SettingsWorktreeMappings,
     ).not.toHaveBeenCalled();
+
+    unmount(component);
+  });
+
+  it("lets users switch the interface language", async () => {
+    settingsService.getApiV1Settings.mockResolvedValue({
+      agent_dirs: {},
+      github_configured: false,
+      host: "127.0.0.1",
+      port: 8080,
+      read_only: false,
+      require_auth: false,
+      terminal: { mode: "auto" },
+    });
+    settingsService.getApiV1SettingsWorktreeMappings.mockResolvedValue({
+      mappings: [],
+    });
+
+    const component = mount(SettingsPage, {
+      target: document.body,
+    });
+    await tick();
+    await tick();
+
+    const select = document.body.querySelector(
+      'select[aria-label="Interface language"]',
+    ) as HTMLSelectElement | null;
+    expect(select).toBeTruthy();
+    expect(document.body.textContent).toContain("Settings");
+
+    select!.value = "zh-CN";
+    select!.dispatchEvent(new Event("change", { bubbles: true }));
+    await tick();
+
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
+    expect(document.body.textContent).toContain("设置");
 
     unmount(component);
   });
