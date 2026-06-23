@@ -109,14 +109,27 @@ describe("SettingsPage", () => {
     await tick();
     await tick();
 
-    const select = document.body.querySelector(
-      'select[aria-label="Interface language"]',
-    ) as HTMLSelectElement | null;
-    expect(select).toBeTruthy();
+    expect(
+      document.body.querySelector('select[aria-label="Interface language"]'),
+    ).toBeNull();
     expect(document.body.textContent).toContain("Settings");
 
-    select!.value = "zh-CN";
-    select!.dispatchEvent(new Event("change", { bubbles: true }));
+    const trigger = document.body.querySelector(
+      'button[title="Interface language"]',
+    ) as HTMLButtonElement | null;
+    expect(trigger).toBeTruthy();
+
+    trigger!.click();
+    await tick();
+
+    const option = Array.from(
+      document.body.querySelectorAll('[role="option"]'),
+    ).find((el) => el.textContent?.includes("Simplified Chinese"));
+    expect(option).toBeTruthy();
+
+    (option as HTMLElement).dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true }),
+    );
     await tick();
 
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");

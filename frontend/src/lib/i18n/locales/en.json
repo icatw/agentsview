@@ -7,7 +7,8 @@
       "description": "Choose the interface language.",
       "label": "Interface language",
       "english": "English",
-      "simplifiedChinese": "Simplified Chinese"
+      "simplifiedChinese": "Simplified Chinese",
+      "noResults": "No languages found"
     }
   }
 }

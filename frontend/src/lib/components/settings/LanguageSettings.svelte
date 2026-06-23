@@ -6,6 +6,9 @@
     setLocale,
     type SupportedLocale,
   } from "../../i18n/index.js";
+  import OptionTypeahead, {
+    type TypeaheadOption,
+  } from "../layout/OptionTypeahead.svelte";
   import SettingsSection from "./SettingsSection.svelte";
 
   function currentLocale(): SupportedLocale {
@@ -14,12 +17,22 @@
 
   let selectedLocale = $state<SupportedLocale>(currentLocale());
 
-  function handleLocaleChange(event: Event) {
-    const value = (event.currentTarget as HTMLSelectElement)
-      .value as SupportedLocale;
-    if (!SUPPORTED_LOCALES.includes(value)) return;
-    selectedLocale = value;
-    setLocale(value);
+  const localeOptions: TypeaheadOption[] = $derived([
+    {
+      name: "en",
+      label: $_("settings.language.english"),
+    },
+    {
+      name: "zh-CN",
+      label: $_("settings.language.simplifiedChinese"),
+    },
+  ]);
+
+  function handleLocaleSelect(value: string) {
+    if (!SUPPORTED_LOCALES.includes(value as SupportedLocale)) return;
+    const locale = value as SupportedLocale;
+    selectedLocale = locale;
+    setLocale(locale);
   }
 </script>
 
@@ -29,19 +42,15 @@
 >
   <div class="setting-row">
     <span class="setting-label">{$_("settings.language.label")}</span>
-    <div class="select-wrap">
-      <select
-        class="language-select"
-        aria-label={$_("settings.language.label")}
-        value={selectedLocale}
-        onchange={handleLocaleChange}
-      >
-        <option value="en">{$_("settings.language.english")}</option>
-        <option value="zh-CN">
-          {$_("settings.language.simplifiedChinese")}
-        </option>
-      </select>
-    </div>
+    <OptionTypeahead
+      options={localeOptions}
+      value={selectedLocale}
+      fallbackLabel={$_("settings.language.english")}
+      placeholder={$_("settings.language.label")}
+      title={$_("settings.language.label")}
+      emptyLabel={$_("settings.language.noResults")}
+      onselect={handleLocaleSelect}
+    />
   </div>
 </SettingsSection>
 
@@ -58,26 +67,5 @@
     font-weight: 500;
     color: var(--text-secondary);
     white-space: nowrap;
-  }
-
-  .select-wrap {
-    position: relative;
-  }
-
-  .language-select {
-    height: 28px;
-    padding: 0 28px 0 10px;
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    background: var(--bg-inset);
-    border: 1px solid var(--border-muted);
-    cursor: pointer;
-  }
-
-  .language-select:focus {
-    outline: none;
-    border-color: var(--accent-blue);
   }
 </style>
