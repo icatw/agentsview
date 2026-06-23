@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { _ } from "svelte-i18n";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { starred } from "../../stores/starred.svelte.js";
   import SessionItem from "./SessionItem.svelte";
@@ -411,15 +412,21 @@
       scrollRaf = null;
     }
   });
+
+  function groupToggleLabel(expanded: boolean, name: string): string {
+    return expanded
+      ? $_("sidebar.collapseGroup", { values: { name } })
+      : $_("sidebar.expandGroup", { values: { name } });
+  }
 </script>
 
 <div class="session-list-header">
   <span class="session-count">
-    {formatNumber(totalCount)} sessions
+    {$_("sidebar.sessionCount", { values: { count: formatNumber(totalCount) } })}
   </span>
   <div class="header-actions">
     {#if sessions.loading}
-      <span class="loading-indicator">loading</span>
+      <span class="loading-indicator">{$_("sidebar.loading")}</span>
     {/if}
     <SessionFilterControl
       {groupMode}
@@ -432,31 +439,31 @@
     />
     {#snippet statusFilterSection()}
       <div class="filter-section">
-        <div class="filter-section-label">Status</div>
+        <div class="filter-section-label">{$_("sidebar.status")}</div>
         <div class="pill-buttons">
           <button
             class="pill-btn pill-btn--status-active"
             class:active={sessions.hasTerminationStatus("active")}
             onclick={() => sessions.toggleTerminationStatus("active")}
-            title="Last activity within 10 minutes"
+            title={$_("sidebar.activeTitle")}
           >
-            Active
+            {$_("sidebar.active")}
           </button>
           <button
             class="pill-btn pill-btn--status-stale"
             class:active={sessions.hasTerminationStatus("stale")}
             onclick={() => sessions.toggleTerminationStatus("stale")}
-            title="Flagged session, idle 10 minutes to 1 hour"
+            title={$_("sidebar.staleTitle")}
           >
-            Stale
+            {$_("sidebar.stale")}
           </button>
           <button
             class="pill-btn pill-btn--status-unclean"
             class:active={sessions.hasTerminationStatus("unclean")}
             onclick={() => sessions.toggleTerminationStatus("unclean")}
-            title="Terminated mid tool call (over 1 hour idle)"
+            title={$_("sidebar.uncleanTitle")}
           >
-            Unclean
+            {$_("sidebar.unclean")}
           </button>
         </div>
       </div>
@@ -480,8 +487,8 @@
           <button
             class="group-header"
             onclick={() => toggleGroup(item.label)}
-            title="{collapsed.has(item.label) ? 'Expand' : 'Collapse'} {item.label} group"
-            aria-label="{collapsed.has(item.label) ? 'Expand' : 'Collapse'} {item.label} group"
+            title={groupToggleLabel(!collapsed.has(item.label), item.label)}
+            aria-label={groupToggleLabel(!collapsed.has(item.label), item.label)}
           >
             {#if collapsed.has(item.label)}
               <ChevronRightIcon class="chevron" size="10" strokeWidth="2.5" aria-hidden="true" />
@@ -506,8 +513,8 @@
             class="sub-group-header"
             style:padding-left="{8 + (item.depth ?? 1) * 16}px"
             onclick={() => toggleChainExpand(subKey)}
-            title="{subExpanded ? 'Collapse' : 'Expand'} Subagents group"
-            aria-label="{subExpanded ? 'Collapse' : 'Expand'} Subagents group"
+            title={groupToggleLabel(subExpanded, $_("sidebar.subagents"))}
+            aria-label={groupToggleLabel(subExpanded, $_("sidebar.subagents"))}
           >
             {#if subExpanded}
               <ChevronDownIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
@@ -515,7 +522,7 @@
               <ChevronRightIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
             {/if}
             <UserRoundIcon class="sub-group-icon" size="10" strokeWidth="2" aria-hidden="true" />
-            <span class="sub-group-label">Subagents</span>
+            <span class="sub-group-label">{$_("sidebar.subagents")}</span>
             <span class="sub-group-count">({item.count})</span>
           </button>
         {:else if item.type === "team-group" && item.group}
@@ -525,8 +532,8 @@
             class="sub-group-header"
             style:padding-left="{8 + (item.depth ?? 1) * 16}px"
             onclick={() => toggleChainExpand(teamKey)}
-            title="{teamExpanded ? 'Collapse' : 'Expand'} Team group"
-            aria-label="{teamExpanded ? 'Collapse' : 'Expand'} Team group"
+            title={groupToggleLabel(teamExpanded, $_("sidebar.team"))}
+            aria-label={groupToggleLabel(teamExpanded, $_("sidebar.team"))}
           >
             {#if teamExpanded}
               <ChevronDownIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
@@ -534,7 +541,7 @@
               <ChevronRightIcon class="sub-group-arrow" size="10" strokeWidth="2.5" aria-hidden="true" />
             {/if}
             <UsersRoundIcon class="sub-group-icon" size="12" strokeWidth="2" aria-hidden="true" />
-            <span class="sub-group-label">Team</span>
+            <span class="sub-group-label">{$_("sidebar.team")}</span>
             <span class="sub-group-count">({item.count})</span>
           </button>
         {:else if item.isChild && item.session}

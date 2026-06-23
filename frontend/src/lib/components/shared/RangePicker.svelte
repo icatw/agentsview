@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { _ } from "svelte-i18n";
   import {
     CalendarIcon,
     ChevronDownIcon,
@@ -172,7 +173,7 @@
   </button>
 
   {#if open}
-    <div class="panel" class:align-right={align === "right"} role="dialog" aria-label="Select date range">
+    <div class="panel" class:align-right={align === "right"} role="dialog" aria-label={$_("shared.range.selectDateRange")}>
       <div class="tabs" role="tablist">
         {#each TABS as t (t.mode)}
           <button
@@ -188,7 +189,7 @@
       </div>
 
       {#if tab === "relative"}
-        <div class="pills" role="group" aria-label="Relative window">
+        <div class="pills" role="group" aria-label={$_("shared.range.relativeWindow")}>
           {#each RELATIVE_PRESETS as preset (preset.days)}
             <button
               class="pill"
@@ -200,7 +201,7 @@
           {/each}
         </div>
       {:else if tab === "calendar"}
-        <div class="pills" role="group" aria-label="Calendar period">
+        <div class="pills" role="group" aria-label={$_("shared.range.calendarPeriod")}>
           {#each CALENDAR_UNITS as u (u.unit)}
             <button
               class="pill"
@@ -215,7 +216,7 @@
           <button
             class="arrow"
             onclick={() => step(-1)}
-            aria-label="Previous period"
+            aria-label={$_("shared.range.previousPeriod")}
           >
             <ChevronLeftIcon size="15" strokeWidth="2" aria-hidden="true" />
           </button>
@@ -224,7 +225,7 @@
             class="arrow"
             onclick={() => step(1)}
             disabled={nextDisabled}
-            aria-label="Next period"
+            aria-label={$_("shared.range.nextPeriod")}
           >
             <ChevronRightIcon size="15" strokeWidth="2" aria-hidden="true" />
           </button>
@@ -232,7 +233,7 @@
       {:else}
         <div class="fields">
           <label class="field">
-            <span>From</span>
+            <span>{$_("shared.range.from")}</span>
             <input
               type="date"
               class="date-input"
@@ -241,7 +242,7 @@
             />
           </label>
           <label class="field">
-            <span>To</span>
+            <span>{$_("shared.range.to")}</span>
             <input
               type="date"
               class="date-input"

@@ -34,6 +34,7 @@
   import { pins } from "./lib/stores/pins.svelte.js";
   import { settings } from "./lib/stores/settings.svelte.js";
   import { yokedDates } from "./lib/stores/yokedDates.svelte.js";
+  import { _ } from "svelte-i18n";
   import { setAuthToken, getAuthToken, setServerUrl, getBase } from "./lib/api/runtime.js";
   import { setupVisibilityHealthCheck } from "./lib/utils/health.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
@@ -413,16 +414,15 @@
 {#if settings.needsAuth && router.route !== "settings"}
   <div class="auth-overlay">
     <div class="auth-card">
-      <h2 class="auth-card-title">Authentication Required</h2>
+      <h2 class="auth-card-title">{$_("app.auth.title")}</h2>
       <p class="auth-card-desc">
-        This server requires an auth token to access. Enter the token
-        shown on the server's console or settings page.
+        {$_("app.auth.description")}
       </p>
       <div class="auth-card-field">
         <input
           class="auth-card-input"
           type="password"
-          placeholder="Paste auth token"
+          placeholder={$_("app.auth.placeholder")}
           bind:value={globalAuthToken}
           onkeydown={(e) => { if (e.key === "Enter") handleGlobalAuth(); }}
         />
@@ -431,7 +431,7 @@
           disabled={!globalAuthToken.trim()}
           onclick={handleGlobalAuth}
         >
-          Authenticate
+          {$_("app.auth.authenticate")}
         </button>
       </div>
       <button
@@ -443,7 +443,7 @@
           settings.load();
         }}
       >
-        Disconnect and reset
+        {$_("app.auth.disconnectReset")}
       </button>
     </div>
   </div>
@@ -541,7 +541,7 @@
 
 {#if sessions.recentlyDeleted.length > 0}
   <div class="undo-toast">
-    <span>Session deleted</span>
+    <span>{$_("app.undo.sessionDeleted")}</span>
     <button
       class="undo-btn"
       onclick={async (e) => {
@@ -559,7 +559,7 @@
         }
       }}
     >
-      Undo
+      {$_("app.undo.undo")}
     </button>
   </div>
 {/if}

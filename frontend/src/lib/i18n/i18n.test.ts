@@ -7,6 +7,25 @@ import {
   chooseInitialLocale,
   normalizeLocale,
 } from "./index.js";
+import en from "./locales/en.json";
+import zhCN from "./locales/zh-CN.json";
+
+function flattenKeys(
+  value: Record<string, unknown>,
+  prefix = "",
+): string[] {
+  return Object.entries(value).flatMap(([key, nested]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (
+      nested !== null &&
+      typeof nested === "object" &&
+      !Array.isArray(nested)
+    ) {
+      return flattenKeys(nested as Record<string, unknown>, path);
+    }
+    return [path];
+  });
+}
 
 describe("i18n locale selection", () => {
   beforeEach(() => {
@@ -64,5 +83,9 @@ describe("i18n locale selection", () => {
 
   it("keeps the supported locale list explicit", () => {
     expect(SUPPORTED_LOCALES).toEqual(["en", "zh-CN"]);
+  });
+
+  it("keeps Simplified Chinese locale keys aligned with English", () => {
+    expect(flattenKeys(zhCN).sort()).toEqual(flattenKeys(en).sort());
   });
 });
