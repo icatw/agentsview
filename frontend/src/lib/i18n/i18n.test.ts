@@ -6,26 +6,12 @@ import {
   SUPPORTED_LOCALES,
   chooseInitialLocale,
   normalizeLocale,
+  setLocale,
 } from "./index.js";
-import en from "./locales/en.json";
-import zhCN from "./locales/zh-CN.json";
-
-function flattenKeys(
-  value: Record<string, unknown>,
-  prefix = "",
-): string[] {
-  return Object.entries(value).flatMap(([key, nested]) => {
-    const path = prefix ? `${prefix}.${key}` : key;
-    if (
-      nested !== null &&
-      typeof nested === "object" &&
-      !Array.isArray(nested)
-    ) {
-      return flattenKeys(nested as Record<string, unknown>, path);
-    }
-    return [path];
-  });
-}
+import { m } from "../paraglide/messages.js";
+import { setLocale as setParaglideLocale } from "../paraglide/runtime.js";
+import en from "../../../messages/en.json";
+import zhCN from "../../../messages/zh-CN.json";
 
 describe("i18n locale selection", () => {
   beforeEach(() => {
@@ -86,6 +72,25 @@ describe("i18n locale selection", () => {
   });
 
   it("keeps Simplified Chinese locale keys aligned with English", () => {
-    expect(flattenKeys(zhCN).sort()).toEqual(flattenKeys(en).sort());
+    expect(Object.keys(zhCN).sort()).toEqual(Object.keys(en).sort());
+  });
+
+  it("renders generated Paraglide messages for each supported locale", () => {
+    setParaglideLocale("en");
+    expect(m.nav_sessions()).toBe("Sessions");
+    expect(m.status_bar_sessions({ count: "12" })).toBe("12 sessions");
+
+    setParaglideLocale("zh-CN");
+    expect(m.nav_sessions()).toBe("会话");
+    expect(m.status_bar_sessions({ count: "12" })).toBe("12 个会话");
+  });
+
+  it("sets and persists the Paraglide runtime locale", async () => {
+    const runtime = await import("../paraglide/runtime.js");
+
+    setLocale("zh-CN");
+
+    expect(runtime.getLocale()).toBe("zh-CN");
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
   });
 });

@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { defineConfig } from "vite-plus";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 
 function gitCommit(): string {
   try {
@@ -78,7 +79,16 @@ export default defineConfig({
     },
   },
   base: "/",
-  plugins: [svelte()],
+  plugins: [
+    svelte(),
+    paraglideVitePlugin({
+      project: "./project.inlang",
+      outdir: "./src/lib/paraglide",
+      emitTsDeclarations: true,
+      strategy: ["localStorage", "preferredLanguage", "baseLocale"],
+      localStorageKey: "agentsview-locale",
+    }),
+  ],
   define: {
     "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(
       gitCommit(),

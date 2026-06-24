@@ -34,7 +34,7 @@
   import { pins } from "./lib/stores/pins.svelte.js";
   import { settings } from "./lib/stores/settings.svelte.js";
   import { yokedDates } from "./lib/stores/yokedDates.svelte.js";
-  import { _ } from "svelte-i18n";
+  import { m, t } from "./lib/i18n/index.js";
   import { setAuthToken, getAuthToken, setServerUrl, getBase } from "./lib/api/runtime.js";
   import { setupVisibilityHealthCheck } from "./lib/utils/health.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
@@ -414,15 +414,15 @@
 {#if settings.needsAuth && router.route !== "settings"}
   <div class="auth-overlay">
     <div class="auth-card">
-      <h2 class="auth-card-title">{$_("app.auth.title")}</h2>
+      <h2 class="auth-card-title">{t(m.app_auth_title)}</h2>
       <p class="auth-card-desc">
-        {$_("app.auth.description")}
+        {t(m.app_auth_description)}
       </p>
       <div class="auth-card-field">
         <input
           class="auth-card-input"
           type="password"
-          placeholder={$_("app.auth.placeholder")}
+          placeholder={t(m.app_auth_placeholder)}
           bind:value={globalAuthToken}
           onkeydown={(e) => { if (e.key === "Enter") handleGlobalAuth(); }}
         />
@@ -431,7 +431,7 @@
           disabled={!globalAuthToken.trim()}
           onclick={handleGlobalAuth}
         >
-          {$_("app.auth.authenticate")}
+          {t(m.app_auth_authenticate)}
         </button>
       </div>
       <button
@@ -443,7 +443,7 @@
           settings.load();
         }}
       >
-        {$_("app.auth.disconnectReset")}
+        {t(m.app_auth_disconnect_reset)}
       </button>
     </div>
   </div>
@@ -541,7 +541,7 @@
 
 {#if sessions.recentlyDeleted.length > 0}
   <div class="undo-toast">
-    <span>{$_("app.undo.sessionDeleted")}</span>
+    <span>{t(m.app_undo_session_deleted)}</span>
     <button
       class="undo-btn"
       onclick={async (e) => {
@@ -559,7 +559,7 @@
         }
       }}
     >
-      {$_("app.undo.undo")}
+      {t(m.app_undo_undo)}
     </button>
   </div>
 {/if}

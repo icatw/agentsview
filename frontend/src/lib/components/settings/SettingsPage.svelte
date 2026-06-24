@@ -4,7 +4,7 @@
   import { sync } from "../../stores/sync.svelte.js";
   import { ui } from "../../stores/ui.svelte.js";
   import { setAuthToken, getAuthToken, setServerUrl, isRemoteConnection } from "../../api/runtime.js";
-  import { _ } from "svelte-i18n";
+  import { m, t } from "../../i18n/index.js";
   import AppearanceSettings from "./AppearanceSettings.svelte";
   import AgentDirSettings from "./AgentDirSettings.svelte";
   import TerminalSettings from "./TerminalSettings.svelte";
@@ -30,11 +30,11 @@
 
 <div class="settings-page">
   <div class="settings-header">
-    <h2 class="settings-title">{$_("settings.title")}</h2>
+    <h2 class="settings-title">{t(m.settings_title)}</h2>
   </div>
 
   {#if settings.loading || !settings.loaded}
-    <div class="settings-loading">{$_("settings.loading")}</div>
+    <div class="settings-loading">{t(m.settings_loading)}</div>
   {:else if settings.needsAuth}
     <div class="auth-prompt">
       <h3 class="auth-title">Authentication Required</h3>

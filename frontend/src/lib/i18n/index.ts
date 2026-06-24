@@ -1,20 +1,13 @@
-import {
-  addMessages,
-  init,
-  locale,
-} from "svelte-i18n";
+import { setLocale as setParaglideLocale } from "../paraglide/runtime.js";
+import { i18nState } from "./state.svelte.js";
 
-import en from "./locales/en.json";
-import zhCN from "./locales/zh-CN.json";
+export { m } from "../paraglide/messages.js";
 
 export const DEFAULT_LOCALE = "en";
 export const LOCALE_STORAGE_KEY = "agentsview-locale";
 export const SUPPORTED_LOCALES = ["en", "zh-CN"] as const;
 
 export type SupportedLocale = typeof SUPPORTED_LOCALES[number];
-type MessageDictionary = {
-  [key: string]: MessageDictionary | string | Array<string | MessageDictionary> | null;
-};
 
 export function normalizeLocale(value: string | null | undefined): SupportedLocale {
   return matchingLocale(value) ?? DEFAULT_LOCALE;
@@ -60,7 +53,8 @@ export function chooseInitialLocale(): SupportedLocale {
 }
 
 export function setLocale(value: SupportedLocale) {
-  locale.set(value);
+  setParaglideLocale(value, { reload: false });
+  i18nState.locale = value;
   try {
     localStorage?.setItem(LOCALE_STORAGE_KEY, value);
   } catch {
@@ -69,10 +63,21 @@ export function setLocale(value: SupportedLocale) {
 }
 
 export function initI18n() {
-  addMessages("en", en as MessageDictionary);
-  addMessages("zh-CN", zhCN as MessageDictionary);
-  init({
-    fallbackLocale: DEFAULT_LOCALE,
-    initialLocale: chooseInitialLocale(),
-  });
+  setLocale(chooseInitialLocale());
+}
+
+export function t(message: () => string): string;
+export function t<TInputs>(
+  message: (inputs: TInputs) => string,
+  inputs: TInputs,
+): string;
+export function t<TInputs>(
+  message: ((inputs?: TInputs) => string) | ((inputs: TInputs) => string),
+  inputs?: TInputs,
+): string {
+  i18nState.locale;
+  if (inputs === undefined) {
+    return (message as () => string)();
+  }
+  return (message as (inputs: TInputs) => string)(inputs);
 }

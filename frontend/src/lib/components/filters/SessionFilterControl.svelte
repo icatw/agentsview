@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { _ } from "svelte-i18n";
+  import { m, t } from "../../i18n/index.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { router } from "../../stores/router.svelte.js";
   import { hasSessionRouteDateIntent } from "../../stores/sessionRouteParams.js";
@@ -139,8 +139,8 @@
   class="filter-btn"
   bind:this={filterBtnRef}
   onclick={() => (open = !open)}
-  title={$_("sidebar.filters.filterSessions")}
-  aria-label={$_("sidebar.filters.filters")}
+  title={t(m.sidebar_filters_filter_sessions)}
+  aria-label={t(m.sidebar_filters_filters)}
   aria-expanded={open}
 >
   <FunnelIcon size="14" strokeWidth="2" aria-hidden="true" />
@@ -157,7 +157,7 @@
   >
     {#if showDisplay}
       <div class="filter-section">
-        <div class="filter-section-label">{$_("sidebar.filters.display")}</div>
+        <div class="filter-section-label">{t(m.sidebar_filters_display)}</div>
         <button
           class="filter-toggle"
           class:active={groupMode === "agent"}
@@ -167,7 +167,7 @@
             class="toggle-check"
             class:on={groupMode === "agent"}
           ></span>
-          {$_("sidebar.filters.groupByAgent")}
+          {t(m.sidebar_filters_group_by_agent)}
         </button>
         <button
           class="filter-toggle"
@@ -178,13 +178,13 @@
             class="toggle-check"
             class:on={groupMode === "project"}
           ></span>
-          {$_("sidebar.filters.groupByProject")}
+          {t(m.sidebar_filters_group_by_project)}
         </button>
       </div>
     {/if}
     {#if showStarred}
       <div class="filter-section">
-        <div class="filter-section-label">{$_("sidebar.filters.starred")}</div>
+        <div class="filter-section-label">{t(m.sidebar_filters_starred)}</div>
         <button
           class="filter-toggle"
           class:active={starred.filterOnly}
@@ -194,7 +194,7 @@
             class="toggle-check"
             class:on={starred.filterOnly}
           ></span>
-          {$_("sidebar.filters.starredOnly")}
+          {t(m.sidebar_filters_starred_only)}
           {#if starred.count > 0}
             <span class="starred-count">{starred.count}</span>
           {/if}
@@ -202,7 +202,7 @@
       </div>
     {/if}
     <div class="filter-section">
-      <div class="filter-section-label">{$_("sidebar.filters.activity")}</div>
+      <div class="filter-section-label">{t(m.sidebar_filters_activity)}</div>
       <button
         class="filter-toggle"
         class:active={isRecentlyActiveOn}
@@ -215,12 +215,12 @@
           class="toggle-check"
           class:on={isRecentlyActiveOn}
         ></span>
-        {$_("sidebar.filters.recentlyActive")}
+        {t(m.sidebar_filters_recently_active)}
       </button>
     </div>
     <div class="filter-section">
       <div class="filter-section-label">
-        {$_("sidebar.filters.sessionType")}
+        {t(m.sidebar_filters_session_type)}
       </div>
       <button
         class="filter-toggle"
@@ -234,7 +234,7 @@
           class="toggle-check"
           class:on={isHideSingleTurnOn}
         ></span>
-        {$_("sidebar.filters.hideSingleTurn")}
+        {t(m.sidebar_filters_hide_single_turn)}
       </button>
       <button
         class="filter-toggle"
@@ -248,11 +248,11 @@
           class="toggle-check"
           class:on={isIncludeAutomatedOn}
         ></span>
-        {$_("sidebar.filters.includeAutomated")}
+        {t(m.sidebar_filters_include_automated)}
       </button>
     </div>
     <div class="filter-section">
-      <div class="filter-section-label">{$_("sidebar.filters.project")}</div>
+      <div class="filter-section-label">{t(m.sidebar_filters_project)}</div>
       <button
         class="filter-toggle"
         class:active={isHideUnknownOn}
@@ -265,16 +265,16 @@
           class="toggle-check"
           class:on={isHideUnknownOn}
         ></span>
-        {$_("sidebar.filters.hideUnknown")}
+        {t(m.sidebar_filters_hide_unknown)}
       </button>
     </div>
     <div class="filter-section">
-      <div class="filter-section-label">{$_("sidebar.filters.agent")}</div>
+      <div class="filter-section-label">{t(m.sidebar_filters_agent)}</div>
       {#if sessions.agents.length > 5}
         <input
           class="agent-search"
           type="text"
-          placeholder={$_("sidebar.filters.searchAgents")}
+          placeholder={t(m.sidebar_filters_search_agents)}
           bind:value={agentSearch}
         />
       {/if}
@@ -293,7 +293,7 @@
               <CheckIcon size="8" strokeWidth="2.4" aria-hidden="true" />
             {/if}
           </span>
-          <span class="agent-select-name">{$_("sidebar.filters.allAgents")}</span>
+          <span class="agent-select-name">{t(m.sidebar_filters_all_agents)}</span>
         </button>
         {#each sortedAgents as agent (agent.name)}
           {@const selected =
@@ -326,19 +326,19 @@
           </button>
         {:else}
           <span class="agent-select-empty">
-            {agentSearch ? $_("sidebar.filters.noMatch") : $_("sidebar.filters.noAgents")}
+            {agentSearch ? t(m.sidebar_filters_no_match) : t(m.sidebar_filters_no_agents)}
           </span>
         {/each}
       </div>
     </div>
     {#if sessions.machines.length > 0}
       <div class="filter-section">
-        <div class="filter-section-label">{$_("sidebar.filters.machine")}</div>
+        <div class="filter-section-label">{t(m.sidebar_filters_machine)}</div>
         {#if sessions.machines.length > 5}
           <input
             class="agent-search"
             type="text"
-            placeholder={$_("sidebar.filters.searchMachines")}
+            placeholder={t(m.sidebar_filters_search_machines)}
             bind:value={machineSearch}
           />
         {/if}
@@ -367,14 +367,14 @@
             </button>
           {:else}
             <span class="agent-select-empty">
-              {machineSearch ? $_("sidebar.filters.noMatch") : $_("sidebar.filters.noMachines")}
+              {machineSearch ? t(m.sidebar_filters_no_match) : t(m.sidebar_filters_no_machines)}
             </span>
           {/each}
         </div>
       </div>
     {/if}
     <div class="filter-section">
-      <div class="filter-section-label">{$_("sidebar.filters.minPrompts")}</div>
+      <div class="filter-section-label">{t(m.sidebar_filters_min_prompts)}</div>
       <div class="pill-buttons">
         {#each [2, 3, 5, 10] as n}
           <button
@@ -396,7 +396,7 @@
         class="clear-filters-btn"
         onclick={clearFilters}
       >
-        {$_("sidebar.filters.clearFilters")}
+        {t(m.sidebar_filters_clear_filters)}
       </button>
     {/if}
   </div>

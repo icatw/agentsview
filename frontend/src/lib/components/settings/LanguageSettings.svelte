@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { _ } from "svelte-i18n";
+  import { m, t } from "../../i18n/index.js";
   import {
     SUPPORTED_LOCALES,
     chooseInitialLocale,
@@ -20,11 +20,11 @@
   const localeOptions: TypeaheadOption[] = $derived([
     {
       name: "en",
-      label: $_("settings.language.english"),
+      label: t(m.settings_language_english),
     },
     {
       name: "zh-CN",
-      label: $_("settings.language.simplifiedChinese"),
+      label: t(m.settings_language_simplified_chinese),
     },
   ]);
 
@@ -37,18 +37,18 @@
 </script>
 
 <SettingsSection
-  title={$_("settings.language.title")}
-  description={$_("settings.language.description")}
+  title={t(m.settings_language_title)}
+  description={t(m.settings_language_description)}
 >
   <div class="setting-row">
-    <span class="setting-label">{$_("settings.language.label")}</span>
+    <span class="setting-label">{t(m.settings_language_label)}</span>
     <OptionTypeahead
       options={localeOptions}
       value={selectedLocale}
-      fallbackLabel={$_("settings.language.english")}
-      placeholder={$_("settings.language.label")}
-      title={$_("settings.language.label")}
-      emptyLabel={$_("settings.language.noResults")}
+      fallbackLabel={t(m.settings_language_english)}
+      placeholder={t(m.settings_language_label)}
+      title={t(m.settings_language_label)}
+      emptyLabel={t(m.settings_language_no_results)}
       onselect={handleLocaleSelect}
     />
   </div>

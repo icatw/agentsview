@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { _ } from "svelte-i18n";
+  import { m, t } from "../../i18n/index.js";
   import { sessions } from "../../stores/sessions.svelte.js";
   import { router } from "../../stores/router.svelte.js";
   import { hasSessionRouteDateIntent } from "../../stores/sessionRouteParams.js";
@@ -46,27 +46,21 @@
   );
 
   function removeMachineTitle(machine: string): string {
-    return $_("shared.activeFilters.removeMachine", {
-      values: { machine },
-    });
+    return t(m.shared_active_filters_remove_machine, { machine });
   }
 
   function removeAgentTitle(agent: string): string {
-    return $_("shared.activeFilters.removeAgent", {
-      values: { agent: agentLabel(agent) },
+    return t(m.shared_active_filters_remove_agent, {
+      agent: agentLabel(agent),
     });
   }
 
   function removeProjectTitle(project: string): string {
-    return $_("shared.activeFilters.removeProject", {
-      values: { project },
-    });
+    return t(m.shared_active_filters_remove_project, { project });
   }
 
   function removeModelTitle(model: string): string {
-    return $_("shared.activeFilters.removeModel", {
-      values: { model },
-    });
+    return t(m.shared_active_filters_remove_model, { model });
   }
 
   function clearProject() {
@@ -98,13 +92,13 @@
 
 {#if hasFilters}
   <div class="active-filters">
-    <span class="filters-label">{$_("shared.activeFilters.label")}</span>
+    <span class="filters-label">{t(m.shared_active_filters_label)}</span>
 
     {#if sessions.filters.project}
       <button
         class="filter-chip"
         onclick={clearProject}
-        title={$_("shared.activeFilters.clearProject")}
+        title={t(m.shared_active_filters_clear_project)}
       >
         {sessions.filters.project}
         <span class="chip-x">
@@ -147,9 +141,9 @@
       <button
         class="filter-chip"
         onclick={() => sessions.setMinUserMessagesFilter(0)}
-        title={$_("shared.activeFilters.clearMinPrompts")}
+        title={t(m.shared_active_filters_clear_min_prompts)}
       >
-        {$_("shared.activeFilters.minPrompts", { values: { count: sessions.filters.minUserMessages } })}
+        {t(m.shared_active_filters_min_prompts, { count: sessions.filters.minUserMessages })}
         <span class="chip-x">
           <XIcon size="11" strokeWidth="2.4" aria-hidden="true" />
         </span>
@@ -160,9 +154,9 @@
       <button
         class="filter-chip"
         onclick={() => sessions.setRecentlyActiveFilter(false)}
-        title={$_("shared.activeFilters.clearRecentlyActive")}
+        title={t(m.shared_active_filters_clear_recently_active)}
       >
-        {$_("shared.activeFilters.active24h")}
+        {t(m.shared_active_filters_active24h)}
         <span class="chip-x">
           <XIcon size="11" strokeWidth="2.4" aria-hidden="true" />
         </span>
@@ -173,9 +167,9 @@
       <button
         class="filter-chip"
         onclick={() => sessions.setHideUnknownProjectFilter(false)}
-        title={$_("shared.activeFilters.clearHiddenUnknown")}
+        title={t(m.shared_active_filters_clear_hidden_unknown)}
       >
-        {$_("shared.activeFilters.unknownHidden")}
+        {t(m.shared_active_filters_unknown_hidden)}
         <span class="chip-x">
           <XIcon size="11" strokeWidth="2.4" aria-hidden="true" />
         </span>
@@ -199,9 +193,9 @@
       <button
         class="filter-chip"
         onclick={() => sessions.setIncludeOneShotFilter(true)}
-        title={$_("shared.activeFilters.clearSingleTurn")}
+        title={t(m.shared_active_filters_clear_single_turn)}
       >
-        {$_("shared.activeFilters.singleTurnHidden")}
+        {t(m.shared_active_filters_single_turn_hidden)}
         <span class="chip-x">
           <XIcon size="11" strokeWidth="2.4" aria-hidden="true" />
         </span>
@@ -212,9 +206,9 @@
       <button
         class="filter-chip"
         onclick={() => sessions.setIncludeAutomatedFilter(false)}
-        title={$_("shared.activeFilters.clearAutomated")}
+        title={t(m.shared_active_filters_clear_automated)}
       >
-        {$_("shared.activeFilters.automatedIncluded")}
+        {t(m.shared_active_filters_automated_included)}
         <span class="chip-x">
           <XIcon size="11" strokeWidth="2.4" aria-hidden="true" />
         </span>
@@ -237,9 +231,9 @@
     <button
       class="clear-all"
       onclick={clearAll}
-      title={$_("shared.activeFilters.clearAll")}
+      title={t(m.shared_active_filters_clear_all)}
     >
-      {$_("shared.activeFilters.clearAllLabel")}
+      {t(m.shared_active_filters_clear_all_label)}
     </button>
   </div>
 {/if}
