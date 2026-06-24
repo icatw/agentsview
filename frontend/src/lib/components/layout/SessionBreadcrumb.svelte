@@ -39,7 +39,7 @@
   import { inSessionSearch } from "../../stores/inSessionSearch.svelte.js";
   import { messages as messagesStore } from "../../stores/messages.svelte.js";
   import { ui } from "../../stores/ui.svelte.js";
-  import { m, t } from "../../i18n/index.js";
+  import { m } from "../../i18n/index.js";
 
   interface Props {
     session: Session | undefined;
@@ -302,7 +302,7 @@
           } satisfies ResumeRequest,
         }) as ResumeResponse;
       if (resp.launched) {
-        showFeedback(t(m.session_breadcrumb_resumed_in, {
+        showFeedback(m.session_breadcrumb_resumed_in({
           target: resp.terminal ?? opener.name,
         }));
         return;
@@ -312,8 +312,8 @@
         const cmd = formatResumeResponseCommand(session.agent, resp);
         const ok = cmd ? await copyToClipboard(cmd) : false;
         showFeedback(ok
-          ? t(m.session_breadcrumb_command_copied)
-          : t(m.session_breadcrumb_failed));
+          ? m.session_breadcrumb_command_copied()
+          : m.session_breadcrumb_failed());
         return;
       }
     } catch {
@@ -323,10 +323,10 @@
     if (cmd) {
       const ok = await copyToClipboard(cmd);
       showFeedback(ok
-        ? t(m.session_breadcrumb_command_copied)
-        : t(m.session_breadcrumb_failed));
+        ? m.session_breadcrumb_command_copied()
+        : m.session_breadcrumb_failed());
     } else {
-      showFeedback(t(m.session_breadcrumb_not_supported));
+      showFeedback(m.session_breadcrumb_not_supported());
     }
   }
 
@@ -344,8 +344,8 @@
         const cmd = formatResumeResponseCommand(session.agent, resp);
         const ok = cmd ? await copyToClipboard(cmd) : false;
         showFeedback(ok
-          ? t(m.session_breadcrumb_command_copied)
-          : t(m.session_breadcrumb_failed));
+          ? m.session_breadcrumb_command_copied()
+          : m.session_breadcrumb_failed());
         return;
       }
     } catch {
@@ -355,23 +355,23 @@
     if (cmd) {
       const ok = await copyToClipboard(cmd);
       showFeedback(ok
-        ? t(m.session_breadcrumb_command_copied)
-        : t(m.session_breadcrumb_failed));
+        ? m.session_breadcrumb_command_copied()
+        : m.session_breadcrumb_failed());
     } else {
-      showFeedback(t(m.session_breadcrumb_not_supported));
+      showFeedback(m.session_breadcrumb_not_supported());
     }
   }
 
   async function handleCopyFilePath() {
     showOpenMenu = false;
     if (!sessionDir) {
-      showFeedback(t(m.session_breadcrumb_no_path_available));
+      showFeedback(m.session_breadcrumb_no_path_available());
       return;
     }
     const ok = await copyToClipboard(sessionDir);
     showFeedback(ok
-      ? t(m.session_breadcrumb_path_copied)
-      : t(m.session_breadcrumb_failed));
+      ? m.session_breadcrumb_path_copied()
+      : m.session_breadcrumb_failed());
   }
 
   async function handleOpenIn(opener: Opener) {
@@ -383,11 +383,11 @@
         id: session.id,
         requestBody: { opener_id: opener.id },
       });
-      showFeedback(t(m.session_breadcrumb_opened_in, {
+      showFeedback(m.session_breadcrumb_opened_in({
         target: opener.name,
       }));
     } catch {
-      showFeedback(t(m.session_breadcrumb_failed_to_open));
+      showFeedback(m.session_breadcrumb_failed_to_open());
     }
   }
 
@@ -403,7 +403,7 @@
         }) as ResumeResponse;
       if (resp.launched) {
         showFeedback(
-          t(m.session_breadcrumb_resumed_in, {
+          m.session_breadcrumb_resumed_in({
             target: resp.terminal ?? "terminal",
           }),
         );
@@ -413,8 +413,8 @@
         const cmd = formatResumeResponseCommand(session.agent, resp);
         const ok = cmd ? await copyToClipboard(cmd) : false;
         showFeedback(ok
-          ? t(m.session_breadcrumb_command_copied)
-          : t(m.session_breadcrumb_failed));
+          ? m.session_breadcrumb_command_copied()
+          : m.session_breadcrumb_failed());
         return;
       }
     } catch {
@@ -424,10 +424,10 @@
     if (cmd) {
       const ok = await copyToClipboard(cmd);
       showFeedback(ok
-        ? t(m.session_breadcrumb_command_copied)
-        : t(m.session_breadcrumb_failed));
+        ? m.session_breadcrumb_command_copied()
+        : m.session_breadcrumb_failed());
     } else {
-      showFeedback(t(m.session_breadcrumb_not_supported));
+      showFeedback(m.session_breadcrumb_not_supported());
     }
   }
 
@@ -522,9 +522,9 @@
   <button
     class="breadcrumb-link"
     onclick={onBack}
-    title={t(m.session_breadcrumb_back_to_sessions)}
+    title={m.session_breadcrumb_back_to_sessions()}
   >
-    {t(m.session_breadcrumb_sessions)}
+    {m.session_breadcrumb_sessions()}
   </button>
   <span class="breadcrumb-sep">/</span>
   {#if renaming}
@@ -568,7 +568,7 @@
         style:color={gradeStyle.text}
         style:border-color={gradeStyle.border}
         onclick={() => ui.toggleSignalPanel()}
-        title={t(m.session_breadcrumb_session_health)}
+        title={m.session_breadcrumb_session_health()}
       >
         {getGradeLabel(session.health_grade)}
       </button>
@@ -579,19 +579,19 @@
             class:has-feedback={openFeedback !== ""}
             onclick={(e) => { e.stopPropagation(); showOpenMenu = !showOpenMenu; }}
             title={canResume
-              ? t(m.session_breadcrumb_resume_session_in_terminal)
-              : t(m.session_breadcrumb_session_actions)}
+              ? m.session_breadcrumb_resume_session_in_terminal()
+              : m.session_breadcrumb_session_actions()}
             aria-label={canResume
-              ? t(m.session_breadcrumb_resume_session)
-              : t(m.session_breadcrumb_session_actions)}
+              ? m.session_breadcrumb_resume_session()
+              : m.session_breadcrumb_session_actions()}
           >
             {#if openFeedback}
               <CheckIcon size="11" strokeWidth="2.4" aria-hidden="true" />
               {openFeedback}
             {:else}
               {canResume
-                ? t(m.session_breadcrumb_resume)
-                : t(m.session_breadcrumb_open)}
+                ? m.session_breadcrumb_resume()
+                : m.session_breadcrumb_open()}
               <ChevronDownIcon size="8" strokeWidth="2.6" aria-hidden="true" />
             {/if}
           </button>
@@ -611,14 +611,14 @@
                   <span class="open-menu-num">
                     <SquareTerminalIcon size="10" strokeWidth="2" aria-hidden="true" />
                   </span>
-                  <span class="open-menu-name">{t(m.session_breadcrumb_default_terminal)}</span>
+                  <span class="open-menu-name">{m.session_breadcrumb_default_terminal()}</span>
                 </button>
                 <div class="open-menu-divider"></div>
                 <button class="open-menu-item" onclick={handleCopyResumeCommand}>
                   <span class="open-menu-num">
                     <CopyIcon size="10" strokeWidth="2" aria-hidden="true" />
                   </span>
-                  <span class="open-menu-name">{t(m.session_breadcrumb_copy_command)}</span>
+                  <span class="open-menu-name">{m.session_breadcrumb_copy_command()}</span>
                 </button>
               {/if}
               {#if isLocal}
@@ -626,11 +626,11 @@
                 <span class="open-menu-num">
                   <FileTextIcon size="10" strokeWidth="2" aria-hidden="true" />
                 </span>
-                <span class="open-menu-name">{t(m.session_breadcrumb_copy_directory_path)}</span>
+                <span class="open-menu-name">{m.session_breadcrumb_copy_directory_path()}</span>
               </button>
               {#if editorOpeners.length > 0 || fileOpeners.length > 0}
                 <div class="open-menu-divider"></div>
-                <div class="open-menu-section">{t(m.session_breadcrumb_open_in)}</div>
+                <div class="open-menu-section">{m.session_breadcrumb_open_in()}</div>
                 {#each editorOpeners as opener (opener.id)}
                   <button
                     class="open-menu-item"
@@ -675,12 +675,12 @@
         {@const rawId = sessionDisplayId(session.id)}
         <button
           class="session-id"
-          title={t(m.session_breadcrumb_copy_session_id_value, { id: rawId })}
+          title={m.session_breadcrumb_copy_session_id_value({ id: rawId })}
           onclick={() => copySessionId(rawId, session.id)}
-          aria-label={t(m.session_breadcrumb_copy_session_id)}
+          aria-label={m.session_breadcrumb_copy_session_id()}
         >
           {copiedSessionId === session.id
-            ? t(m.session_breadcrumb_copied)
+            ? m.session_breadcrumb_copied()
             : rawId.slice(0, 8)}
         </button>
       {/if}
@@ -696,7 +696,7 @@
         </span>
       {/if}
       {#if sessionCostLabel}
-        <span class="cost-badge" title={t(m.session_breadcrumb_estimated_session_cost)}>
+        <span class="cost-badge" title={m.session_breadcrumb_estimated_session_cost()}>
           {sessionCostLabel}
         </span>
       {/if}
@@ -707,9 +707,9 @@
         <button
           class="link-btn"
           class:link-btn--copied={copiedLinkId === session?.id}
-          title={t(m.session_breadcrumb_copy_link_to_session)}
+          title={m.session_breadcrumb_copy_link_to_session()}
           onclick={copySessionLink}
-          aria-label={t(m.session_breadcrumb_copy_link_to_session)}
+          aria-label={m.session_breadcrumb_copy_link_to_session()}
         >
           {#if copiedLinkId === session?.id}
             <CheckIcon size="13" strokeWidth="2.4" aria-hidden="true" />
@@ -721,28 +721,28 @@
           class="minimap-btn"
           class:minimap-btn--active={ui.vitalsOpen}
           title={ui.vitalsOpen
-            ? t(m.session_breadcrumb_hide_session_analysis)
-            : t(m.session_breadcrumb_show_session_analysis)}
+            ? m.session_breadcrumb_hide_session_analysis()
+            : m.session_breadcrumb_show_session_analysis()}
           onclick={() => ui.toggleVitals()}
           aria-label={ui.vitalsOpen
-            ? t(m.session_breadcrumb_hide_session_analysis)
-            : t(m.session_breadcrumb_show_session_analysis)}
+            ? m.session_breadcrumb_hide_session_analysis()
+            : m.session_breadcrumb_show_session_analysis()}
         >
           <ChartColumnIcon size="13" strokeWidth="2" aria-hidden="true" />
         </button>
         <button
           class="find-btn"
           class:find-btn--active={inSessionSearch.isOpen}
-          title={t(m.session_breadcrumb_find_in_session_shortcut)}
+          title={m.session_breadcrumb_find_in_session_shortcut()}
           onclick={() => inSessionSearch.toggle()}
-          aria-label={t(m.session_breadcrumb_find_in_session)}
+          aria-label={m.session_breadcrumb_find_in_session()}
         >
           <SearchIcon size="13" strokeWidth="2" aria-hidden="true" />
         </button>
         <button
           class="actions-btn"
-          title={t(m.session_breadcrumb_session_actions)}
-          aria-label={t(m.session_breadcrumb_session_actions)}
+          title={m.session_breadcrumb_session_actions()}
+          aria-label={m.session_breadcrumb_session_actions()}
           bind:this={menuBtnEl}
           onclick={toggleMenu}
         >
@@ -754,13 +754,13 @@
               class="actions-menu-item"
               onclick={startRename}
             >
-              {t(m.session_breadcrumb_rename)}
+              {m.session_breadcrumb_rename()}
             </button>
             <button
               class="actions-menu-item danger"
               onclick={handleDelete}
             >
-              {t(m.session_breadcrumb_delete)}
+              {m.session_breadcrumb_delete()}
             </button>
           </div>
         {/if}

@@ -29,7 +29,7 @@
     getLatestDisplayIndex,
     type ScrollAlign,
   } from "./message-scroll.js";
-  import { m, t } from "../../i18n/index.js";
+  import { m } from "../../i18n/index.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollRaf: number | null = null;
@@ -532,11 +532,11 @@
     <div class="empty-icon">
       <MessageSquareIcon size="36" strokeWidth="1.5" aria-hidden="true" />
     </div>
-    <p class="empty-text">{t(m.message_list_empty)}</p>
+    <p class="empty-text">{m.message_list_empty()}</p>
   </div>
 {:else if messages.loading && messages.messages.length === 0}
   <div class="empty-state">
-    <p class="empty-text">{t(m.message_list_loading)}</p>
+    <p class="empty-text">{m.message_list_loading()}</p>
   </div>
 {:else}
   <SessionFindBar />

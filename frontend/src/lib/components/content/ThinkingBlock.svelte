@@ -1,7 +1,7 @@
 <script lang="ts">
   import { applyHighlight, escapeHTML } from "../../utils/highlight.js";
   import { ChevronRightIcon } from "../../icons.js";
-  import { m, t } from "../../i18n/index.js";
+  import { m } from "../../i18n/index.js";
 
   interface Props {
     content: string;
@@ -45,7 +45,7 @@
     <span class="thinking-chevron" class:open={!collapsed}>
       <ChevronRightIcon size="10" strokeWidth="2.4" aria-hidden="true" />
     </span>
-    <span class="thinking-label">{t(m.thinking_block_label)}</span>
+    <span class="thinking-label">{m.thinking_block_label()}</span>
   </button>
   {#if !collapsed}
     <div

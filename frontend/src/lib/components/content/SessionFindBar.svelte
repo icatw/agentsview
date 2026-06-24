@@ -6,7 +6,7 @@
     XIcon,
   } from "../../icons.js";
   import { inSessionSearch } from "../../stores/inSessionSearch.svelte.js";
-  import { m, t } from "../../i18n/index.js";
+  import { m } from "../../i18n/index.js";
   import { tick } from "svelte";
 
   let inputRef: HTMLInputElement | undefined = $state(undefined);
@@ -42,8 +42,8 @@
   let counterText = $derived.by(() => {
     if (!hasQuery) return "";
     if (inSessionSearch.loading) return "…";
-    if (inSessionSearch.matches.length === 0) return t(m.session_find_no_results);
-    return t(m.session_find_match_count, {
+    if (inSessionSearch.matches.length === 0) return m.session_find_no_results();
+    return m.session_find_match_count({
       current: String(inSessionSearch.currentMatchIndex + 1),
       total: String(inSessionSearch.matches.length),
     });
@@ -51,7 +51,7 @@
 </script>
 
 {#if inSessionSearch.isOpen}
-  <div class="find-bar" role="search" aria-label={t(m.session_find_find_in_session)}>
+  <div class="find-bar" role="search" aria-label={m.session_find_find_in_session()}>
     <SearchIcon class="find-icon" size="13" strokeWidth="2" aria-hidden="true" />
 
     <input
@@ -59,14 +59,14 @@
       class="find-input"
       class:no-results={noResults}
       type="text"
-      placeholder={t(m.session_find_placeholder)}
+      placeholder={m.session_find_placeholder()}
       spellcheck="false"
       autocomplete="off"
       value={inSessionSearch.query}
       oninput={(e) =>
         (inSessionSearch.query = (e.currentTarget as HTMLInputElement).value)}
       onkeydown={handleKeydown}
-      aria-label={t(m.session_find_search_query)}
+      aria-label={m.session_find_search_query()}
     />
 
     {#if hasQuery}
@@ -78,21 +78,21 @@
     <div class="nav-buttons">
       <button
         class="nav-btn"
-        title={t(m.session_find_previous_match_title)}
+        title={m.session_find_previous_match_title()}
         disabled={!hasMatches}
         onclick={() => inSessionSearch.prev()}
         tabindex="0"
-        aria-label={t(m.session_find_previous_match)}
+        aria-label={m.session_find_previous_match()}
       >
         <ChevronUpIcon size="11" strokeWidth="2.4" aria-hidden="true" />
       </button>
       <button
         class="nav-btn"
-        title={t(m.session_find_next_match_title)}
+        title={m.session_find_next_match_title()}
         disabled={!hasMatches}
         onclick={() => inSessionSearch.next()}
         tabindex="0"
-        aria-label={t(m.session_find_next_match)}
+        aria-label={m.session_find_next_match()}
       >
         <ChevronDownIcon size="11" strokeWidth="2.4" aria-hidden="true" />
       </button>
@@ -102,10 +102,10 @@
 
     <button
       class="close-btn"
-      title={t(m.session_find_close_title)}
+      title={m.session_find_close_title()}
       onclick={() => inSessionSearch.close()}
       tabindex="0"
-      aria-label={t(m.session_find_close)}
+      aria-label={m.session_find_close()}
     >
       <XIcon size="12" strokeWidth="2.4" aria-hidden="true" />
     </button>

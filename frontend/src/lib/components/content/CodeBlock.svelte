@@ -4,7 +4,7 @@
   import { applyHighlight, applyMarks, clearMarks, escapeHTML } from "../../utils/highlight.js";
   import { highlightToHtml } from "../../utils/syntax-highlight.js";
   import CopyButton from "../shared/CopyButton.svelte";
-  import { m, t } from "../../i18n/index.js";
+  import { m } from "../../i18n/index.js";
 
   interface Props {
     content: string;
@@ -71,10 +71,10 @@
   <CopyButton
     class="code-copy"
     {copied}
-    ariaLabel={t(m.code_block_copy_code_block)}
-    copiedAriaLabel={t(m.code_block_copied_code_block)}
-    title={t(m.code_block_copy_code)}
-    copiedTitle={t(m.code_block_copied)}
+    ariaLabel={m.code_block_copy_code_block()}
+    copiedAriaLabel={m.code_block_copied_code_block()}
+    title={m.code_block_copy_code()}
+    copiedTitle={m.code_block_copied()}
     onclick={handleCopy}
   />
   {#if language}
