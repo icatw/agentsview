@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -153,6 +155,29 @@ func TestParseDaemonSyncSSEReportsErrorEventPayload(t *testing.T) {
 	assert.Contains(t, err.Error(), "remote sync failed\npermission denied")
 }
 
+func TestParseDaemonSyncSSEReportsProgressEvents(t *testing.T) {
+	want := agentsync.SyncStats{
+		TotalSessions: 12,
+		Synced:        3,
+	}
+	var progress []agentsync.Progress
+
+	got, err := parseDaemonSyncSSE(strings.NewReader(
+		"event: progress\n"+
+			"data: {\"phase\":\"rebuilding_search\",\"detail\":\"Rebuilding search index\",\"resync\":true}\n\n"+
+			sseString(t, doneSSE(t, want, true)),
+	), func(p agentsync.Progress) {
+		progress = append(progress, p)
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, want.Synced, got.Synced)
+	require.Len(t, progress, 1)
+	assert.Equal(t, agentsync.PhaseRebuildingSearch, progress[0].Phase)
+	assert.Equal(t, "Rebuilding search index", progress[0].Detail)
+	assert.True(t, progress[0].Resync)
+}
+
 func TestPrintSyncProgressClearsShorterOverwrites(t *testing.T) {
 	out := captureStdout(t, func() {
 		printSyncProgress(agentsync.Progress{
@@ -167,6 +192,90 @@ func TestPrintSyncProgressClearsShorterOverwrites(t *testing.T) {
 	require.GreaterOrEqual(t, strings.Count(out, "\x1b[K"), 2,
 		"each carriage-return progress line must clear stale text")
 	assert.Contains(t, out, "\r  Swapping rebuilt database into place\x1b[K")
+}
+
+func TestResyncProgressPrinterWritesPhaseTimingsOnNewLines(t *testing.T) {
+	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	var out bytes.Buffer
+	printer := newResyncProgressPrinter(&out, clock)
+
+	printer.Print(agentsync.Progress{
+		Phase:  agentsync.PhasePreparingResync,
+		Detail: "Preparing full resync",
+		Resync: true,
+	})
+	now = now.Add(150 * time.Millisecond)
+	printer.Print(agentsync.Progress{
+		Phase:           agentsync.PhaseSyncing,
+		Detail:          "Syncing sessions into rebuilt database",
+		SessionsTotal:   10,
+		SessionsDone:    4,
+		MessagesIndexed: 40,
+		Resync:          true,
+	})
+	now = now.Add(2 * time.Second)
+	printer.Print(agentsync.Progress{
+		Phase:           agentsync.PhaseSyncing,
+		Detail:          "Syncing sessions into rebuilt database",
+		SessionsTotal:   10,
+		SessionsDone:    10,
+		MessagesIndexed: 100,
+		Resync:          true,
+	})
+	now = now.Add(350 * time.Millisecond)
+	printer.Print(agentsync.Progress{
+		Phase:  agentsync.PhaseRebuildingSearch,
+		Detail: "Rebuilding search index",
+		Hint:   "Rebuilding the search index may take a while on large archives.",
+		Resync: true,
+	})
+	now = now.Add(3 * time.Second)
+	printer.Print(agentsync.Progress{
+		Phase:  agentsync.PhaseSwappingDatabase,
+		Detail: "Swapping rebuilt database into place",
+		Resync: true,
+	})
+
+	got := out.String()
+	assert.Contains(t, got, "  Preparing full resync...\n")
+	assert.Contains(t, got, "  Preparing full resync completed in 150ms\n")
+	assert.Contains(t, got, "\r  Syncing sessions into rebuilt database: 10/10 sessions (100%) · 100 messages\x1b[K")
+	assert.Contains(t, got, "\n  Syncing sessions into rebuilt database completed in 2.35s\n")
+	assert.Contains(t, got, "  Rebuilding search index - Rebuilding the search index may take a while on large archives...\n")
+	assert.Contains(t, got, "  Rebuilding search index completed in 3s\n")
+	assert.NotContains(t, got, "\r  Rebuilding search index",
+		"non-session resync phases must not be overwritten in place")
+}
+
+func TestResyncProgressPrinterRendersDoneProgressBeforeCompletion(t *testing.T) {
+	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	var out bytes.Buffer
+	printer := newResyncProgressPrinter(&out, clock)
+
+	printer.Print(agentsync.Progress{
+		Phase:           agentsync.PhaseSyncing,
+		Detail:          "Syncing sessions into rebuilt database",
+		SessionsTotal:   1,
+		SessionsDone:    1,
+		MessagesIndexed: 0,
+		Resync:          true,
+	})
+	now = now.Add(time.Second)
+	printer.Print(agentsync.Progress{
+		Phase:           agentsync.PhaseDone,
+		SessionsTotal:   1,
+		SessionsDone:    1,
+		MessagesIndexed: 42,
+		Resync:          true,
+	})
+
+	got := out.String()
+	assert.Contains(t, got,
+		"\r  Syncing sessions into rebuilt database: 1/1 sessions (100%) · 42 messages\x1b[K")
+	assert.Contains(t, got,
+		"\n  Syncing sessions into rebuilt database completed in 1s\n")
 }
 
 func TestRunLocalSyncUsesCallerContextForResync(t *testing.T) {
@@ -228,14 +337,24 @@ func TestDoSyncFullUsesDaemonResyncRoute(t *testing.T) {
 		require.Equal(t, "/api/v1/resync", r.URL.Path)
 		require.Equal(t, http.MethodPost, r.Method)
 		resyncCalled = true
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, err := io.WriteString(w,
+			"event: progress\n"+
+				"data: {\"phase\":\"rebuilding_search\",\"detail\":\"Rebuilding search index\",\"resync\":true}\n\n",
+		)
+		require.NoError(t, err)
 		writeDoneSSE(t, w, agentsync.SyncStats{Synced: 9})
 	})
 
 	registerSyncRouteTestRuntime(t, env.DataDir, ts.URL)
 
-	hadFailures := doSync(SyncConfig{Full: true})
+	var hadFailures bool
+	out := captureStdout(t, func() {
+		hadFailures = doSync(SyncConfig{Full: true})
+	})
 	require.False(t, hadFailures)
 	assert.True(t, resyncCalled)
+	assert.Contains(t, out, "Rebuilding search index")
 	env.assertNoLocalDB(t)
 }
 
@@ -253,6 +372,7 @@ func TestRunDaemonSyncTrimsBaseURLTrailingSlash(t *testing.T) {
 		transport{URL: ts.URL + "/"},
 		"",
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.True(t, syncCalled)
@@ -300,9 +420,43 @@ func TestRunDaemonRemoteSyncTrimsBaseURLTrailingSlash(t *testing.T) {
 		[]config.RemoteHost{{Host: "devbox"}},
 		false,
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
+}
+
+func TestRunDaemonRemoteSyncReportsProgressEvents(t *testing.T) {
+	ts := remoteSyncRouteTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/sync/remotes", r.URL.Path)
+		assert.Contains(t, r.Header.Get("Accept"), "text/event-stream")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, err := io.WriteString(w,
+			"event: progress\n"+
+				"data: {\"phase\":\"rebuilding_search\",\"detail\":\"Rebuilding search index\",\"resync\":true}\n\n"+
+				"event: done\n"+
+				"data: {\"failures\":[]}\n\n",
+		)
+		require.NoError(t, err)
+	})
+	var progress []agentsync.Progress
+
+	failures, err := runDaemonRemoteSync(
+		context.Background(),
+		transport{URL: ts.URL},
+		"",
+		[]config.RemoteHost{{Host: "devbox"}},
+		false,
+		true,
+		func(p agentsync.Progress) {
+			progress = append(progress, p)
+		},
+	)
+
+	require.NoError(t, err)
+	assert.Empty(t, failures)
+	require.Len(t, progress, 1)
+	assert.Equal(t, agentsync.PhaseRebuildingSearch, progress[0].Phase)
 }
 
 func TestDoSyncConfiguredRemoteHostsUsesDaemonRouteWithLocalSync(
@@ -389,6 +543,13 @@ func doneSSE(t *testing.T, stats agentsync.SyncStats, terminated bool) io.Reader
 		suffix = "\n"
 	}
 	return strings.NewReader("event: done\ndata: " + string(payload) + suffix)
+}
+
+func sseString(t *testing.T, r io.Reader) string {
+	t.Helper()
+	data, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return string(data)
 }
 
 // writeDoneSSE writes a terminated daemon sync "done" SSE event to w.
