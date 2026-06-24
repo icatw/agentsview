@@ -19,6 +19,27 @@ control.
 - If a new control pattern is genuinely needed, add or extend a shared
   component first, then use it from feature components.
 
+## Internationalization
+
+- Treat user-facing frontend UI copy as part of the component contract. New
+  headings, labels, button text, placeholders, tooltips, aria labels, empty
+  states, loading states, and error messages should go through the locale
+  dictionaries instead of hard-coded English strings.
+- Group locale keys by page, feature, or shared component so ownership stays
+  clear, for example `settings.language.title` or
+  `sidebar.filters.starredOnly`.
+- Keep every supported locale file in sync when adding, removing, or renaming a
+  key. The English locale should preserve the source copy, and translated
+  locales should provide the best available translation in the same change.
+- Shared components should accept translated labels, placeholders, titles, and
+  aria text from their callers. Avoid hiding English copy inside reusable
+  controls unless the copy is internal-only and never user-visible.
+- Do not translate technical identifiers such as agent names, model names, CLI
+  flags, API paths, config keys, file paths, command snippets, user session
+  content, or exported data formats.
+- Prefer parameterized locale messages for dynamic sentences instead of
+  assembling user-visible strings from translated fragments.
+
 ## Current Shared Controls
 
 - `frontend/src/lib/components/layout/OptionTypeahead.svelte` is the default
