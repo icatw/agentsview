@@ -53,6 +53,10 @@ import (
 // titles from session_index.jsonl. Existing Codex rows need
 // re-parsing so their titles reflect later renames.
 //
+// Bumped to 52: the Pi parser now persists per-message
+// source_uuid and source_parent_uuid lineage. Existing Pi rows need
+// re-parsing so stored message trees gain the new lineage anchors.
+//
 // Bumped to 44: the VSCode Copilot parser now extracts per-turn
 // token usage (promptTokens/outputTokens) and the resolved model from
 // result.metadata into usage events, session output totals, and peak
@@ -237,10 +241,11 @@ import (
 // classification, so historical skill usage is backfilled on
 // re-parse.)
 //
+// (52: Pi source lineage reparse.)
 // (51: Gemini cumulative-to-delta token reparse.)
 // (17: Codex <skill> template filtering.)
 // (16: <turn_aborted> system messages.)
-const dataVersion = 51
+const dataVersion = 52
 
 const tokenCoverageRepairStatsKey = "token_coverage_repair_v1"
 
