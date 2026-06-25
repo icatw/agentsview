@@ -50,7 +50,6 @@
       if (filteredCount === 1) return `${label}: ${excludedCsv}`;
       return m.usage_filter_selected({
         label,
-        count: filteredCount,
         countLabel: filteredCount.toLocaleString(),
       });
     }
@@ -69,7 +68,6 @@
     if (visibleCount === 0) return m.usage_filter_none({ label });
     return m.usage_filter_hidden({
       label,
-      count: filteredCount,
       countLabel: filteredCount.toLocaleString(),
     });
   });

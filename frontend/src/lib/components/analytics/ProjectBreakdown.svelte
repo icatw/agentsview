@@ -100,7 +100,6 @@
     {#if rows.length > 0}
       <span class="count">
         {m.analytics_total_count({
-          count: analytics.projects?.projects.length ?? 0,
           countLabel: (analytics.projects?.projects.length ?? 0).toLocaleString(),
         })}
       </span>

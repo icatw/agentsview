@@ -354,16 +354,7 @@
   "analytics_weekly_trend": "Weekly Trend",
   "analytics_top_sessions_title": "Top Sessions",
   "analytics_top_sessions_filter_unclean": "Filter to unclean sessions",
-  "analytics_top_sessions_unclean_count": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{countLabel} unclean",
-        "countPlural=other": "{countLabel} unclean"
-      }
-    }
-  ],
+  "analytics_top_sessions_unclean_count": "{countLabel} unclean",
   "analytics_top_sessions_by_messages": "By Messages",
   "analytics_top_sessions_by_duration": "By Duration",
   "analytics_top_sessions_by_output_tokens": "By Output Tokens",
@@ -388,16 +379,7 @@
       }
     }
   ],
-  "analytics_total_count": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{countLabel} total",
-        "countPlural=other": "{countLabel} total"
-      }
-    }
-  ],
+  "analytics_total_count": "{countLabel} total",
   "analytics_projects_empty": "No project data",
   "analytics_activity_timeline_tooltip_value": "{label}: {value} {metric}",
   "analytics_activity_timeline_tooltip_messages": "user: {user} / assistant: {assistant}",
@@ -449,26 +431,8 @@
   "analytics_health_trend_caption": "Daily average health score · bar color = grade",
   "analytics_no_trend_data": "No trend data",
   "analytics_session_health_title": "Session Health",
-  "analytics_session_health_scored": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{countLabel} scored",
-        "countPlural=other": "{countLabel} scored"
-      }
-    }
-  ],
-  "analytics_session_health_unscored": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{countLabel} unscored",
-        "countPlural=other": "{countLabel} unscored"
-      }
-    }
-  ],
+  "analytics_session_health_scored": "{countLabel} scored",
+  "analytics_session_health_unscored": "{countLabel} unscored",
   "analytics_session_health_avg_score": "Avg Score",
   "analytics_session_health_grade": "Grade {grade}",
   "analytics_session_health_completed": "Completed",
@@ -518,27 +482,9 @@
   "usage_summary_cached_tokens": "{value} cached",
   "usage_summary_avg_day": "avg/day",
   "usage_filter_all": "{label}: All",
-  "usage_filter_selected": [
-    {
-      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{label}: {countLabel} selected",
-        "countPlural=other": "{label}: {countLabel} selected"
-      }
-    }
-  ],
+  "usage_filter_selected": "{label}: {countLabel} selected",
   "usage_filter_none": "{label}: None",
-  "usage_filter_hidden": [
-    {
-      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{label}: {countLabel} hidden",
-        "countPlural=other": "{label}: {countLabel} hidden"
-      }
-    }
-  ],
+  "usage_filter_hidden": "{label}: {countLabel} hidden",
   "usage_filter_search": "Search...",
   "usage_filter_select_all": "Select all",
   "usage_filter_deselect_all": "Deselect all",

@@ -90,7 +90,6 @@
           title={m.analytics_top_sessions_filter_unclean()}
         >
           {m.analytics_top_sessions_unclean_count({
-            count: uncleanCount,
             countLabel: uncleanCount.toLocaleString(),
           })}
         </button>

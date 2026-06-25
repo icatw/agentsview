@@ -29,12 +29,10 @@
       <h3 class="section-title">{m.analytics_session_health_title()}</h3>
       <span class="section-subtitle">
         {m.analytics_session_health_scored({
-          count: signals.scored_sessions,
           countLabel: signals.scored_sessions.toLocaleString(),
         })}
         &middot;
         {m.analytics_session_health_unscored({
-          count: signals.unscored_sessions,
           countLabel: signals.unscored_sessions.toLocaleString(),
         })}
       </span>

@@ -348,15 +348,7 @@
   "analytics_weekly_trend": "周趋势",
   "analytics_top_sessions_title": "热门会话",
   "analytics_top_sessions_filter_unclean": "筛选异常终止会话",
-  "analytics_top_sessions_unclean_count": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{countLabel} 个异常终止"
-      }
-    }
-  ],
+  "analytics_top_sessions_unclean_count": "{countLabel} 个异常终止",
   "analytics_top_sessions_by_messages": "按消息数",
   "analytics_top_sessions_by_duration": "按时长",
   "analytics_top_sessions_by_output_tokens": "按输出 token",
@@ -379,15 +371,7 @@
       }
     }
   ],
-  "analytics_total_count": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "共 {countLabel} 个"
-      }
-    }
-  ],
+  "analytics_total_count": "共 {countLabel} 个",
   "analytics_projects_empty": "无项目数据",
   "analytics_activity_timeline_tooltip_value": "{label}：{value} {metric}",
   "analytics_activity_timeline_tooltip_messages": "用户：{user} / assistant：{assistant}",
@@ -437,24 +421,8 @@
   "analytics_health_trend_caption": "每日平均健康分 · 条形颜色 = 等级",
   "analytics_no_trend_data": "无趋势数据",
   "analytics_session_health_title": "会话健康度",
-  "analytics_session_health_scored": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{countLabel} 个已评分"
-      }
-    }
-  ],
-  "analytics_session_health_unscored": [
-    {
-      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{countLabel} 个未评分"
-      }
-    }
-  ],
+  "analytics_session_health_scored": "{countLabel} 个已评分",
+  "analytics_session_health_unscored": "{countLabel} 个未评分",
   "analytics_session_health_avg_score": "平均分",
   "analytics_session_health_grade": "等级 {grade}",
   "analytics_session_health_completed": "已完成",
@@ -500,25 +468,9 @@
   "usage_summary_cached_tokens": "{value} 已缓存",
   "usage_summary_avg_day": "平均/天",
   "usage_filter_all": "{label}：全部",
-  "usage_filter_selected": [
-    {
-      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{label}：已选 {countLabel} 个"
-      }
-    }
-  ],
+  "usage_filter_selected": "{label}：已选 {countLabel} 个",
   "usage_filter_none": "{label}：无",
-  "usage_filter_hidden": [
-    {
-      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{label}：已隐藏 {countLabel} 个"
-      }
-    }
-  ],
+  "usage_filter_hidden": "{label}：已隐藏 {countLabel} 个",
   "usage_filter_search": "搜索...",
   "usage_filter_select_all": "全选",
   "usage_filter_deselect_all": "取消全选",
