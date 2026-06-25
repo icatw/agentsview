@@ -36,7 +36,10 @@
             style:background={style.bg}
             title="{bucket.date}: {score != null
               ? Math.round(score)
-              : m.analytics_health_trend_no_scored_sessions()} ({m.analytics_session_shape_session_count({ count: bucket.session_count })})"
+              : m.analytics_health_trend_no_scored_sessions()} ({m.analytics_session_shape_session_count({
+                count: bucket.session_count,
+                countLabel: bucket.session_count.toLocaleString(),
+              })})"
           ></div>
         {/each}
       </div>

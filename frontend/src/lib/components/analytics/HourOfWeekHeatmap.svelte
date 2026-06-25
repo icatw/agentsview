@@ -120,7 +120,8 @@
       text: m.analytics_hour_of_week_tooltip({
         day,
         hour: h,
-        count: value.toLocaleString(),
+        count: value,
+        countLabel: value.toLocaleString(),
       }),
     };
   }

@@ -114,7 +114,10 @@
     </div>
     {#if analytics.sessionShape}
       <div class="shape-footer">
-        {m.analytics_session_shape_session_count({ count: analytics.sessionShape.count })}
+        {m.analytics_session_shape_session_count({
+          count: analytics.sessionShape.count,
+          countLabel: analytics.sessionShape.count.toLocaleString(),
+        })}
       </div>
     {/if}
   {:else}

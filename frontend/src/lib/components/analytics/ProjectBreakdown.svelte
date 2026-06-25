@@ -73,9 +73,13 @@
       .join(", ");
     const parts: string[] = [
       m.analytics_project_messages({
-        count: project.messages.toLocaleString(),
+        count: project.messages,
+        countLabel: project.messages.toLocaleString(),
       }),
-      m.analytics_project_sessions({ count: project.sessions }),
+      m.analytics_project_sessions({
+        count: project.sessions,
+        countLabel: project.sessions.toLocaleString(),
+      }),
     ];
     if (agents) parts.push(agents);
     tooltip = {
@@ -95,7 +99,10 @@
     <h3 class="chart-title">{m.analytics_projects_title()}</h3>
     {#if rows.length > 0}
       <span class="count">
-        {m.analytics_total_count({ count: analytics.projects?.projects.length ?? 0 })}
+        {m.analytics_total_count({
+          count: analytics.projects?.projects.length ?? 0,
+          countLabel: (analytics.projects?.projects.length ?? 0).toLocaleString(),
+        })}
       </span>
     {/if}
   </div>

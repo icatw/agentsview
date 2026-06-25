@@ -14,6 +14,13 @@
     (signals.scored_sessions > 0 ||
      signals.unscored_sessions > 0),
   );
+
+  function formatSessionCount(count: number): string {
+    return m.analytics_session_shape_session_count({
+      count,
+      countLabel: count.toLocaleString(),
+    });
+  }
 </script>
 
 {#if visible && signals}
@@ -21,9 +28,15 @@
     <div class="section-header">
       <h3 class="section-title">{m.analytics_session_health_title()}</h3>
       <span class="section-subtitle">
-        {m.analytics_session_health_scored({ count: signals.scored_sessions })}
+        {m.analytics_session_health_scored({
+          count: signals.scored_sessions,
+          countLabel: signals.scored_sessions.toLocaleString(),
+        })}
         &middot;
-        {m.analytics_session_health_unscored({ count: signals.unscored_sessions })}
+        {m.analytics_session_health_unscored({
+          count: signals.unscored_sessions,
+          countLabel: signals.unscored_sessions.toLocaleString(),
+        })}
       </span>
     </div>
 
@@ -56,7 +69,7 @@
           {/if}
         </span>
         <span class="card-sub">
-          {m.analytics_session_shape_session_count({ count: signals.outcome_distribution?.completed ?? 0 })}
+          {formatSessionCount(signals.outcome_distribution?.completed ?? 0)}
         </span>
       </div>
       <div class="card">
@@ -74,7 +87,7 @@
           {/if}
         </span>
         <span class="card-sub">
-          {m.analytics_session_shape_session_count({ count: signals.outcome_distribution?.errored ?? 0 })}
+          {formatSessionCount(signals.outcome_distribution?.errored ?? 0)}
         </span>
       </div>
       <div class="card">
@@ -87,7 +100,7 @@
           {/if}
         </span>
         <span class="card-sub">
-          {m.analytics_session_shape_session_count({ count: signals.tool_health.sessions_with_failures })}
+          {formatSessionCount(signals.tool_health.sessions_with_failures)}
         </span>
       </div>
       <div class="card">

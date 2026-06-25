@@ -99,7 +99,8 @@
       e,
       m.analytics_top_skills_tooltip({
         skill: skill.skill_name,
-        count: skill.call_count.toLocaleString(),
+        count: skill.call_count,
+        countLabel: skill.call_count.toLocaleString(),
         pct: skill.pct,
       }),
     );
@@ -135,8 +136,10 @@
     {#if analytics.skills}
       <span class="count">
         {m.analytics_top_skills_count({
-          calls: analytics.skills.total_skill_calls.toLocaleString(),
-          skills: analytics.skills.distinct_skills.toLocaleString(),
+          calls: analytics.skills.total_skill_calls,
+          callsLabel: analytics.skills.total_skill_calls.toLocaleString(),
+          skills: analytics.skills.distinct_skills,
+          skillsLabel: analytics.skills.distinct_skills.toLocaleString(),
         })}
       </span>
     {/if}
@@ -174,7 +177,10 @@
                 {skill.call_count.toLocaleString()}
               </span>
               <span class="session-value">
-                {m.analytics_session_shape_session_count({ count: skill.session_count.toLocaleString() })}
+                {m.analytics_session_shape_session_count({
+                  count: skill.session_count,
+                  countLabel: skill.session_count.toLocaleString(),
+                })}
               </span>
               <span class="last-used">
                 {formatLastUsed(skill.last_used_at)}

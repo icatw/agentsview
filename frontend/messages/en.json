@@ -336,7 +336,16 @@
   "analytics_col_chars_active_min": "Chars / Active Min",
   "analytics_col_tools_active_min": "Tools / Active Min",
   "analytics_tool_usage_title": "Tool Usage",
-  "analytics_tool_usage_call_count": "{count} calls",
+  "analytics_tool_usage_call_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} call",
+        "countPlural=other": "{countLabel} calls"
+      }
+    }
+  ],
   "analytics_tool_usage_trend_tooltip": "{date} | {total} total | {parts}",
   "analytics_tool_usage_empty": "No tool usage data",
   "analytics_by_category": "By Category",
@@ -345,14 +354,50 @@
   "analytics_weekly_trend": "Weekly Trend",
   "analytics_top_sessions_title": "Top Sessions",
   "analytics_top_sessions_filter_unclean": "Filter to unclean sessions",
-  "analytics_top_sessions_unclean_count": "{count} unclean",
+  "analytics_top_sessions_unclean_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} unclean",
+        "countPlural=other": "{countLabel} unclean"
+      }
+    }
+  ],
   "analytics_top_sessions_by_messages": "By Messages",
   "analytics_top_sessions_by_duration": "By Duration",
   "analytics_top_sessions_by_output_tokens": "By Output Tokens",
   "analytics_projects_title": "Projects",
-  "analytics_project_messages": "{count} messages",
-  "analytics_project_sessions": "{count} sessions",
-  "analytics_total_count": "{count} total",
+  "analytics_project_messages": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} message",
+        "countPlural=other": "{countLabel} messages"
+      }
+    }
+  ],
+  "analytics_project_sessions": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} session",
+        "countPlural=other": "{countLabel} sessions"
+      }
+    }
+  ],
+  "analytics_total_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} total",
+        "countPlural=other": "{countLabel} total"
+      }
+    }
+  ],
   "analytics_projects_empty": "No project data",
   "analytics_activity_timeline_tooltip_value": "{label}: {value} {metric}",
   "analytics_activity_timeline_tooltip_messages": "user: {user} / assistant: {assistant}",
@@ -365,11 +410,29 @@
   "analytics_activity_empty": "No activity data",
   "analytics_activity_title": "Activity",
   "analytics_heatmap_showing_recent_year": "Showing most recent year",
-  "analytics_hour_of_week_tooltip": "{day} {hour}:00 - {count} messages",
+  "analytics_hour_of_week_tooltip": [
+    {
+      "declarations": ["input day", "input hour", "input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{day} {hour}:00 - {countLabel} message",
+        "countPlural=other": "{day} {hour}:00 - {countLabel} messages"
+      }
+    }
+  ],
   "analytics_session_shape_title": "Session Shape",
   "analytics_session_shape_duration": "Duration",
   "analytics_session_shape_autonomy": "Autonomy",
-  "analytics_session_shape_session_count": "{count} sessions",
+  "analytics_session_shape_session_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} session",
+        "countPlural=other": "{countLabel} sessions"
+      }
+    }
+  ],
   "analytics_velocity_title": "Velocity",
   "analytics_velocity_overview": "Overview",
   "analytics_velocity_by_size": "By Size",
@@ -386,8 +449,26 @@
   "analytics_health_trend_caption": "Daily average health score · bar color = grade",
   "analytics_no_trend_data": "No trend data",
   "analytics_session_health_title": "Session Health",
-  "analytics_session_health_scored": "{count} scored",
-  "analytics_session_health_unscored": "{count} unscored",
+  "analytics_session_health_scored": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} scored",
+        "countPlural=other": "{countLabel} scored"
+      }
+    }
+  ],
+  "analytics_session_health_unscored": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{countLabel} unscored",
+        "countPlural=other": "{countLabel} unscored"
+      }
+    }
+  ],
   "analytics_session_health_avg_score": "Avg Score",
   "analytics_session_health_grade": "Grade {grade}",
   "analytics_session_health_completed": "Completed",
@@ -398,8 +479,28 @@
   "analytics_session_health_avg_per_session": "avg {value}/session",
   "analytics_top_skills_title": "Top Skills",
   "analytics_top_skills_never": "Never",
-  "analytics_top_skills_tooltip": "{skill}: {count} calls ({pct}%)",
-  "analytics_top_skills_count": "{calls} calls · {skills} skills",
+  "analytics_top_skills_tooltip": [
+    {
+      "declarations": ["input skill", "input count", "input countLabel", "input pct", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{skill}: {countLabel} call ({pct}%)",
+        "countPlural=other": "{skill}: {countLabel} calls ({pct}%)"
+      }
+    }
+  ],
+  "analytics_top_skills_count": [
+    {
+      "declarations": ["input calls", "input callsLabel", "input skills", "input skillsLabel", "local callsPlural = calls: plural", "local skillsPlural = skills: plural"],
+      "selectors": ["callsPlural", "skillsPlural"],
+      "match": {
+        "callsPlural=one, skillsPlural=one": "{callsLabel} call · {skillsLabel} skill",
+        "callsPlural=one, skillsPlural=other": "{callsLabel} call · {skillsLabel} skills",
+        "callsPlural=other, skillsPlural=one": "{callsLabel} calls · {skillsLabel} skill",
+        "callsPlural=other, skillsPlural=other": "{callsLabel} calls · {skillsLabel} skills"
+      }
+    }
+  ],
   "analytics_top_skills_agent_breakdown": "Agent breakdown",
   "analytics_top_skills_agents": "Agents",
   "analytics_top_skills_projects": "Projects: {projects}",
@@ -417,13 +518,40 @@
   "usage_summary_cached_tokens": "{value} cached",
   "usage_summary_avg_day": "avg/day",
   "usage_filter_all": "{label}: All",
-  "usage_filter_selected": "{label}: {count} selected",
+  "usage_filter_selected": [
+    {
+      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{label}: {countLabel} selected",
+        "countPlural=other": "{label}: {countLabel} selected"
+      }
+    }
+  ],
   "usage_filter_none": "{label}: None",
-  "usage_filter_hidden": "{label}: {count} hidden",
+  "usage_filter_hidden": [
+    {
+      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{label}: {countLabel} hidden",
+        "countPlural=other": "{label}: {countLabel} hidden"
+      }
+    }
+  ],
   "usage_filter_search": "Search...",
   "usage_filter_select_all": "Select all",
   "usage_filter_deselect_all": "Deselect all",
-  "usage_filter_all_items": "All {label}s",
+  "usage_filter_all_items": [
+    {
+      "declarations": ["input label", "input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "All {label}",
+        "countPlural=other": "All {label}s"
+      }
+    }
+  ],
   "usage_cost_over_time_title": "Cost Over Time",
   "usage_cost_attribution_title": "Cost Attribution",
   "usage_attribution_treemap": "Treemap",

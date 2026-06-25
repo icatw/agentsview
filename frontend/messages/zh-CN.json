@@ -331,7 +331,15 @@
   "analytics_col_chars_active_min": "字符 / 活跃分钟",
   "analytics_col_tools_active_min": "工具 / 活跃分钟",
   "analytics_tool_usage_title": "Tool 使用",
-  "analytics_tool_usage_call_count": "{count} 次调用",
+  "analytics_tool_usage_call_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 次调用"
+      }
+    }
+  ],
   "analytics_tool_usage_trend_tooltip": "{date} | 总计 {total} | {parts}",
   "analytics_tool_usage_empty": "无 tool 使用数据",
   "analytics_by_category": "按类别",
@@ -340,14 +348,46 @@
   "analytics_weekly_trend": "周趋势",
   "analytics_top_sessions_title": "热门会话",
   "analytics_top_sessions_filter_unclean": "筛选异常终止会话",
-  "analytics_top_sessions_unclean_count": "{count} 个异常终止",
+  "analytics_top_sessions_unclean_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 个异常终止"
+      }
+    }
+  ],
   "analytics_top_sessions_by_messages": "按消息数",
   "analytics_top_sessions_by_duration": "按时长",
   "analytics_top_sessions_by_output_tokens": "按输出 token",
   "analytics_projects_title": "项目",
-  "analytics_project_messages": "{count} 条消息",
-  "analytics_project_sessions": "{count} 个会话",
-  "analytics_total_count": "共 {count} 个",
+  "analytics_project_messages": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 条消息"
+      }
+    }
+  ],
+  "analytics_project_sessions": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 个会话"
+      }
+    }
+  ],
+  "analytics_total_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "共 {countLabel} 个"
+      }
+    }
+  ],
   "analytics_projects_empty": "无项目数据",
   "analytics_activity_timeline_tooltip_value": "{label}：{value} {metric}",
   "analytics_activity_timeline_tooltip_messages": "用户：{user} / assistant：{assistant}",
@@ -360,11 +400,27 @@
   "analytics_activity_empty": "无活动数据",
   "analytics_activity_title": "活动",
   "analytics_heatmap_showing_recent_year": "显示最近一年",
-  "analytics_hour_of_week_tooltip": "{day} {hour}:00 - {count} 条消息",
+  "analytics_hour_of_week_tooltip": [
+    {
+      "declarations": ["input day", "input hour", "input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{day} {hour}:00 - {countLabel} 条消息"
+      }
+    }
+  ],
   "analytics_session_shape_title": "会话形态",
   "analytics_session_shape_duration": "时长",
   "analytics_session_shape_autonomy": "自主度",
-  "analytics_session_shape_session_count": "{count} 个会话",
+  "analytics_session_shape_session_count": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 个会话"
+      }
+    }
+  ],
   "analytics_velocity_title": "速度",
   "analytics_velocity_overview": "概览",
   "analytics_velocity_by_size": "按规模",
@@ -381,8 +437,24 @@
   "analytics_health_trend_caption": "每日平均健康分 · 条形颜色 = 等级",
   "analytics_no_trend_data": "无趋势数据",
   "analytics_session_health_title": "会话健康度",
-  "analytics_session_health_scored": "{count} 个已评分",
-  "analytics_session_health_unscored": "{count} 个未评分",
+  "analytics_session_health_scored": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 个已评分"
+      }
+    }
+  ],
+  "analytics_session_health_unscored": [
+    {
+      "declarations": ["input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{countLabel} 个未评分"
+      }
+    }
+  ],
   "analytics_session_health_avg_score": "平均分",
   "analytics_session_health_grade": "等级 {grade}",
   "analytics_session_health_completed": "已完成",
@@ -393,8 +465,24 @@
   "analytics_session_health_avg_per_session": "平均 {value}/会话",
   "analytics_top_skills_title": "常用 Skills",
   "analytics_top_skills_never": "从未",
-  "analytics_top_skills_tooltip": "{skill}：{count} 次调用 ({pct}%)",
-  "analytics_top_skills_count": "{calls} 次调用 · {skills} 个 skill",
+  "analytics_top_skills_tooltip": [
+    {
+      "declarations": ["input skill", "input count", "input countLabel", "input pct", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{skill}：{countLabel} 次调用 ({pct}%)"
+      }
+    }
+  ],
+  "analytics_top_skills_count": [
+    {
+      "declarations": ["input calls", "input callsLabel", "input skills", "input skillsLabel", "local callsPlural = calls: plural", "local skillsPlural = skills: plural"],
+      "selectors": ["callsPlural", "skillsPlural"],
+      "match": {
+        "callsPlural=other, skillsPlural=other": "{callsLabel} 次调用 · {skillsLabel} 个 skill"
+      }
+    }
+  ],
   "analytics_top_skills_agent_breakdown": "Agent 分解",
   "analytics_top_skills_agents": "Agents",
   "analytics_top_skills_projects": "项目：{projects}",
@@ -412,13 +500,37 @@
   "usage_summary_cached_tokens": "{value} 已缓存",
   "usage_summary_avg_day": "平均/天",
   "usage_filter_all": "{label}：全部",
-  "usage_filter_selected": "{label}：已选 {count} 个",
+  "usage_filter_selected": [
+    {
+      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{label}：已选 {countLabel} 个"
+      }
+    }
+  ],
   "usage_filter_none": "{label}：无",
-  "usage_filter_hidden": "{label}：已隐藏 {count} 个",
+  "usage_filter_hidden": [
+    {
+      "declarations": ["input label", "input count", "input countLabel", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{label}：已隐藏 {countLabel} 个"
+      }
+    }
+  ],
   "usage_filter_search": "搜索...",
   "usage_filter_select_all": "全选",
   "usage_filter_deselect_all": "取消全选",
-  "usage_filter_all_items": "所有 {label}",
+  "usage_filter_all_items": [
+    {
+      "declarations": ["input label", "input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "所有 {label}"
+      }
+    }
+  ],
   "usage_cost_over_time_title": "成本趋势",
   "usage_cost_attribution_title": "成本归因",
   "usage_attribution_treemap": "矩形树图",

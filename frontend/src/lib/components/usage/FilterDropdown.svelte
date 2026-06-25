@@ -48,7 +48,11 @@
     if (filteredCount === 0) return m.usage_filter_all({ label });
     if (mode === "include") {
       if (filteredCount === 1) return `${label}: ${excludedCsv}`;
-      return m.usage_filter_selected({ label, count: filteredCount });
+      return m.usage_filter_selected({
+        label,
+        count: filteredCount,
+        countLabel: filteredCount.toLocaleString(),
+      });
     }
     if (visibleCount === 1) {
       const visible = items.find(
@@ -63,7 +67,11 @@
       }
     }
     if (visibleCount === 0) return m.usage_filter_none({ label });
-    return m.usage_filter_hidden({ label, count: filteredCount });
+    return m.usage_filter_hidden({
+      label,
+      count: filteredCount,
+      countLabel: filteredCount.toLocaleString(),
+    });
   });
 
   const showSearch = $derived(items.length > 8);
@@ -160,7 +168,12 @@
                 <CheckIcon size="8" strokeWidth="2.4" aria-hidden="true" />
               {/if}
             </span>
-            <span class="item-name">{m.usage_filter_all_items({ label: label.toLowerCase() })}</span>
+            <span class="item-name">
+              {m.usage_filter_all_items({
+                label: label.toLowerCase(),
+                count: items.length,
+              })}
+            </span>
           </button>
         {/if}
         {#each filtered as item (item.name)}

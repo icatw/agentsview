@@ -117,7 +117,8 @@
     {#if analytics.tools}
       <span class="count">
         {m.analytics_tool_usage_call_count({
-          count: analytics.tools.total_calls.toLocaleString(),
+          count: analytics.tools.total_calls,
+          countLabel: analytics.tools.total_calls.toLocaleString(),
         })}
       </span>
     {/if}

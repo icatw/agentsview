@@ -89,7 +89,10 @@
           onclick={() => sessions.setTerminationFilter("unclean")}
           title={m.analytics_top_sessions_filter_unclean()}
         >
-          {m.analytics_top_sessions_unclean_count({ count: uncleanCount })}
+          {m.analytics_top_sessions_unclean_count({
+            count: uncleanCount,
+            countLabel: uncleanCount.toLocaleString(),
+          })}
         </button>
       {/if}
       <div class="metric-toggle">
