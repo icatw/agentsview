@@ -389,11 +389,11 @@
       <div class="status error">
         <span>{activity.error}</span>
         <button class="retry-btn" onclick={() => activity.load()}>
-          Retry
+          {m.shared_retry()}
         </button>
       </div>
     {:else}
-      <div class="status">No data for this period.</div>
+      <div class="status">{m.shared_no_data_for_period()}</div>
     {/if}
 
     <!-- Range-scoped, not report-filter-scoped: kept outside the loading/error

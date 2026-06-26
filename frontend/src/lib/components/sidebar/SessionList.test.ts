@@ -790,7 +790,6 @@ describe("SessionList visible hydration", () => {
 
     expect(document.querySelector('[data-session-id="hidden"]')).toBeNull();
     expect(document.body.textContent).toContain(m.sidebar_selected_count({
-      count: 1,
       countLabel: "1",
     }));
 

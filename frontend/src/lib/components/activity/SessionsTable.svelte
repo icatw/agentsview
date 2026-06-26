@@ -289,8 +289,8 @@
   {:else}
     <div class="empty">
       {filterSet
-        ? "No sessions active in the selected slot."
-        : "No sessions in range."}
+        ? m.activity_no_sessions_selected_slot()
+        : m.shared_no_sessions_in_range()}
     </div>
   {/if}
 </div>

@@ -11,8 +11,7 @@
 
   function startResync() {
     if (sync.readOnly) {
-      errorMessage =
-        "Full resync is unavailable for read-only backends.";
+      errorMessage = m.resync_error_read_only();
       view = "error";
       return;
     }
@@ -28,7 +27,7 @@
     if (started) {
       view = "progress";
     } else if (!errorMessage) {
-      errorMessage = "A sync is already in progress.";
+      errorMessage = m.resync_error_in_progress();
       view = "error";
     }
   }

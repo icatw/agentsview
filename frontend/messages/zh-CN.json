@@ -307,21 +307,7 @@
   "sidebar_clear_selection": "清除选择",
   "sidebar_batch_clear": "清除",
   "sidebar_batch_all": "全部",
-  "sidebar_selected_count": [
-    {
-      "declarations": [
-        "input count",
-        "input countLabel",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
-      "match": {
-        "countPlural=other": "已选择 {countLabel} 个"
-      }
-    }
-  ],
+  "sidebar_selected_count": "已选择 {countLabel} 个",
   "sidebar_move_selected_to_trash": "将选中的会话移至回收站",
   "sidebar_deleting": "正在删除...",
   "sidebar_delete": "删除",
@@ -720,6 +706,7 @@
   "activity_int_auto_short": "{int} 交互 / {auto} 自动",
   "activity_peak_label": "峰值 {count}",
   "activity_agent_min_value": "{value} 代理分钟",
+  "activity_no_sessions_selected_slot": "所选时段内没有活跃会话。",
   "activity_output_tokens_value": [
     {
       "declarations": [
@@ -930,23 +917,23 @@
     }
   ],
   "session_vitals_title": "分析",
-  "session_vitals_subtitle": "会话生命体征",
+  "session_vitals_subtitle": "会话指标",
   "session_vitals_close": "关闭会话分析",
   "session_vitals_session": "会话",
   "session_vitals_running": "运行中",
   "session_vitals_running_duration": "运行中 {duration}+",
-  "session_vitals_tool_calls": "tool calls",
-  "session_vitals_tool_time": "tool 时间",
+  "session_vitals_tool_calls": "工具调用",
+  "session_vitals_tool_time": "工具耗时",
   "session_vitals_slowest_call": "最慢调用",
   "session_vitals_jump_to_call": "跳转到调用",
-  "session_vitals_turns": "turns",
+  "session_vitals_turns": "回合",
   "session_vitals_subagents": "sub-agents",
   "session_vitals_time_spent": "耗时分布",
   "session_vitals_clear_category_filter": "清除分类筛选",
-  "session_vitals_completed_turns_hint": "已完成 turns · 点击高亮",
+  "session_vitals_completed_turns_hint": "已完成回合 · 点击高亮显示",
   "session_vitals_timeline": "时间线",
   "session_vitals_click_marks_to_scroll": "点击标记滚动",
-  "session_vitals_jump_to_turn": "跳转到 {category} turn，时间 {time}",
+  "session_vitals_jump_to_turn": "跳转到 {time} 的 {category} 回合",
   "session_vitals_calls": "调用",
   "session_vitals_calls_summary": [
     {
@@ -1219,6 +1206,8 @@
   "resync_failed": "失败：{count}",
   "resync_close_btn": "关闭",
   "resync_retry": "重试",
+  "resync_error_read_only": "只读后端不支持完整重新同步。",
+  "resync_error_in_progress": "同步已在进行中。",
   "shortcuts_open_command_palette": "打开命令面板",
   "shortcuts_find_in_session": "在会话中查找",
   "shortcuts_close_palette": "关闭面板 / 弹窗 / 查找",

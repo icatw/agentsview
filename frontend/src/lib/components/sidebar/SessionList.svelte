@@ -539,7 +539,6 @@
     </button>
     <span class="batch-count">
       {m.sidebar_selected_count({
-        count: visibleSelectedSessionIds.length,
         countLabel: formatNumber(visibleSelectedSessionIds.length),
       })}
     </span>
