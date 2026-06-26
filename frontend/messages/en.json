@@ -67,9 +67,54 @@
   "header_actions_settings": "Settings",
   "header_actions_keyboard_shortcuts": "Keyboard shortcuts",
   "header_actions_keyboard_shortcuts_shortcut": "Keyboard shortcuts (?)",
-  "status_bar_sessions": "{count} sessions",
-  "status_bar_messages": "{count} messages",
-  "status_bar_projects": "{count} projects",
+  "status_bar_sessions": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} session",
+        "countPlural=other": "{countLabel} sessions"
+      }
+    }
+  ],
+  "status_bar_messages": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} message",
+        "countPlural=other": "{countLabel} messages"
+      }
+    }
+  ],
+  "status_bar_projects": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} project",
+        "countPlural=other": "{countLabel} projects"
+      }
+    }
+  ],
   "status_bar_open_performance_debug": "Open performance debug",
   "status_bar_perf": "Perf",
   "status_bar_remote_unreachable_title": "Can't reach the remote server. Open settings to check the URL, token, or disconnect.",
@@ -248,8 +293,49 @@
   "compact_boundary_title": "Context window compacted at this point",
   "compact_boundary_label": "Context compacted",
   "compact_boundary_show_full_summary": "Show full summary",
-  "sidebar_session_count": "{count} sessions",
+  "sidebar_session_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} session",
+        "countPlural=other": "{countLabel} sessions"
+      }
+    }
+  ],
   "sidebar_loading": "loading",
+  "sidebar_multi_select": "Multi-select",
+  "sidebar_exit_multi_select": "Exit multi-select",
+  "sidebar_select_all_visible": "Select all visible",
+  "sidebar_clear_selection": "Clear selection",
+  "sidebar_batch_clear": "Clear",
+  "sidebar_batch_all": "All",
+  "sidebar_selected_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} selected",
+        "countPlural=other": "{countLabel} selected"
+      }
+    }
+  ],
+  "sidebar_move_selected_to_trash": "Move selected sessions to trash",
+  "sidebar_deleting": "Deleting...",
+  "sidebar_delete": "Delete",
+  "sidebar_cancel": "Cancel",
   "sidebar_status": "Status",
   "sidebar_active": "Active",
   "sidebar_active_title": "Last activity within 10 minutes",
@@ -287,6 +373,8 @@
   "sidebar_filters_clear_filters": "Clear filters",
   "sidebar_row_expand": "Expand",
   "sidebar_row_collapse": "Collapse",
+  "sidebar_row_select_session": "Select session",
+  "sidebar_row_deselect_session": "Deselect session",
   "sidebar_row_star_session": "Star session",
   "sidebar_row_unstar_session": "Unstar session",
   "sidebar_row_rename": "Rename",
@@ -599,6 +687,9 @@
   "usage_top_sessions_by_cost": "Top Sessions by Cost",
   "settings_title": "Settings",
   "settings_loading": "Loading settings...",
+  "settings_resync_title_unavailable": "Full resync unavailable in read-only mode",
+  "settings_resync_unavailable_hint": "Unavailable while connected to a read-only backend",
+  "settings_resync_hint": "Re-scan all session files from scratch",
   "settings_language_title": "Language",
   "settings_language_description": "Choose the interface language.",
   "settings_language_label": "Interface language",
@@ -649,7 +740,22 @@
   "activity_int_auto_short": "{int} int / {auto} auto",
   "activity_peak_label": "peak {count}",
   "activity_agent_min_value": "{value} agent-min",
-  "activity_output_tokens_value": "{count} output tokens",
+  "activity_output_tokens_value": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} output token",
+        "countPlural=other": "{countLabel} output tokens"
+      }
+    }
+  ],
   "activity_concurrency": "Concurrency",
   "activity_overlay": "Overlay",
   "activity_overlay_metric": "Concurrency overlay metric",
@@ -791,6 +897,104 @@
   "status_dot_stale": "Flagged session, idle for 10–60 minutes",
   "status_dot_unclean": "Terminated mid tool call (or file truncated)",
   "call_row_toggle_subagent_calls": "Toggle sub-agent calls",
+  "call_row_running_duration": "running {duration}+",
+  "call_group_parallel_label": "parallel",
+  "call_group_parallel_call_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} call",
+        "countPlural=other": "{countLabel} calls"
+      }
+    }
+  ],
+  "subagent_calls_label": "↳ sub-agent",
+  "subagent_calls_summary": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "input duration",
+        "input running",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural",
+        "running"
+      ],
+      "match": {
+        "countPlural=one,running=true": "{countLabel} call · running {duration}+",
+        "countPlural=other,running=true": "{countLabel} calls · running {duration}+",
+        "countPlural=one,running=false": "{countLabel} call · {duration}",
+        "countPlural=other,running=false": "{countLabel} calls · {duration}"
+      }
+    }
+  ],
+  "activity_lane_activity": "activity",
+  "activity_lane_message_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} message",
+        "countPlural=other": "{countLabel} messages"
+      }
+    }
+  ],
+  "session_vitals_title": "Analysis",
+  "session_vitals_subtitle": "Session vital signs",
+  "session_vitals_close": "Close session analysis",
+  "session_vitals_session": "Session",
+  "session_vitals_running": "running",
+  "session_vitals_running_duration": "running {duration}+",
+  "session_vitals_tool_calls": "tool calls",
+  "session_vitals_tool_time": "tool time",
+  "session_vitals_slowest_call": "slowest call",
+  "session_vitals_jump_to_call": "Jump to call",
+  "session_vitals_turns": "turns",
+  "session_vitals_subagents": "sub-agents",
+  "session_vitals_time_spent": "Time spent",
+  "session_vitals_clear_category_filter": "clear category filter",
+  "session_vitals_completed_turns_hint": "completed turns · click to highlight",
+  "session_vitals_timeline": "Timeline",
+  "session_vitals_click_marks_to_scroll": "click marks to scroll",
+  "session_vitals_jump_to_turn": "Jump to {category} turn at {time}",
+  "session_vitals_calls": "Calls",
+  "session_vitals_calls_summary": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "input runningCount",
+        "local countPlural = count: plural",
+        "local runningPlural = runningCount: plural"
+      ],
+      "selectors": [
+        "countPlural",
+        "runningPlural"
+      ],
+      "match": {
+        "countPlural=one,runningPlural=one": "{countLabel} call · {runningCount} running",
+        "countPlural=other,runningPlural=one": "{countLabel} calls · {runningCount} running",
+        "countPlural=one,runningPlural=other": "{countLabel} call",
+        "countPlural=other,runningPlural=other": "{countLabel} calls"
+      }
+    }
+  ],
+  "session_vitals_now": "now",
   "code_block_copy": "Copy code block",
   "code_block_copy_title": "Copy code",
   "common_copied": "Copied!",
@@ -915,7 +1119,22 @@
   "insights_page_sessions_computed": "sessions computed",
   "insights_page_score_distribution": "Score distribution",
   "insights_page_pct_affected": "{pct}% affected",
-  "insights_page_driver_sessions": "{count} sessions",
+  "insights_page_driver_sessions": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} session",
+        "countPlural=other": "{countLabel} sessions"
+      }
+    }
+  ],
   "insights_page_session_evidence": "Session evidence",
   "insights_page_close": "Close",
   "insights_page_loading_examples": "Loading examples...",
@@ -1169,7 +1388,22 @@
   "trash_title": "Trash",
   "trash_emptying": "Emptying...",
   "trash_empty_trash": "Empty Trash",
-  "trash_msgs": "{count} msgs",
+  "trash_msgs": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{countLabel} msg",
+        "countPlural=other": "{countLabel} msgs"
+      }
+    }
+  ],
   "trash_deleted_ago": "deleted {time}",
   "trash_restore_session": "Restore session",
   "trash_restore": "Restore",

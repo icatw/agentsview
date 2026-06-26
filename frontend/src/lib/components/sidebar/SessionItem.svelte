@@ -363,7 +363,9 @@
       class:checked={selected}
       onclick={handleSelectClick}
       tabindex="-1"
-      aria-label={selected ? "Deselect session" : "Select session"}
+      aria-label={selected
+        ? m.sidebar_row_deselect_session()
+        : m.sidebar_row_select_session()}
     >
       {#if selected}
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">

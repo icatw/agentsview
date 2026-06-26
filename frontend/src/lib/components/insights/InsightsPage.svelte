@@ -937,7 +937,10 @@
                     <strong>
                       {driver.total}{driver.unit ?? ""}
                     </strong>
-                    <em>{m.insights_page_driver_sessions({ count: driver.sessions })}</em>
+                    <em>{m.insights_page_driver_sessions({
+                      count: driver.sessions,
+                      countLabel: driver.sessions.toLocaleString(),
+                    })}</em>
                     <small>{calibrationLabel(String(driver.id))}</small>
                   </button>
                 {/each}

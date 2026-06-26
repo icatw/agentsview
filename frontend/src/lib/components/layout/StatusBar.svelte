@@ -75,11 +75,20 @@
 <footer class="status-bar">
   <div class="status-left">
     {#if sync.stats}
-      <span>{m.status_bar_sessions({ count: formatNumber(sync.stats.session_count) })}</span>
+      <span>{m.status_bar_sessions({
+        count: sync.stats.session_count,
+        countLabel: formatNumber(sync.stats.session_count),
+      })}</span>
       <span class="sep">&middot;</span>
-      <span>{m.status_bar_messages({ count: formatNumber(sync.stats.message_count) })}</span>
+      <span>{m.status_bar_messages({
+        count: sync.stats.message_count,
+        countLabel: formatNumber(sync.stats.message_count),
+      })}</span>
       <span class="sep">&middot;</span>
-      <span>{m.status_bar_projects({ count: formatNumber(sync.stats.project_count) })}</span>
+      <span>{m.status_bar_projects({
+        count: sync.stats.project_count,
+        countLabel: formatNumber(sync.stats.project_count),
+      })}</span>
     {/if}
   </div>
 

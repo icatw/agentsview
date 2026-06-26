@@ -1,11 +1,13 @@
 <!-- ABOUTME: Inline-expansion of a sub-agent session's call list inside the parent Calls section. -->
 <script lang="ts">
+  import { m } from "../../i18n/index.js";
   import type {
     SessionTiming,
     CallTiming,
     TurnTiming,
   } from "../../api/types/timing.js";
   import { formatDuration } from "../../utils/duration.js";
+  import { formatNumber } from "../../utils/format.js";
   import { liveTick } from "../../stores/liveTick.svelte.js";
   import CallRow from "./CallRow.svelte";
   import CallGroup from "./CallGroup.svelte";
@@ -57,15 +59,15 @@
 
 <div class="sa-expand">
   <div class="sa-eh">
-    <span class="sa-eh-label">↳ sub-agent</span>
-    <span class="sa-eh-meta"
-      >{timing.tool_call_count} call{timing.tool_call_count === 1
-        ? ""
-        : "s"} ·
-      {timing.running ? "running " : ""}{formatDuration(
-        timing.total_duration_ms,
-      )}{timing.running ? "+" : ""}</span
-    >
+    <span class="sa-eh-label">{m.subagent_calls_label()}</span>
+    <span class="sa-eh-meta">
+      {m.subagent_calls_summary({
+        count: timing.tool_call_count,
+        countLabel: formatNumber(timing.tool_call_count),
+        duration: formatDuration(timing.total_duration_ms),
+        running: timing.running ? "true" : "false",
+      })}
+    </span>
   </div>
   <div class="calls">
     {#each timing.turns as turn, i (turn.message_id)}

@@ -114,7 +114,10 @@
       text:
         `${fmtBucketRange(b)} · ${m.activity_peak_label({ count: b.max_agents })}${peakSplit} · ` +
         `${m.activity_agent_min_value({ value: b.agent_minutes.toFixed(1) })} · ` +
-        `${m.activity_output_tokens_value({ count: b.output_tokens.toLocaleString() })} · ` +
+        `${m.activity_output_tokens_value({
+          count: b.output_tokens,
+          countLabel: b.output_tokens.toLocaleString(),
+        })} · ` +
         `$${b.cost.toFixed(2)}`,
     };
   }

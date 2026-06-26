@@ -111,7 +111,10 @@
             <div class="trash-card-meta">
               <span class="trash-agent">{session.agent}</span>
               <span class="trash-project">{session.project}</span>
-              <span class="trash-msgs">{m.trash_msgs({ count: session.user_message_count })}</span>
+              <span class="trash-msgs">{m.trash_msgs({
+                count: session.user_message_count,
+                countLabel: session.user_message_count.toLocaleString(),
+              })}</span>
               {#if session.deleted_at}
                 <span class="trash-deleted">{m.trash_deleted_ago({ time: formatRelativeTime(session.deleted_at) })}</span>
               {/if}

@@ -15,7 +15,7 @@ import sessionItemSource from "./SessionItem.svelte?raw";
 import { sessions } from "../../stores/sessions.svelte.js";
 import type { Session } from "../../api/types.js";
 import { starred } from "../../stores/starred.svelte.js";
-import { setLocale } from "../../i18n/index.js";
+import { m, setLocale } from "../../i18n/index.js";
 import {
   ITEM_HEIGHT,
   OVERSCAN,
@@ -198,6 +198,17 @@ describe("SessionList filter dropdown", () => {
     expect(document.body.textContent).toContain("重命名");
     expect(document.body.textContent).toContain("在新标签页打开");
     expect(document.body.textContent).toContain("删除");
+
+    sessions.selectMode = true;
+    sessions.selectedIds = new Set(["translated-session"]);
+    await tick();
+
+    expect(document.body.textContent).toContain("已选择 1 个");
+    const batchSelectButton = document.querySelector<HTMLButtonElement>(
+      ".batch-select-all-btn",
+    );
+    expect(batchSelectButton?.textContent?.trim()).toBe("清除");
+    expect(document.body.textContent).toContain("取消");
   });
 });
 
@@ -778,7 +789,10 @@ describe("SessionList visible hydration", () => {
     await tick();
 
     expect(document.querySelector('[data-session-id="hidden"]')).toBeNull();
-    expect(document.body.textContent).toContain("1 selected");
+    expect(document.body.textContent).toContain(m.sidebar_selected_count({
+      count: 1,
+      countLabel: "1",
+    }));
 
     const deleteButton = document.querySelector<HTMLButtonElement>(
       ".batch-delete-btn",

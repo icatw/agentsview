@@ -44,7 +44,9 @@
   let durationLabel = $derived.by(() => {
     if (isLive) {
       const elapsed = liveDurationMs ?? call.duration_ms ?? 0;
-      return `running ${formatDuration(elapsed)}+`;
+      return m.call_row_running_duration({
+        duration: formatDuration(elapsed),
+      });
     }
     if (call.duration_ms == null) {
       return sharedDurationLabel ?? "—";

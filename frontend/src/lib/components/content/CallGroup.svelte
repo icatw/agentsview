@@ -1,7 +1,9 @@
 <!-- ABOUTME: Visual grouping for parallel calls in the Calls section — left rail + header chip + member CallRows. -->
 <script lang="ts">
+  import { m } from "../../i18n/index.js";
   import type { CallTiming } from "../../api/types/timing.js";
   import { formatDuration } from "../../utils/duration.js";
+  import { formatNumber } from "../../utils/format.js";
   import CallRow from "./CallRow.svelte";
 
   interface Props {
@@ -54,7 +56,12 @@
   <div class="cg-rail"></div>
   <div class="cg-members">
     <div class="cg-header">
-      <span class="cg-h-label">parallel · {calls.length} calls</span>
+      <span class="cg-h-label">
+        {m.call_group_parallel_label()} · {m.call_group_parallel_call_count({
+          count: calls.length,
+          countLabel: formatNumber(calls.length),
+        })}
+      </span>
       <span class="cg-h-bar-wrap">
         <span class="cg-h-bar" style="width: {headerBarPct}%"></span>
       </span>

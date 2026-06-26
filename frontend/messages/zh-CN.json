@@ -67,9 +67,51 @@
   "header_actions_settings": "设置",
   "header_actions_keyboard_shortcuts": "键盘快捷键",
   "header_actions_keyboard_shortcuts_shortcut": "键盘快捷键 (?)",
-  "status_bar_sessions": "{count} 个会话",
-  "status_bar_messages": "{count} 条消息",
-  "status_bar_projects": "{count} 个项目",
+  "status_bar_sessions": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 个会话"
+      }
+    }
+  ],
+  "status_bar_messages": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 条消息"
+      }
+    }
+  ],
+  "status_bar_projects": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 个项目"
+      }
+    }
+  ],
   "status_bar_open_performance_debug": "打开性能调试",
   "status_bar_perf": "性能",
   "status_bar_remote_unreachable_title": "无法连接远程服务器。打开设置检查 URL、token 或断开连接。",
@@ -243,8 +285,47 @@
   "compact_boundary_title": "上下文窗口在此处被压缩",
   "compact_boundary_label": "上下文已压缩",
   "compact_boundary_show_full_summary": "显示完整摘要",
-  "sidebar_session_count": "{count} 个会话",
+  "sidebar_session_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 个会话"
+      }
+    }
+  ],
   "sidebar_loading": "加载中",
+  "sidebar_multi_select": "多选",
+  "sidebar_exit_multi_select": "退出多选",
+  "sidebar_select_all_visible": "选择所有可见会话",
+  "sidebar_clear_selection": "清除选择",
+  "sidebar_batch_clear": "清除",
+  "sidebar_batch_all": "全部",
+  "sidebar_selected_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "已选择 {countLabel} 个"
+      }
+    }
+  ],
+  "sidebar_move_selected_to_trash": "将选中的会话移至回收站",
+  "sidebar_deleting": "正在删除...",
+  "sidebar_delete": "删除",
+  "sidebar_cancel": "取消",
   "sidebar_status": "状态",
   "sidebar_active": "活跃",
   "sidebar_active_title": "10 分钟内有活动",
@@ -282,6 +363,8 @@
   "sidebar_filters_clear_filters": "清除筛选器",
   "sidebar_row_expand": "展开",
   "sidebar_row_collapse": "折叠",
+  "sidebar_row_select_session": "选择会话",
+  "sidebar_row_deselect_session": "取消选择会话",
   "sidebar_row_star_session": "固定会话",
   "sidebar_row_unstar_session": "取消固定会话",
   "sidebar_row_rename": "重命名",
@@ -584,6 +667,9 @@
   "usage_top_sessions_by_cost": "按成本排序的热门会话",
   "settings_title": "设置",
   "settings_loading": "正在加载设置...",
+  "settings_resync_title_unavailable": "只读模式下无法完整重新同步",
+  "settings_resync_unavailable_hint": "连接到只读后端时不可用",
+  "settings_resync_hint": "从头重新扫描所有会话文件",
   "settings_language_title": "语言",
   "settings_language_description": "选择界面语言。",
   "settings_language_label": "界面语言",
@@ -634,7 +720,21 @@
   "activity_int_auto_short": "{int} 交互 / {auto} 自动",
   "activity_peak_label": "峰值 {count}",
   "activity_agent_min_value": "{value} 代理分钟",
-  "activity_output_tokens_value": "{count} 输出 Token",
+  "activity_output_tokens_value": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 输出 Token"
+      }
+    }
+  ],
   "activity_concurrency": "并发",
   "activity_overlay": "叠加",
   "activity_overlay_metric": "并发叠加指标",
@@ -776,6 +876,98 @@
   "status_dot_stale": "已标记会话，空闲 10–60 分钟",
   "status_dot_unclean": "在工具调用中途终止（或文件被截断）",
   "call_row_toggle_subagent_calls": "切换子代理调用",
+  "call_row_running_duration": "运行中 {duration}+",
+  "call_group_parallel_label": "并行",
+  "call_group_parallel_call_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 次调用"
+      }
+    }
+  ],
+  "subagent_calls_label": "↳ sub-agent",
+  "subagent_calls_summary": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "input duration",
+        "input running",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural",
+        "running"
+      ],
+      "match": {
+        "countPlural=other,running=true": "{countLabel} 次调用 · 运行中 {duration}+",
+        "countPlural=other,running=false": "{countLabel} 次调用 · {duration}"
+      }
+    }
+  ],
+  "activity_lane_activity": "活动",
+  "activity_lane_message_count": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 条消息"
+      }
+    }
+  ],
+  "session_vitals_title": "分析",
+  "session_vitals_subtitle": "会话生命体征",
+  "session_vitals_close": "关闭会话分析",
+  "session_vitals_session": "会话",
+  "session_vitals_running": "运行中",
+  "session_vitals_running_duration": "运行中 {duration}+",
+  "session_vitals_tool_calls": "tool calls",
+  "session_vitals_tool_time": "tool 时间",
+  "session_vitals_slowest_call": "最慢调用",
+  "session_vitals_jump_to_call": "跳转到调用",
+  "session_vitals_turns": "turns",
+  "session_vitals_subagents": "sub-agents",
+  "session_vitals_time_spent": "耗时分布",
+  "session_vitals_clear_category_filter": "清除分类筛选",
+  "session_vitals_completed_turns_hint": "已完成 turns · 点击高亮",
+  "session_vitals_timeline": "时间线",
+  "session_vitals_click_marks_to_scroll": "点击标记滚动",
+  "session_vitals_jump_to_turn": "跳转到 {category} turn，时间 {time}",
+  "session_vitals_calls": "调用",
+  "session_vitals_calls_summary": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "input runningCount",
+        "local countPlural = count: plural",
+        "local runningPlural = runningCount: plural"
+      ],
+      "selectors": [
+        "countPlural",
+        "runningPlural"
+      ],
+      "match": {
+        "countPlural=other,runningPlural=one": "{countLabel} 次调用 · {runningCount} 个运行中",
+        "countPlural=other,runningPlural=other": "{countLabel} 次调用"
+      }
+    }
+  ],
+  "session_vitals_now": "现在",
   "code_block_copy": "复制代码块",
   "code_block_copy_title": "复制代码",
   "common_copied": "已复制！",
@@ -900,7 +1092,21 @@
   "insights_page_sessions_computed": "个已计算会话",
   "insights_page_score_distribution": "评分分布",
   "insights_page_pct_affected": "{pct}% 受影响",
-  "insights_page_driver_sessions": "{count} 个会话",
+  "insights_page_driver_sessions": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 个会话"
+      }
+    }
+  ],
   "insights_page_session_evidence": "会话证据",
   "insights_page_close": "关闭",
   "insights_page_loading_examples": "正在加载示例...",
@@ -1154,7 +1360,21 @@
   "trash_title": "回收站",
   "trash_emptying": "正在清空...",
   "trash_empty_trash": "清空回收站",
-  "trash_msgs": "{count} 条消息",
+  "trash_msgs": [
+    {
+      "declarations": [
+        "input count",
+        "input countLabel",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=other": "{countLabel} 条消息"
+      }
+    }
+  ],
   "trash_deleted_ago": "{time} 删除",
   "trash_restore_session": "恢复会话",
   "trash_restore": "恢复",

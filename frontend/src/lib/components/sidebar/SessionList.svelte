@@ -467,7 +467,10 @@
 
 <div class="session-list-header">
   <span class="session-count">
-    {m.sidebar_session_count({ count: formatNumber(totalCount) })}
+    {m.sidebar_session_count({
+      count: totalCount,
+      countLabel: formatNumber(totalCount),
+    })}
   </span>
   <div class="header-actions">
     {#if sessions.loading}
@@ -477,8 +480,8 @@
       class="select-toggle-btn"
       class:active={sessions.selectMode}
       onclick={() => sessions.toggleSelectMode()}
-      title={sessions.selectMode ? "Exit multi-select" : "Multi-select"}
-      aria-label={sessions.selectMode ? "Exit multi-select" : "Multi-select"}
+      title={sessions.selectMode ? m.sidebar_exit_multi_select() : m.sidebar_multi_select()}
+      aria-label={sessions.selectMode ? m.sidebar_exit_multi_select() : m.sidebar_multi_select()}
     >
       <CheckIcon size="12" strokeWidth="2" aria-hidden="true" />
     </button>
@@ -530,28 +533,31 @@
     <button
       class="batch-select-all-btn"
       onclick={handleSelectAllVisible}
-      title={allSelected ? "Clear selection" : "Select all visible"}
+      title={allSelected ? m.sidebar_clear_selection() : m.sidebar_select_all_visible()}
     >
-      {allSelected ? "Clear" : "All"}
+      {allSelected ? m.sidebar_batch_clear() : m.sidebar_batch_all()}
     </button>
     <span class="batch-count">
-      {visibleSelectedSessionIds.length} selected
+      {m.sidebar_selected_count({
+        count: visibleSelectedSessionIds.length,
+        countLabel: formatNumber(visibleSelectedSessionIds.length),
+      })}
     </span>
     <button
       class="batch-delete-btn"
       onclick={handleBatchDelete}
       disabled={visibleSelectedSessionIds.length === 0 || batchDeleting}
-      title="Move selected sessions to trash"
+      title={m.sidebar_move_selected_to_trash()}
     >
       <TrashIcon size="11" strokeWidth="2" aria-hidden="true" />
-      {batchDeleting ? "Deleting..." : "Delete"}
+      {batchDeleting ? m.sidebar_deleting() : m.sidebar_delete()}
     </button>
     <button
       class="batch-cancel-btn"
       onclick={() => sessions.toggleSelectMode()}
-      title="Exit multi-select"
+      title={m.sidebar_exit_multi_select()}
     >
-      Cancel
+      {m.sidebar_cancel()}
     </button>
   </div>
 {/if}
