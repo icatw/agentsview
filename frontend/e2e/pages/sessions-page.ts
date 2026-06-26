@@ -14,6 +14,7 @@ export class SessionsPage {
   readonly sortButton: Locator;
   readonly projectTypeahead: Locator;
   readonly sessionListHeader: Locator;
+  readonly sessionCount: Locator;
 
   readonly analyticsPage: Locator;
   readonly analyticsToolbar: Locator;
@@ -27,6 +28,7 @@ export class SessionsPage {
     this.sortButton = page.getByLabel("Toggle sort order");
     this.projectTypeahead = page.locator(".typeahead");
     this.sessionListHeader = page.locator(".session-list-header");
+    this.sessionCount = this.sessionListHeader.locator(".session-count");
     this.analyticsPage = page.locator(".analytics-page");
     this.analyticsToolbar = page.locator(".analytics-toolbar");
     this.exportBtn = page.locator(".export-btn");

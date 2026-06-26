@@ -27,9 +27,7 @@ test.describe("session termination status", () => {
 
     // The fixture has exactly one unclean session.
     await expect(sp.sessionItems).toHaveCount(1);
-    await expect(sp.sessionListHeader).toContainText(
-      "1 sessions",
-    );
+    await expect(sp.sessionCount).toHaveText("1 session");
 
     // Surviving session renders the unclean StatusDot.
     await expect(
